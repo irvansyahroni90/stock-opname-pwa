@@ -1182,21 +1182,26 @@ function UserMenuItem({ icon: Icon, label, onClick, last }) {
   );
 }
 
-function TopBar({ title, onBack, rightSlot, userName, onOpenUserMenu }) {
+function TopBar({ title, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu }) {
   return (
     <div className="pt-8 pb-5 flex items-center justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
         {onBack && (
-          <button onClick={onBack} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.border}` }}>
+          <button
+            onClick={onBack}
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+          >
             <ArrowLeft size={16} color={COLORS.ink} />
           </button>
         )}
+        {Icon && (
+          <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: iconBg }}>
+            <Icon size={17} color={iconFg} />
+          </div>
+        )}
         <div className="min-w-0">
-          <h1
-            style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: onBack ? 22 : 30, lineHeight: 1.15 }}
-          >
-            {title}
-          </h1>
+          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: onBack ? 22 : 30, lineHeight: 1.15 }}>{title}</h1>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -1204,8 +1209,8 @@ function TopBar({ title, onBack, rightSlot, userName, onOpenUserMenu }) {
         {onOpenUserMenu && (
           <button
             onClick={onOpenUserMenu}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ border: `1px solid ${COLORS.border}` }}
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
             title="Menu"
           >
             <Menu size={16} color={COLORS.ink} />
@@ -1339,13 +1344,10 @@ function BottomNav({ view, setView }) {
   ];
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      className="fixed bottom-0 left-0 right-0 z-40"
+      style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div
-        className="max-w-2xl w-full mx-4 mb-3 rounded-2xl flex items-stretch justify-around px-1.5 py-2 pointer-events-auto"
-        style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: "0 8px 24px rgba(43,42,37,0.14)" }}
-      >
+      <div className="max-w-2xl mx-auto flex items-stretch justify-around px-1.5 py-2">
         {tabs.map((t) => {
           const active = view === t.key;
           const Icon = t.icon;
@@ -1459,14 +1461,17 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
     <>
       <TopBar
         title="Stok Rumah"
+        icon={Package}
+        iconBg={COLORS.iconStockBg}
+        iconFg={COLORS.iconStockFg}
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
         rightSlot={
           <button
             onClick={onRefresh}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ border: `1px solid ${COLORS.border}` }}
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
             title="Muat ulang data"
           >
             <RotateCcw size={15} color={COLORS.ink} />
@@ -1812,14 +1817,17 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
     <>
       <TopBar
         title="Akan Dibeli"
+        icon={ShoppingCart}
+        iconBg={COLORS.iconBuyBg}
+        iconFg={COLORS.iconBuyFg}
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
         rightSlot={
           <button
             onClick={onRefresh}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ border: `1px solid ${COLORS.border}` }}
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
             title="Muat ulang data"
           >
             <RotateCcw size={15} color={COLORS.ink} />
@@ -2131,6 +2139,9 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
     <>
       <TopBar
         title="Agenda Rumah"
+        icon={CalendarCheck2}
+        iconBg={COLORS.iconAgendaBg}
+        iconFg={COLORS.iconAgendaFg}
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
@@ -2139,15 +2150,15 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
             <button
               onClick={onOpenThreshold}
               className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
-              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
               title="Atur pengingat"
             >
               <SlidersHorizontal size={13} /> H-{dueThreshold}
             </button>
             <button
               onClick={onRefresh}
-              className="w-8 h-8 rounded-full flex items-center justify-center"
-              style={{ border: `1px solid ${COLORS.border}` }}
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
               title="Muat ulang data"
             >
               <RotateCcw size={15} color={COLORS.ink} />
