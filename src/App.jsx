@@ -25,6 +25,9 @@ import {
   Menu,
   Repeat,
   ChevronLeft,
+  Home,
+  CalendarCheck2,
+  Calendar,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe } from "./firebase";
 
@@ -43,6 +46,13 @@ const COLORS = {
   out: "#B5432E",
   outBg: "#FBE7E1",
   border: "#E4DFCF",
+  // Warna latar ikon bulat gaya baru (Beranda)
+  iconStockBg: "#FCEBD8",
+  iconStockFg: "#C98A3E",
+  iconBuyBg: "#FCEBD8",
+  iconBuyFg: "#C98A3E",
+  iconAgendaBg: "#E7F0EA",
+  iconAgendaFg: "#3F7D5C",
 };
 
 const UNIT_SUGGESTIONS = ["pcs", "kg", "gram", "liter", "ml", "botol", "pack", "sachet"];
@@ -682,37 +692,51 @@ export default function App() {
     return { all: active.length, soon, overdue, done: tasks.length - active.length };
   }, [tasks, dueThreshold]);
 
-  const stockBadge = stockCounts.low + stockCounts.out;
-  const stockBadgeTone = stockCounts.out > 0 ? "danger" : "warn";
-  const stockChips = [];
-  if (stockCounts.low > 0) stockChips.push({ label: `Menipis \u00b7 ${stockCounts.low}`, tone: "warn" });
-  if (stockCounts.out > 0) stockChips.push({ label: `Habis \u00b7 ${stockCounts.out}`, tone: "danger" });
-  if (stockChips.length === 0) {
-    stockChips.push(stockCounts.total === 0 ? { label: "Belum ada item", tone: "neutral" } : { label: "\u2713 Semua aman", tone: "safe" });
-  }
-
-  const toBuyBadge = toBuyCounts.pending;
-  const toBuyChips = [];
-  if (toBuyCounts.pending > 0) {
-    toBuyChips.push({ label: `Perlu Dibeli \u00b7 ${toBuyCounts.pending}`, tone: "warn" });
-  } else {
-    toBuyChips.push(
-      toBuyCounts.total === 0 ? { label: "Belum ada yang perlu dibeli", tone: "neutral" } : { label: "Semua sudah dibeli \ud83c\udf89", tone: "safe" }
-    );
-  }
-
-  const agendaBadge = agendaCounts.overdue + agendaCounts.soon;
-  const agendaBadgeTone = agendaCounts.overdue > 0 ? "danger" : "warn";
-  const agendaChips = [];
-  if (agendaCounts.overdue > 0) agendaChips.push({ label: `Terlambat \u00b7 ${agendaCounts.overdue}`, tone: "danger" });
-  if (agendaCounts.soon > 0) agendaChips.push({ label: `Hampir Deadline \u00b7 ${agendaCounts.soon}`, tone: "warn" });
-  if (agendaChips.length === 0) {
-    agendaChips.push(
-      agendaCounts.all === 0 ? { label: "Belum ada tugas", tone: "neutral" } : { label: `${agendaCounts.all} tugas aktif`, tone: "neutral" }
-    );
-  }
-
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 10) return "Selamat pagi";
+    if (h < 15) return "Selamat siang";
+    if (h < 18) return "Selamat sore";
+    return "Selamat malam";
+  }, []);
+
+  // Preview list untuk kartu Beranda: maksimal 5 baris, sisanya lewat "Lihat semua"
+  const stockPreview = useMemo(() => {
+    const statusOrder = { out: 0, low: 1 };
+    const needAttention = items
+      .filter((i) => statusOf(i) !== "safe")
+      .sort((a, b) => {
+        const sa = statusOrder[statusOf(a)];
+        const sb = statusOrder[statusOf(b)];
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name, "id");
+      });
+    return { list: needAttention.slice(0, 5), total: needAttention.length };
+  }, [items]);
+
+  const toBuyPreview = useMemo(() => {
+    const pending = toBuy
+      .filter((e) => !e.bought)
+      .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt));
+    return { list: pending.slice(0, 5), total: pending.length };
+  }, [toBuy]);
+
+  const agendaPreview = useMemo(() => {
+    const rank = { overdue: 0, soon: 1, normal: 2, none: 3 };
+    const active = tasks
+      .filter((t) => !t.done)
+      .sort((a, b) => {
+        const ua = taskUrgency(a, dueThreshold),
+          ub = taskUrgency(b, dueThreshold);
+        if (rank[ua] !== rank[ub]) return rank[ua] - rank[ub];
+        const da = a.deadline ? daysUntil(a.deadline) : Infinity;
+        const db = b.deadline ? daysUntil(b.deadline) : Infinity;
+        return da - db;
+      });
+    return { list: active.slice(0, 5), total: active.length };
+  }, [tasks, dueThreshold]);
 
   if (loading) {
     return (
@@ -733,35 +757,124 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
-      <div className="max-w-2xl mx-auto px-4 pb-24" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {view === "dashboard" && (
           <>
-            <TopBar
-              title={
-                <>
-                  <span style={{ color: COLORS.primary }}>Frinirvan</span> <span style={{ color: COLORS.inkSoft }}>Tracker</span>
-                </>
-              }
-              userName={userName}
-              onOpenUserMenu={() => setShowUserMenu(true)}
-              rightSlot={
-                <button
-                  onClick={() => loadAll()}
-                  className="w-8 h-8 rounded-full flex items-center justify-center"
-                  style={{ border: `1px solid ${COLORS.border}` }}
-                  title="Muat ulang data"
-                >
-                  <RotateCcw size={15} color={COLORS.ink} />
-                </button>
-              }
-            />
-            <div className="text-sm mb-5 capitalize" style={{ color: COLORS.inkSoft }}>
-              {todayLabel}
+            <div className="relative pt-8 pb-5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
+                    {greeting}
+                    {userName ? `, ${userName}` : ""} <span>👋</span>
+                  </div>
+                  <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
+                    <span style={{ color: COLORS.primary }}>Frinirvan</span>
+                    <br />
+                    <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
+                  </h1>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => loadAll()}
+                    className="w-10 h-10 rounded-full flex items-center justify-center"
+                    style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+                    title="Muat ulang data"
+                  >
+                    <RotateCcw size={16} color={COLORS.ink} />
+                  </button>
+                  <button
+                    onClick={() => setShowUserMenu(true)}
+                    className="w-10 h-10 rounded-full flex items-center justify-center"
+                    style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+                    title="Menu"
+                  >
+                    <Menu size={16} color={COLORS.ink} />
+                  </button>
+                </div>
+              </div>
+              <div className="text-sm mt-3 flex items-center gap-1.5 capitalize" style={{ color: COLORS.inkSoft }}>
+                <Calendar size={14} color={COLORS.inkSoft} />
+                {todayLabel}
+              </div>
+              <HomeIllustration />
             </div>
+
             <div className="flex flex-col gap-3">
-              <DashboardCard icon={Package} title="Stok Rumah" badge={stockBadge} badgeTone={stockBadgeTone} chips={stockChips} onClick={() => setView("stock")} />
-              <DashboardCard icon={ShoppingCart} title="Akan Dibeli" badge={toBuyBadge} badgeTone="warn" chips={toBuyChips} onClick={() => setView("tobuy")} />
-              <DashboardCard icon={ListTodo} title="Agenda Rumah" badge={agendaBadge} badgeTone={agendaBadgeTone} chips={agendaChips} onClick={() => setView("agenda")} />
+              <SectionCard
+                icon={Package}
+                iconBg={COLORS.iconStockBg}
+                iconFg={COLORS.iconStockFg}
+                title="Stok Rumah"
+                subtitle={
+                  stockPreview.total > 0
+                    ? `${stockPreview.total} barang perlu diperhatikan`
+                    : stockCounts.total === 0
+                    ? "Belum ada item"
+                    : "Semua aman \u2713"
+                }
+                badge={stockPreview.total}
+                badgeColor={stockCounts.out > 0 ? COLORS.out : COLORS.low}
+                onOpen={() => setView("stock")}
+              >
+                {stockPreview.list.map((item) => (
+                  <StockPreviewRow key={item.id} item={item} onClick={() => setView("stock")} />
+                ))}
+                {stockPreview.total > 5 && (
+                  <SeeAllButton count={stockPreview.total} onClick={() => setView("stock")} />
+                )}
+              </SectionCard>
+
+              <SectionCard
+                icon={ShoppingCart}
+                iconBg={COLORS.iconBuyBg}
+                iconFg={COLORS.iconBuyFg}
+                title="Akan Dibeli"
+                subtitle={
+                  toBuyPreview.total > 0
+                    ? `${toBuyPreview.total} barang dalam daftar`
+                    : toBuyCounts.total === 0
+                    ? "Belum ada yang perlu dibeli"
+                    : "Semua sudah dibeli \ud83c\udf89"
+                }
+                badge={toBuyPreview.total}
+                badgeColor={COLORS.low}
+                onOpen={() => setView("tobuy")}
+              >
+                {toBuyPreview.list.map((entry) => (
+                  <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => setView("tobuy")} />
+                ))}
+                {toBuyPreview.total > 5 && (
+                  <SeeAllButton count={toBuyPreview.total} onClick={() => setView("tobuy")} />
+                )}
+              </SectionCard>
+
+              <SectionCard
+                icon={CalendarCheck2}
+                iconBg={COLORS.iconAgendaBg}
+                iconFg={COLORS.iconAgendaFg}
+                title="Agenda Rumah"
+                subtitle={
+                  agendaPreview.total > 0
+                    ? `${agendaPreview.total} tugas aktif`
+                    : "Belum ada tugas"
+                }
+                badge={agendaCounts.overdue + agendaCounts.soon}
+                badgeColor={agendaCounts.overdue > 0 ? COLORS.out : COLORS.low}
+                onOpen={() => setView("agenda")}
+              >
+                {agendaPreview.list.map((task) => (
+                  <AgendaPreviewRow
+                    key={task.id}
+                    task={task}
+                    threshold={dueThreshold}
+                    onToggle={() => handleToggleTaskDone(task.id)}
+                    onClick={() => setView("agenda")}
+                  />
+                ))}
+                {agendaPreview.total > 5 && (
+                  <SeeAllButton count={agendaPreview.total} onClick={() => setView("agenda")} />
+                )}
+              </SectionCard>
             </div>
           </>
         )}
@@ -823,6 +936,8 @@ export default function App() {
           />
         )}
       </div>
+
+      <BottomNav view={view} setView={setView} />
 
       {/* Name modal */}
       {askName && (
@@ -1019,6 +1134,7 @@ function UserMenuPanel({ userName, onClose, onChangeName, onOpenHistory, onBacku
         className="relative w-full sm:max-w-xs h-full overflow-y-auto p-5"
         style={{
           background: COLORS.bg,
+          paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)",
           transform: `translateX(${entered ? "0" : "100%"})`,
           transition: "transform 260ms ease-out",
         }}
@@ -1100,36 +1216,185 @@ function TopBar({ title, onBack, rightSlot, userName, onOpenUserMenu }) {
   );
 }
 
-function DashboardCard({ icon: Icon, title, badge, badgeTone, chips, onClick }) {
+function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badgeColor, onOpen, children }) {
+  return (
+    <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
+      {badge > 0 && (
+        <span
+          className="absolute top-3.5 right-3.5 min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
+          style={{ background: badgeColor }}
+        >
+          {badge}
+        </span>
+      )}
+      <button onClick={onOpen} className="w-full flex items-center gap-3 text-left pr-8">
+        <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: iconBg }}>
+          <Icon size={20} color={iconFg} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{title}</div>
+          <div className="text-xs mt-0.5" style={{ color: iconFg }}>
+            {subtitle}
+          </div>
+        </div>
+      </button>
+      {children && React.Children.count(children) > 0 && (
+        <div className="flex flex-col gap-1.5 mt-3.5">{children}</div>
+      )}
+    </div>
+  );
+}
+
+function SeeAllButton({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3.5 rounded-2xl p-4 text-left"
-      style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}
+      className="w-full flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-semibold"
+      style={{ background: COLORS.bg, color: COLORS.primary }}
     >
-      <div className="relative shrink-0">
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}` }}>
-          <Icon size={20} color={COLORS.primary} />
-        </div>
-        {badge > 0 && (
-          <span
-            className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
-            style={{ background: badgeTone === "danger" ? COLORS.out : COLORS.low }}
-          >
-            {badge}
+      Lihat semua ({count})
+      <ChevronRight size={13} color={COLORS.primary} />
+    </button>
+  );
+}
+
+function StockPreviewRow({ item, onClick }) {
+  const status = statusOf(item);
+  const meta = STATUS_META[status];
+  const detail = item.type === "level" ? LEVEL_LABEL[item.level] : `${item.qty ?? 0}${item.unit ? " " + item.unit : ""}`;
+  return (
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left" style={{ background: COLORS.bg }}>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.fg }} />
+      <span className="flex-1 min-w-0 text-sm truncate" style={{ color: COLORS.ink }}>
+        {item.name}
+      </span>
+      <span className="text-xs shrink-0" style={{ color: meta.fg }}>
+        {status === "out" ? "Habis" : `${meta.label} \u00b7 ${detail}`}
+      </span>
+    </button>
+  );
+}
+
+function ToBuyPreviewRow({ entry, onToggle, onClick }) {
+  const detailParts = [];
+  if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
+  if (entry.place) detailParts.push(entry.place);
+  return (
+    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2" style={{ background: COLORS.bg }}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+        style={{ background: "transparent", border: `1.5px solid ${COLORS.border}` }}
+        title="Tandai sudah dibeli"
+      />
+      <button onClick={onClick} className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left">
+        <span className="text-sm truncate" style={{ color: COLORS.ink }}>
+          {entry.itemName}
+        </span>
+        {detailParts.length > 0 && (
+          <span className="text-xs shrink-0" style={{ color: COLORS.inkSoft }}>
+            {detailParts.join(" \u00b7 ")}
           </span>
         )}
+      </button>
+    </div>
+  );
+}
+
+function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
+  const urgency = taskUrgency(task, threshold);
+  const meta = URGENCY_META[urgency];
+  return (
+    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2" style={{ background: COLORS.bg }}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+        style={{ background: "transparent", border: `1.5px solid ${COLORS.border}` }}
+        title="Tandai selesai"
+      />
+      <button onClick={onClick} className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left">
+        <span className="text-sm truncate" style={{ color: COLORS.ink }}>
+          {task.title}
+        </span>
+        <span className="text-xs shrink-0" style={{ color: meta ? meta.fg : COLORS.inkSoft }}>
+          {deadlineLabel(task)}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function BottomNav({ view, setView }) {
+  const tabs = [
+    { key: "dashboard", label: "Beranda", icon: Home },
+    { key: "stock", label: "Stok", icon: Package },
+    { key: "tobuy", label: "Beli", icon: ShoppingCart },
+    { key: "agenda", label: "Agenda", icon: CalendarCheck2 },
+  ];
+  return (
+    <div
+      className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <div
+        className="max-w-2xl w-full mx-4 mb-3 rounded-2xl flex items-stretch justify-around px-1.5 py-2 pointer-events-auto"
+        style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: "0 8px 24px rgba(43,42,37,0.14)" }}
+      >
+        {tabs.map((t) => {
+          const active = view === t.key;
+          const Icon = t.icon;
+          return (
+            <button key={t.key} onClick={() => setView(t.key)} className="flex-1 flex flex-col items-center gap-1 py-1">
+              <Icon size={19} color={active ? COLORS.primary : COLORS.inkSoft} />
+              <span className="text-[10.5px] font-medium" style={{ color: active ? COLORS.primary : COLORS.inkSoft }}>
+                {t.label}
+              </span>
+              <span className="w-1 h-1 rounded-full" style={{ background: active ? COLORS.primary : "transparent" }} />
+            </button>
+          );
+        })}
       </div>
-      <div className="flex-1 min-w-0">
-        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{title}</div>
-        <div className="flex gap-1.5 mt-1.5 flex-wrap">
-          {chips.map((c, i) => (
-            <Chip key={i} label={c.label} tone={c.tone} />
-          ))}
-        </div>
-      </div>
-      <ChevronRight size={18} color={COLORS.inkSoft} />
-    </button>
+    </div>
+  );
+}
+
+function HomeIllustration() {
+  return (
+    <svg
+      viewBox="0 0 140 120"
+      width="112"
+      height="96"
+      className="absolute -top-1 right-0 pointer-events-none select-none"
+      style={{ opacity: 0.95 }}
+    >
+      {/* soft floor shadow */}
+      <ellipse cx="70" cy="108" rx="60" ry="7" fill={COLORS.border} opacity="0.5" />
+      {/* hanging lamp */}
+      <line x1="112" y1="6" x2="112" y2="28" stroke={COLORS.inkSoft} strokeWidth="1.5" />
+      <path d="M100 28 h24 l-4 12 h-16 z" fill={COLORS.accent} opacity="0.85" />
+      {/* small side table */}
+      <rect x="96" y="72" width="26" height="4" rx="1.5" fill={COLORS.accent} />
+      <line x1="100" y1="76" x2="100" y2="96" stroke={COLORS.accent} strokeWidth="2.5" />
+      <line x1="118" y1="76" x2="118" y2="96" stroke={COLORS.accent} strokeWidth="2.5" />
+      {/* plant on table */}
+      <rect x="102" y="58" width="12" height="12" rx="2" fill={COLORS.primaryLight} opacity="0.35" />
+      <path d="M108 58 C104 50 104 44 108 38 C112 44 112 50 108 58 Z" fill={COLORS.primary} />
+      <path d="M108 58 C102 52 100 46 103 40 C108 44 109 52 108 58 Z" fill={COLORS.primaryLight} />
+      <path d="M108 58 C114 52 116 46 113 40 C108 44 107 52 108 58 Z" fill={COLORS.primaryLight} />
+      {/* armchair */}
+      <rect x="8" y="60" width="80" height="34" rx="14" fill={COLORS.primaryLight} opacity="0.28" />
+      <rect x="14" y="50" width="68" height="30" rx="12" fill={COLORS.primaryLight} opacity="0.55" />
+      <rect x="26" y="40" width="44" height="20" rx="10" fill={COLORS.primaryLight} opacity="0.75" />
+      <rect x="30" y="44" width="20" height="12" rx="5" fill={COLORS.card} opacity="0.85" />
+      <line x1="14" y1="90" x2="14" y2="98" stroke={COLORS.inkSoft} strokeWidth="3" strokeLinecap="round" />
+      <line x1="82" y1="90" x2="82" y2="98" stroke={COLORS.inkSoft} strokeWidth="3" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -1250,8 +1515,8 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
 
       <button
         onClick={onAdd}
-        className="fixed bottom-6 right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff" }}
+        className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
+        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(96px + env(safe-area-inset-bottom))" }}
       >
         <Plus size={26} />
       </button>
@@ -1595,8 +1860,8 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
 
       <button
         onClick={onAddManual}
-        className="fixed bottom-6 right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff" }}
+        className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
+        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(96px + env(safe-area-inset-bottom))" }}
       >
         <Plus size={26} />
       </button>
@@ -1949,8 +2214,8 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
 
       <button
         onClick={onAddTask}
-        className="fixed bottom-6 right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff" }}
+        className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
+        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(96px + env(safe-area-inset-bottom))" }}
       >
         <Plus size={26} />
       </button>
@@ -2415,7 +2680,7 @@ function Field({ label, children, className = "" }) {
 function HistoryPanel({ history, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div className="w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <ClipboardList size={18} color={COLORS.primary} />
