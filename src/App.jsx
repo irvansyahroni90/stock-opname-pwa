@@ -713,14 +713,14 @@ export default function App() {
         if (sa !== sb) return sa - sb;
         return a.name.localeCompare(b.name, "id");
       });
-    return { list: needAttention.slice(0, 5), total: needAttention.length };
+    return { list: needAttention.slice(0, 3), total: needAttention.length };
   }, [items]);
 
   const toBuyPreview = useMemo(() => {
     const pending = toBuy
       .filter((e) => !e.bought)
       .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt));
-    return { list: pending.slice(0, 5), total: pending.length };
+    return { list: pending.slice(0, 3), total: pending.length };
   }, [toBuy]);
 
   const agendaPreview = useMemo(() => {
@@ -735,7 +735,7 @@ export default function App() {
         const db = b.deadline ? daysUntil(b.deadline) : Infinity;
         return da - db;
       });
-    return { list: active.slice(0, 5), total: active.length };
+    return { list: active.slice(0, 3), total: active.length };
   }, [tasks, dueThreshold]);
 
   if (loading) {
@@ -819,8 +819,8 @@ export default function App() {
                 {stockPreview.list.map((item) => (
                   <StockPreviewRow key={item.id} item={item} onClick={() => setView("stock")} />
                 ))}
-                {stockPreview.total > 5 && (
-                  <SeeAllButton count={stockPreview.total} onClick={() => setView("stock")} />
+                {stockPreview.total > 3 && (
+                  <SeeAllButton count={stockPreview.total - stockPreview.list.length} onClick={() => setView("stock")} />
                 )}
               </SectionCard>
 
@@ -843,8 +843,8 @@ export default function App() {
                 {toBuyPreview.list.map((entry) => (
                   <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => setView("tobuy")} />
                 ))}
-                {toBuyPreview.total > 5 && (
-                  <SeeAllButton count={toBuyPreview.total} onClick={() => setView("tobuy")} />
+                {toBuyPreview.total > 3 && (
+                  <SeeAllButton count={toBuyPreview.total - toBuyPreview.list.length} onClick={() => setView("tobuy")} />
                 )}
               </SectionCard>
 
@@ -871,8 +871,8 @@ export default function App() {
                     onClick={() => setView("agenda")}
                   />
                 ))}
-                {agendaPreview.total > 5 && (
-                  <SeeAllButton count={agendaPreview.total} onClick={() => setView("agenda")} />
+                {agendaPreview.total > 3 && (
+                  <SeeAllButton count={agendaPreview.total - agendaPreview.list.length} onClick={() => setView("agenda")} />
                 )}
               </SectionCard>
             </div>
@@ -1254,11 +1254,11 @@ function SeeAllButton({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-semibold"
-      style={{ background: COLORS.bg, color: COLORS.primary }}
+      className="w-full flex items-center justify-center gap-1 py-2 text-sm font-semibold"
+      style={{ color: COLORS.primary }}
     >
-      Lihat semua ({count})
-      <ChevronRight size={13} color={COLORS.primary} />
+      +{count} lainnya
+      <ChevronRight size={14} color={COLORS.primary} />
     </button>
   );
 }
@@ -1269,7 +1269,6 @@ function StockPreviewRow({ item, onClick }) {
   const detail = item.type === "level" ? LEVEL_LABEL[item.level] : `${item.qty ?? 0}${item.unit ? " " + item.unit : ""}`;
   return (
     <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left" style={{ background: COLORS.bg }}>
-      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.fg }} />
       <span className="flex-1 min-w-0 text-sm truncate" style={{ color: COLORS.ink }}>
         {item.name}
       </span>
@@ -1291,7 +1290,7 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
           e.stopPropagation();
           onToggle();
         }}
-        className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
         style={{ background: "transparent", border: `1.5px solid ${COLORS.border}` }}
         title="Tandai sudah dibeli"
       />
@@ -1521,7 +1520,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
       <button
         onClick={onAdd}
         className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(96px + env(safe-area-inset-bottom))" }}
+        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
       >
         <Plus size={26} />
       </button>
@@ -1869,7 +1868,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
       <button
         onClick={onAddManual}
         className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(96px + env(safe-area-inset-bottom))" }}
+        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
       >
         <Plus size={26} />
       </button>
@@ -2226,7 +2225,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
       <button
         onClick={onAddTask}
         className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(96px + env(safe-area-inset-bottom))" }}
+        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
       >
         <Plus size={26} />
       </button>
