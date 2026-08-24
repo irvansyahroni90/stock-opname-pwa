@@ -733,7 +733,7 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
-      <div className="max-w-2xl mx-auto px-4 pb-24">
+      <div className="max-w-2xl mx-auto px-4 pb-24" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {view === "dashboard" && (
           <>
             <TopBar
