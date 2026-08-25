@@ -10,3 +10,11 @@ body {
   margin: 0;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Cegah iOS otomatis zoom saat fokus ke input/textarea/select.
+   iOS zoom-in kalau font-size elemen yang difokus < 16px. */
+input,
+textarea,
+select {
+  font-size: 16px !important;
+}
