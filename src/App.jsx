@@ -1516,28 +1516,30 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
 
   return (
     <>
-      <TopBar
-        title="Stok Rumah"
-        onBack={onBack}
-        userName={userName}
-        onOpenUserMenu={onOpenUserMenu}
-      />
-
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        <SummaryCard icon={Package} label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-        <SummaryCard icon={Clock} label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => setFilter("low")} />
-        <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => setFilter("out")} />
-      </div>
-
-      <div className="flex items-center gap-2 px-3 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-        <Search size={16} color={COLORS.inkSoft} />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Cari item stok..."
-          className="flex-1 py-2.5 bg-transparent text-sm"
-          style={{ color: COLORS.ink }}
+      <div className="sticky z-20 pb-3" style={{ top: "env(safe-area-inset-top)", background: COLORS.bg }}>
+        <TopBar
+          title="Stok Rumah"
+          onBack={onBack}
+          userName={userName}
+          onOpenUserMenu={onOpenUserMenu}
         />
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <SummaryCard icon={Package} label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+          <SummaryCard icon={Clock} label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => setFilter("low")} />
+          <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => setFilter("out")} />
+        </div>
+
+        <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <Search size={16} color={COLORS.inkSoft} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari item stok..."
+            className="flex-1 py-2.5 bg-transparent text-sm"
+            style={{ color: COLORS.ink }}
+          />
+        </div>
       </div>
 
       {filteredSorted.length === 0 ? (
@@ -1886,27 +1888,29 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
 
   return (
     <>
-      <TopBar
-        title="Akan Dibeli"
-        onBack={onBack}
-        userName={userName}
-        onOpenUserMenu={onOpenUserMenu}
-      />
-
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        <SummaryCard icon={ShoppingCart} label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
-        <SummaryCard icon={CheckCircle2} label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
-      </div>
-
-      <div className="flex items-center gap-2 px-3 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-        <Search size={16} color={COLORS.inkSoft} />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Cari di daftar ini..."
-          className="flex-1 py-2.5 bg-transparent text-sm"
-          style={{ color: COLORS.ink }}
+      <div className="sticky z-20 pb-3" style={{ top: "env(safe-area-inset-top)", background: COLORS.bg }}>
+        <TopBar
+          title="Akan Dibeli"
+          onBack={onBack}
+          userName={userName}
+          onOpenUserMenu={onOpenUserMenu}
         />
+
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <SummaryCard icon={ShoppingCart} label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
+          <SummaryCard icon={CheckCircle2} label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
+        </div>
+
+        <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <Search size={16} color={COLORS.inkSoft} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari di daftar ini..."
+            className="flex-1 py-2.5 bg-transparent text-sm"
+            style={{ color: COLORS.ink }}
+          />
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -2226,60 +2230,66 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
 
   return (
     <>
-      <TopBar
-        title="Agenda Rumah"
-        onBack={onBack}
-        userName={userName}
-        onOpenUserMenu={onOpenUserMenu}
-        rightSlot={
-          <button
-            onClick={onOpenThreshold}
-            className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
-            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
-            title="Atur pengingat"
-          >
-            <SlidersHorizontal size={13} /> H-{dueThreshold}
-          </button>
-        }
-      />
+      <div className="sticky z-20 pb-3" style={{ top: "env(safe-area-inset-top)", background: COLORS.bg }}>
+        <TopBar
+          title="Agenda Rumah"
+          onBack={onBack}
+          userName={userName}
+          onOpenUserMenu={onOpenUserMenu}
+          rightSlot={
+            <button
+              onClick={onOpenThreshold}
+              className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
+              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
+              title="Atur pengingat"
+            >
+              <SlidersHorizontal size={13} /> H-{dueThreshold}
+            </button>
+          }
+        />
 
-      <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-        <button
-          onClick={() => setSubView("list")}
-          className="flex-1 py-2 rounded-lg text-sm font-medium"
-          style={{ background: subView === "list" ? COLORS.primary : "transparent", color: subView === "list" ? "#fff" : COLORS.ink }}
-        >
-          List
-        </button>
-        <button
-          onClick={() => setSubView("calendar")}
-          className="flex-1 py-2 rounded-lg text-sm font-medium"
-          style={{ background: subView === "calendar" ? COLORS.primary : "transparent", color: subView === "calendar" ? "#fff" : COLORS.ink }}
-        >
-          Kalender
-        </button>
+        <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <button
+            onClick={() => setSubView("list")}
+            className="flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ background: subView === "list" ? COLORS.primary : "transparent", color: subView === "list" ? "#fff" : COLORS.ink }}
+          >
+            List
+          </button>
+          <button
+            onClick={() => setSubView("calendar")}
+            className="flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ background: subView === "calendar" ? COLORS.primary : "transparent", color: subView === "calendar" ? "#fff" : COLORS.ink }}
+          >
+            Kalender
+          </button>
+        </div>
+
+        {subView === "list" && (
+          <>
+            <div className="grid grid-cols-4 gap-1.5 mb-3">
+              <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+              <SummaryCard icon={Clock} label="Hampir Deadline" value={counts.soon} color={COLORS.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
+              <SummaryCard icon={AlertTriangle} label="Terlambat" value={counts.overdue} color={COLORS.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+              <SummaryCard icon={CheckCircle2} label="Selesai" value={counts.done} color={COLORS.safe} active={filter === "done"} onClick={() => setFilter("done")} />
+            </div>
+
+            <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+              <Search size={16} color={COLORS.inkSoft} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari tugas..."
+                className="flex-1 py-2.5 bg-transparent text-sm"
+                style={{ color: COLORS.ink }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {subView === "list" ? (
         <>
-          <div className="grid grid-cols-4 gap-1.5 mb-4">
-            <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-            <SummaryCard icon={Clock} label="Hampir Deadline" value={counts.soon} color={COLORS.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
-            <SummaryCard icon={AlertTriangle} label="Terlambat" value={counts.overdue} color={COLORS.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
-            <SummaryCard icon={CheckCircle2} label="Selesai" value={counts.done} color={COLORS.safe} active={filter === "done"} onClick={() => setFilter("done")} />
-          </div>
-
-          <div className="flex items-center gap-2 px-3 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-            <Search size={16} color={COLORS.inkSoft} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari tugas..."
-              className="flex-1 py-2.5 bg-transparent text-sm"
-              style={{ color: COLORS.ink }}
-            />
-          </div>
-
           {listToShow.length === 0 ? (
             <div className="py-10 text-center rounded-2xl mb-3" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <ListTodo size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
