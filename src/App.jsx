@@ -1524,20 +1524,9 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
     <>
       <TopBar
         title="Stok Rumah"
-        subtitle="Kelola dan pantau stok barang di rumah"
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
-        rightSlot={
-          <button
-            onClick={onRefresh}
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-            title="Muat ulang data"
-          >
-            <RotateCcw size={15} color={COLORS.ink} />
-          </button>
-        }
       />
 
       <div className="grid grid-cols-3 gap-2 mb-4">
@@ -1604,7 +1593,7 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
       <div style={{ width: 4, background: meta.fg }} />
       <div className="flex-1 p-3.5">
         <div className="min-w-0">
-          <div className="font-semibold text-base truncate" style={{ color: COLORS.ink, fontFamily: "'Fraunces', serif" }}>
+          <div className="font-semibold text-base truncate" style={{ color: COLORS.ink }}>
             {item.name}
           </div>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -1651,7 +1640,7 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
                 <Minus size={15} color={COLORS.ink} />
               </button>
               <div className="text-center" style={{ minWidth: 56 }}>
-                <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, color: COLORS.ink }}>{item.qty}</span>
+                <span style={{ fontWeight: 700, fontSize: 20, color: COLORS.ink }}>{item.qty}</span>
                 <span className="text-xs ml-1" style={{ color: COLORS.inkSoft }}>
                   {item.unit}
                 </span>
@@ -1904,20 +1893,9 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
     <>
       <TopBar
         title="Akan Dibeli"
-        subtitle="Daftar barang yang perlu dibeli"
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
-        rightSlot={
-          <button
-            onClick={onRefresh}
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-            title="Muat ulang data"
-          >
-            <RotateCcw size={15} color={COLORS.ink} />
-          </button>
-        }
       />
 
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -1987,7 +1965,6 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
             style={{
               color: entry.bought ? COLORS.inkSoft : COLORS.ink,
               textDecoration: entry.bought ? "line-through" : "none",
-              fontFamily: "'Fraunces', serif",
             }}
           >
             {entry.itemName}
@@ -2255,29 +2232,18 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
     <>
       <TopBar
         title="Agenda Rumah"
-        subtitle="Kelola agenda dan tugas rumah"
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
         rightSlot={
-          <>
-            <button
-              onClick={onOpenThreshold}
-              className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
-              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
-              title="Atur pengingat"
-            >
-              <SlidersHorizontal size={13} /> H-{dueThreshold}
-            </button>
-            <button
-              onClick={onRefresh}
-              className="w-9 h-9 rounded-full flex items-center justify-center"
-              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-              title="Muat ulang data"
-            >
-              <RotateCcw size={15} color={COLORS.ink} />
-            </button>
-          </>
+          <button
+            onClick={onOpenThreshold}
+            className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
+            title="Atur pengingat"
+          >
+            <SlidersHorizontal size={13} /> H-{dueThreshold}
+          </button>
         }
       />
 
@@ -2527,7 +2493,6 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
             style={{
               color: task.done ? COLORS.inkSoft : COLORS.ink,
               textDecoration: task.done ? "line-through" : "none",
-              fontFamily: "'Fraunces', serif",
             }}
           >
             {task.title}
