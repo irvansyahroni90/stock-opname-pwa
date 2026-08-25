@@ -188,6 +188,31 @@ export default function App() {
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
 
+  // Swipe kiri/kanan untuk pindah antar tab Beranda-Stok-Beli-Agenda
+  const TAB_ORDER = ["dashboard", "stock", "tobuy", "agenda"];
+  const touchStartRef = useRef(null);
+  const handleTouchStart = (e) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (e) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const SWIPE_THRESHOLD = 60;
+    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const idx = TAB_ORDER.indexOf(view);
+    if (idx === -1) return;
+    if (dx < 0 && idx < TAB_ORDER.length - 1) {
+      setView(TAB_ORDER[idx + 1]);
+    } else if (dx > 0 && idx > 0) {
+      setView(TAB_ORDER[idx - 1]);
+    }
+  };
+
   const [stockSearch, setStockSearch] = useState("");
   const [stockFilter, setStockFilter] = useState("all"); // 'all' | 'low' | 'out'
   const [tobuySearch, setTobuySearch] = useState("");
@@ -787,7 +812,12 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
-      <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div
+        className="max-w-2xl mx-auto px-4 pb-32"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {view === "dashboard" && (
           <>
             <div className="relative pt-8 pb-5">
