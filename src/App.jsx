@@ -805,14 +805,6 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
-                    onClick={() => loadAll()}
-                    className="w-10 h-10 rounded-full flex items-center justify-center"
-                    style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-                    title="Muat ulang data"
-                  >
-                    <RotateCcw size={16} color={COLORS.ink} />
-                  </button>
-                  <button
                     onClick={() => setShowUserMenu(true)}
                     className="w-10 h-10 rounded-full flex items-center justify-center"
                     style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
@@ -1457,24 +1449,26 @@ function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="rounded-2xl p-3 text-left flex flex-col gap-2.5 transition-shadow"
+      className="rounded-xl p-2.5 text-left flex flex-col gap-1.5 transition-shadow"
       style={{
         background: active ? color : COLORS.card,
         border: `1.5px solid ${active ? color : COLORS.border}`,
-        boxShadow: active ? `0 4px 14px ${color}4D` : "none",
+        boxShadow: active ? `0 3px 10px ${color}40` : "none",
       }}
     >
       {Icon && (
         <div
-          className="w-9 h-9 rounded-full flex items-center justify-center"
+          className="w-7 h-7 rounded-full flex items-center justify-center"
           style={{ background: active ? "rgba(255,255,255,0.22)" : `${color}1F` }}
         >
-          <Icon size={17} color={active ? "#fff" : color} />
+          <Icon size={13} color={active ? "#fff" : color} />
         </div>
       )}
       <div>
-        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 21, color: active ? "#fff" : COLORS.ink }}>{value}</div>
-        <div className="text-[11px] leading-tight mt-0.5" style={{ color: active ? "rgba(255,255,255,0.85)" : COLORS.inkSoft }}>
+        <div className="font-bold" style={{ fontSize: 16, color: active ? "#fff" : COLORS.ink }}>
+          {value}
+        </div>
+        <div className="leading-tight mt-0.5" style={{ fontSize: 11, color: active ? "rgba(255,255,255,0.85)" : COLORS.inkSoft }}>
           {label}
         </div>
       </div>
@@ -1591,26 +1585,26 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
       style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
     >
       <div style={{ width: 4, background: meta.fg }} />
-      <div className="flex-1 p-3.5">
+      <div className="flex-1 p-3">
         <div className="min-w-0">
-          <div className="font-semibold text-base truncate" style={{ color: COLORS.ink }}>
+          <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
             {item.name}
           </div>
-          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg }}>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg, fontSize: 11 }}>
               {meta.label}
             </span>
             {!isLevel && item.minQty > 0 && (
-              <span className="text-xs" style={{ color: COLORS.inkSoft }}>
+              <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>
                 min {item.minQty} {item.unit}
               </span>
             )}
           </div>
         </div>
 
-        <div className="mt-3">
+        <div className="mt-2.5">
           {isLevel ? (
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1 flex-wrap">
               {LEVEL_OPTIONS.map((opt) => {
                 const active = item.level === opt.key;
                 const optMeta = STATUS_META[opt.status];
@@ -1618,11 +1612,12 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
                   <button
                     key={opt.key}
                     onClick={() => onLevelChange(opt.key)}
-                    className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                    className="px-2.5 py-1 rounded-full font-medium"
                     style={{
                       background: active ? optMeta.fg : COLORS.bg,
                       color: active ? "#fff" : COLORS.inkSoft,
                       border: `1px solid ${active ? optMeta.fg : COLORS.border}`,
+                      fontSize: 11,
                     }}
                   >
                     {opt.label}
@@ -1631,41 +1626,41 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
               })}
             </div>
           ) : (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <button
                 onClick={() => onAdjust(-1)}
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                 style={{ border: `1.5px solid ${COLORS.border}` }}
               >
-                <Minus size={15} color={COLORS.ink} />
+                <Minus size={13} color={COLORS.ink} />
               </button>
-              <div className="text-center" style={{ minWidth: 56 }}>
-                <span style={{ fontWeight: 700, fontSize: 20, color: COLORS.ink }}>{item.qty}</span>
-                <span className="text-xs ml-1" style={{ color: COLORS.inkSoft }}>
+              <div className="text-center" style={{ minWidth: 48 }}>
+                <span className="font-bold" style={{ fontSize: 15, color: COLORS.ink }}>{item.qty}</span>
+                <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
                   {item.unit}
                 </span>
               </div>
               <button
                 onClick={() => onAdjust(1)}
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                 style={{ border: `1.5px solid ${COLORS.border}` }}
               >
-                <Plus size={15} color={COLORS.ink} />
+                <Plus size={13} color={COLORS.ink} />
               </button>
             </div>
           )}
         </div>
 
         {item.notes && (
-          <div className="text-xs mt-2.5 italic" style={{ color: COLORS.inkSoft }}>
+          <div className="mt-2 italic" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
             {item.notes}
           </div>
         )}
 
-        <div className="flex items-end justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+        <div className="flex items-end justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
           <div className="flex items-start gap-1.5 min-w-0">
-            <Clock size={12} color={COLORS.inkSoft} className="mt-0.5 shrink-0" />
-            <div className="text-xs leading-tight" style={{ color: COLORS.inkSoft }}>
+            <Clock size={11} color={COLORS.inkSoft} className="mt-0.5 shrink-0" />
+            <div className="leading-tight" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
               <div>Terakhir diperbarui</div>
               <div className="truncate">
                 {item.lastUpdatedBy || "?"} &middot; {fmtDateTime(item.lastUpdatedAt)}
@@ -1675,19 +1670,19 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={onEdit}
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
               style={{ border: `1px solid ${COLORS.border}` }}
               title="Edit"
             >
-              <Pencil size={13} color={COLORS.ink} />
+              <Pencil size={12} color={COLORS.ink} />
             </button>
             <button
               onClick={onDelete}
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
               style={{ border: `1px solid ${COLORS.out}55` }}
               title="Hapus"
             >
-              <Trash2 size={13} color={COLORS.out} />
+              <Trash2 size={12} color={COLORS.out} />
             </button>
           </div>
         </div>
@@ -1948,51 +1943,52 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
   return (
     <div
       id={`tobuy-item-${entry.id}`}
-      className={`rounded-2xl p-3.5 ${highlighted ? "highlight-blink" : ""}`}
+      className={`rounded-2xl p-3 ${highlighted ? "highlight-blink" : ""}`}
       style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2.5">
         <button
           onClick={onToggle}
-          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
           style={{ background: entry.bought ? COLORS.safe : "transparent", border: `1.5px solid ${entry.bought ? COLORS.safe : COLORS.border}` }}
         >
-          {entry.bought && <Check size={14} color="#fff" />}
+          {entry.bought && <Check size={12} color="#fff" />}
         </button>
         <div className="min-w-0 flex-1">
           <div
-            className="font-semibold text-base truncate"
+            className="font-semibold truncate"
             style={{
               color: entry.bought ? COLORS.inkSoft : COLORS.ink,
               textDecoration: entry.bought ? "line-through" : "none",
+              fontSize: 13,
             }}
           >
             {entry.itemName}
           </div>
-          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {!entry.bought && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: COLORS.lowBg, color: COLORS.low }}>
+              <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: COLORS.lowBg, color: COLORS.low, fontSize: 11 }}>
                 Perlu Dibeli
               </span>
             )}
             {detailParts.length > 0 && (
-              <span className="text-xs" style={{ color: COLORS.inkSoft }}>
+              <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>
                 {detailParts.join(" \u00b7 ")}
               </span>
             )}
           </div>
           {entry.notes && (
-            <div className="text-xs mt-1.5 italic" style={{ color: COLORS.inkSoft }}>
+            <div className="mt-1 italic" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
               {entry.notes}
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex items-end justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+      <div className="flex items-end justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
         <div className="flex items-start gap-1.5 min-w-0">
-          <Clock size={12} color={entry.bought ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
-          <div className="text-xs leading-tight" style={{ color: entry.bought ? COLORS.safe : COLORS.inkSoft }}>
+          <Clock size={11} color={entry.bought ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
+          <div className="leading-tight" style={{ color: entry.bought ? COLORS.safe : COLORS.inkSoft, fontSize: 11 }}>
             <div>{entry.bought ? "Sudah dibeli" : "Ditambahkan"}</div>
             <div className="truncate">
               {entry.bought ? `${entry.boughtBy || "?"} \u00b7 ${fmtDateTime(entry.boughtAt)}` : fmtDateTime(entry.addedAt)}
@@ -2000,16 +1996,16 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={onEdit} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
-            <Pencil size={13} color={COLORS.ink} />
+          <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
+            <Pencil size={12} color={COLORS.ink} />
           </button>
           <button
             onClick={onDelete}
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ border: `1px solid ${COLORS.out}55` }}
             title="Hapus"
           >
-            <Trash2 size={13} color={COLORS.out} />
+            <Trash2 size={12} color={COLORS.out} />
           </button>
         </div>
       </div>
@@ -2476,61 +2472,62 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
   return (
     <div
       id={`agenda-item-${task.id}`}
-      className={`rounded-2xl p-3.5 ${highlighted ? "highlight-blink" : ""}`}
+      className={`rounded-2xl p-3 ${highlighted ? "highlight-blink" : ""}`}
       style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2.5">
         <button
           onClick={onToggle}
-          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
           style={{ background: task.done ? COLORS.safe : "transparent", border: `1.5px solid ${task.done ? COLORS.safe : COLORS.border}` }}
         >
-          {task.done && <Check size={14} color="#fff" />}
+          {task.done && <Check size={12} color="#fff" />}
         </button>
         <div className="min-w-0 flex-1">
           <div
-            className="font-semibold text-base truncate"
+            className="font-semibold truncate"
             style={{
               color: task.done ? COLORS.inkSoft : COLORS.ink,
               textDecoration: task.done ? "line-through" : "none",
+              fontSize: 13,
             }}
           >
             {task.title}
           </div>
-          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {!task.done && (urgency === "overdue" || urgency === "soon") && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg }}>
+              <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg, fontSize: 11 }}>
                 {deadlineLabel(task)}
               </span>
             )}
             {task.recurrence && (
-              <span className="text-xs flex items-center gap-1" style={{ color: COLORS.inkSoft }}>
-                <Repeat size={11} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
+              <span className="flex items-center gap-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
+                <Repeat size={10} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
               </span>
             )}
           </div>
           {task.planDate && (
-            <div className="text-xs mt-1.5" style={{ color: COLORS.inkSoft }}>
+            <div className="mt-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
               Rencana: {fmtDate(task.planDate)}
             </div>
           )}
           {task.deadline && (
-            <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
+            <div className="mt-0.5" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
               Deadline: {fmtDate(task.deadline)}
             </div>
           )}
           {task.notes && (
-            <div className="text-xs mt-1.5 italic" style={{ color: COLORS.inkSoft }}>
+            <div className="mt-1 italic" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
               {task.notes}
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex items-end justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+      <div className="flex items-end justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
         <div className="flex items-start gap-1.5 min-w-0">
-          <Clock size={12} color={task.done ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
-          <div className="text-xs leading-tight" style={{ color: task.done ? COLORS.safe : COLORS.inkSoft }}>
+          <Clock size={11} color={task.done ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
+          <div className="leading-tight" style={{ color: task.done ? COLORS.safe : COLORS.inkSoft, fontSize: 11 }}>
             <div>{task.done ? "Selesai" : "Dibuat"}</div>
             <div className="truncate">
               {task.done ? `${task.doneBy || "?"} \u00b7 ${fmtDateTime(task.doneAt)}` : `${task.createdBy || "?"} \u00b7 ${fmtDateTime(task.createdAt)}`}
@@ -2538,16 +2535,16 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={onEdit} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
-            <Pencil size={13} color={COLORS.ink} />
+          <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
+            <Pencil size={12} color={COLORS.ink} />
           </button>
           <button
             onClick={onDelete}
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ border: `1px solid ${COLORS.out}55` }}
             title="Hapus"
           >
-            <Trash2 size={13} color={COLORS.out} />
+            <Trash2 size={12} color={COLORS.out} />
           </button>
         </div>
       </div>
