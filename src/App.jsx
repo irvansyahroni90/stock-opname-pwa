@@ -29,6 +29,9 @@ import {
   CalendarCheck2,
   Calendar,
   StickyNote,
+  Clock,
+  CheckCircle2,
+  LayoutGrid,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe } from "./firebase";
 
@@ -1218,14 +1221,14 @@ function UserMenuItem({ icon: Icon, label, onClick, last }) {
   );
 }
 
-function TopBar({ title, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu }) {
+function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu }) {
   return (
-    <div className="pt-8 pb-5 flex items-center justify-between">
+    <div className="pt-8 pb-5 flex items-start justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
         {onBack && (
           <button
             onClick={onBack}
-            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5"
             style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
           >
             <ArrowLeft size={16} color={COLORS.ink} />
@@ -1237,7 +1240,12 @@ function TopBar({ title, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName
           </div>
         )}
         <div className="min-w-0">
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: onBack ? 22 : 30, lineHeight: 1.15 }}>{title}</h1>
+          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: onBack ? 26 : 30, lineHeight: 1.15 }}>{title}</h1>
+          {subtitle && (
+            <div className="text-sm mt-0.5" style={{ color: COLORS.inkSoft }}>
+              {subtitle}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -1445,20 +1453,30 @@ function Chip({ label, tone }) {
   );
 }
 
-function SummaryCard({ label, value, color, active, onClick }) {
+function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="rounded-xl px-2 py-2.5 text-left transition-shadow"
+      className="rounded-2xl p-3 text-left flex flex-col gap-2.5 transition-shadow"
       style={{
         background: active ? color : COLORS.card,
         border: `1.5px solid ${active ? color : COLORS.border}`,
-        boxShadow: active ? `0 2px 8px ${color}55` : "none",
+        boxShadow: active ? `0 4px 14px ${color}4D` : "none",
       }}
     >
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: active ? "#fff" : color }}>{value}</div>
-      <div className="text-[11px] leading-tight mt-0.5" style={{ color: active ? "rgba(255,255,255,0.85)" : COLORS.inkSoft }}>
-        {label}
+      {Icon && (
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center"
+          style={{ background: active ? "rgba(255,255,255,0.22)" : `${color}1F` }}
+        >
+          <Icon size={17} color={active ? "#fff" : color} />
+        </div>
+      )}
+      <div>
+        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 21, color: active ? "#fff" : COLORS.ink }}>{value}</div>
+        <div className="text-[11px] leading-tight mt-0.5" style={{ color: active ? "rgba(255,255,255,0.85)" : COLORS.inkSoft }}>
+          {label}
+        </div>
       </div>
     </button>
   );
@@ -1506,9 +1524,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
     <>
       <TopBar
         title="Stok Rumah"
-        icon={Package}
-        iconBg={COLORS.iconStockBg}
-        iconFg={COLORS.iconStockFg}
+        subtitle="Kelola dan pantau stok barang di rumah"
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
@@ -1525,9 +1541,9 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
       />
 
       <div className="grid grid-cols-3 gap-2 mb-4">
-        <SummaryCard label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-        <SummaryCard label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => setFilter("low")} />
-        <SummaryCard label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => setFilter("out")} />
+        <SummaryCard icon={Package} label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+        <SummaryCard icon={Clock} label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => setFilter("low")} />
+        <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => setFilter("out")} />
       </div>
 
       <div className="flex items-center gap-2 px-3 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
@@ -1587,37 +1603,25 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
     >
       <div style={{ width: 4, background: meta.fg }} />
       <div className="flex-1 p-3.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="font-medium text-sm truncate" style={{ color: COLORS.ink }}>
-              {item.name}
-            </div>
-            <div className="flex items-center gap-1.5 mt-1">
-              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg }}>
-                {meta.label}
-              </span>
-              {!isLevel && item.minQty > 0 && (
-                <span className="text-xs" style={{ color: COLORS.inkSoft }}>
-                  min {item.minQty} {item.unit}
-                </span>
-              )}
-            </div>
+        <div className="min-w-0">
+          <div className="font-semibold text-base truncate" style={{ color: COLORS.ink, fontFamily: "'Fraunces', serif" }}>
+            {item.name}
           </div>
-          {!isLevel && (
-            <div className="text-right shrink-0">
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 19, fontWeight: 600, color: COLORS.ink }}>
-                {item.qty}
-                <span className="text-xs font-normal ml-1" style={{ color: COLORS.inkSoft }}>
-                  {item.unit}
-                </span>
-              </div>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg }}>
+              {meta.label}
+            </span>
+            {!isLevel && item.minQty > 0 && (
+              <span className="text-xs" style={{ color: COLORS.inkSoft }}>
+                min {item.minQty} {item.unit}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center justify-between mt-3">
+        <div className="mt-3">
           {isLevel ? (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {LEVEL_OPTIONS.map((opt) => {
                 const active = item.level === opt.key;
                 const optMeta = STATUS_META[opt.status];
@@ -1625,7 +1629,7 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
                   <button
                     key={opt.key}
                     onClick={() => onLevelChange(opt.key)}
-                    className="px-2 py-1 rounded-full text-xs font-medium"
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold"
                     style={{
                       background: active ? optMeta.fg : COLORS.bg,
                       color: active ? "#fff" : COLORS.inkSoft,
@@ -1638,41 +1642,65 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
               })}
             </div>
           ) : (
-            <div className="flex items-center gap-1.5">
-              <button onClick={() => onAdjust(-1)} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }}>
-                <Minus size={14} />
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onAdjust(-1)}
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ border: `1.5px solid ${COLORS.border}` }}
+              >
+                <Minus size={15} color={COLORS.ink} />
               </button>
-              <button onClick={() => onAdjust(1)} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }}>
-                <Plus size={14} />
+              <div className="text-center" style={{ minWidth: 56 }}>
+                <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, color: COLORS.ink }}>{item.qty}</span>
+                <span className="text-xs ml-1" style={{ color: COLORS.inkSoft }}>
+                  {item.unit}
+                </span>
+              </div>
+              <button
+                onClick={() => onAdjust(1)}
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ border: `1.5px solid ${COLORS.border}` }}
+              >
+                <Plus size={15} color={COLORS.ink} />
               </button>
             </div>
           )}
         </div>
 
         {item.notes && (
-          <div className="text-xs mt-2 italic" style={{ color: COLORS.inkSoft }}>
+          <div className="text-xs mt-2.5 italic" style={{ color: COLORS.inkSoft }}>
             {item.notes}
           </div>
         )}
 
-        <div className="text-xs text-right mt-1.5" style={{ color: COLORS.inkSoft }}>
-          {item.lastUpdatedBy || "?"} &middot; {fmtDateTime(item.lastUpdatedAt)}
-        </div>
-        <div className="flex gap-2 mt-2.5">
-          <button
-            onClick={onEdit}
-            className="flex-1 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1"
-            style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-          >
-            <Pencil size={12} /> Edit
-          </button>
-          <button
-            onClick={onDelete}
-            className="py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center"
-            style={{ border: `1px solid ${COLORS.border}`, color: COLORS.out }}
-          >
-            <Trash2 size={12} />
-          </button>
+        <div className="flex items-end justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+          <div className="flex items-start gap-1.5 min-w-0">
+            <Clock size={12} color={COLORS.inkSoft} className="mt-0.5 shrink-0" />
+            <div className="text-xs leading-tight" style={{ color: COLORS.inkSoft }}>
+              <div>Terakhir diperbarui</div>
+              <div className="truncate">
+                {item.lastUpdatedBy || "?"} &middot; {fmtDateTime(item.lastUpdatedAt)}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={onEdit}
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ border: `1px solid ${COLORS.border}` }}
+              title="Edit"
+            >
+              <Pencil size={13} color={COLORS.ink} />
+            </button>
+            <button
+              onClick={onDelete}
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ border: `1px solid ${COLORS.out}55` }}
+              title="Hapus"
+            >
+              <Trash2 size={13} color={COLORS.out} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1876,9 +1904,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
     <>
       <TopBar
         title="Akan Dibeli"
-        icon={ShoppingCart}
-        iconBg={COLORS.iconBuyBg}
-        iconFg={COLORS.iconBuyFg}
+        subtitle="Daftar barang yang perlu dibeli"
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
@@ -1895,8 +1921,8 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
       />
 
       <div className="grid grid-cols-2 gap-2 mb-4">
-        <SummaryCard label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
-        <SummaryCard label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
+        <SummaryCard icon={ShoppingCart} label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
+        <SummaryCard icon={CheckCircle2} label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
       </div>
 
       <div className="flex items-center gap-2 px-3 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
@@ -1937,7 +1963,6 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
 }
 
 function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
-  const statusMeta = entry.status ? STATUS_META[entry.status] : null;
   const detailParts = [];
   if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
   if (entry.place) detailParts.push(entry.place);
@@ -1945,52 +1970,71 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
   return (
     <div
       id={`tobuy-item-${entry.id}`}
-      className={`flex items-start gap-2.5 rounded-xl p-2.5 ${highlighted ? "highlight-blink" : ""}`}
+      className={`rounded-2xl p-3.5 ${highlighted ? "highlight-blink" : ""}`}
       style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
     >
-      <button
-        onClick={onToggle}
-        className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
-        style={{ background: entry.bought ? COLORS.primary : "transparent", border: `1.5px solid ${entry.bought ? COLORS.primary : COLORS.border}` }}
-      >
-        {entry.bought && <Check size={13} color="#fff" />}
-      </button>
-      <div className="min-w-0 flex-1">
-        <div
-          className="text-sm flex items-center gap-1.5 flex-wrap"
-          style={{ color: entry.bought ? COLORS.inkSoft : COLORS.ink, textDecoration: entry.bought ? "line-through" : "none" }}
+      <div className="flex items-start gap-3">
+        <button
+          onClick={onToggle}
+          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+          style={{ background: entry.bought ? COLORS.safe : "transparent", border: `1.5px solid ${entry.bought ? COLORS.safe : COLORS.border}` }}
         >
-          {entry.itemName}
-          {!entry.bought && statusMeta && (
-            <span
-              className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-              style={{ background: statusMeta.bg, color: statusMeta.fg, textDecoration: "none" }}
-            >
-              {statusMeta.label}
-            </span>
+          {entry.bought && <Check size={14} color="#fff" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div
+            className="font-semibold text-base truncate"
+            style={{
+              color: entry.bought ? COLORS.inkSoft : COLORS.ink,
+              textDecoration: entry.bought ? "line-through" : "none",
+              fontFamily: "'Fraunces', serif",
+            }}
+          >
+            {entry.itemName}
+          </div>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {!entry.bought && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: COLORS.lowBg, color: COLORS.low }}>
+                Perlu Dibeli
+              </span>
+            )}
+            {detailParts.length > 0 && (
+              <span className="text-xs" style={{ color: COLORS.inkSoft }}>
+                {detailParts.join(" \u00b7 ")}
+              </span>
+            )}
+          </div>
+          {entry.notes && (
+            <div className="text-xs mt-1.5 italic" style={{ color: COLORS.inkSoft }}>
+              {entry.notes}
+            </div>
           )}
         </div>
-        {detailParts.length > 0 && (
-          <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
-            {detailParts.join(" \u00b7 ")}
-          </div>
-        )}
-        {entry.notes && (
-          <div className="text-xs mt-0.5 italic" style={{ color: COLORS.inkSoft }}>
-            {entry.notes}
-          </div>
-        )}
-        <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
-          {entry.bought ? `Dibeli oleh ${entry.boughtBy || "?"} \u00b7 ${fmtDateTime(entry.boughtAt)}` : `Masuk daftar ${fmtDateTime(entry.addedAt)}`}
-        </div>
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button onClick={onEdit} className="p-1" title="Edit jumlah & tempat beli">
-          <Pencil size={13} color={COLORS.inkSoft} />
-        </button>
-        <button onClick={onDelete} className="p-1" title="Hapus">
-          <Trash2 size={13} color={COLORS.out} />
-        </button>
+
+      <div className="flex items-end justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+        <div className="flex items-start gap-1.5 min-w-0">
+          <Clock size={12} color={entry.bought ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
+          <div className="text-xs leading-tight" style={{ color: entry.bought ? COLORS.safe : COLORS.inkSoft }}>
+            <div>{entry.bought ? "Sudah dibeli" : "Ditambahkan"}</div>
+            <div className="truncate">
+              {entry.bought ? `${entry.boughtBy || "?"} \u00b7 ${fmtDateTime(entry.boughtAt)}` : fmtDateTime(entry.addedAt)}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={onEdit} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
+            <Pencil size={13} color={COLORS.ink} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ border: `1px solid ${COLORS.out}55` }}
+            title="Hapus"
+          >
+            <Trash2 size={13} color={COLORS.out} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2211,9 +2255,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
     <>
       <TopBar
         title="Agenda Rumah"
-        icon={CalendarCheck2}
-        iconBg={COLORS.iconAgendaBg}
-        iconFg={COLORS.iconAgendaFg}
+        subtitle="Kelola agenda dan tugas rumah"
         onBack={onBack}
         userName={userName}
         onOpenUserMenu={onOpenUserMenu}
@@ -2259,10 +2301,10 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
       {subView === "list" ? (
         <>
           <div className="grid grid-cols-4 gap-1.5 mb-4">
-            <SummaryCard label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-            <SummaryCard label="Hampir Deadline" value={counts.soon} color={COLORS.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
-            <SummaryCard label="Terlambat" value={counts.overdue} color={COLORS.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
-            <SummaryCard label="Selesai" value={counts.done} color={COLORS.safe} active={filter === "done"} onClick={() => setFilter("done")} />
+            <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+            <SummaryCard icon={Clock} label="Hampir Deadline" value={counts.soon} color={COLORS.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
+            <SummaryCard icon={AlertTriangle} label="Terlambat" value={counts.overdue} color={COLORS.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+            <SummaryCard icon={CheckCircle2} label="Selesai" value={counts.done} color={COLORS.safe} active={filter === "done"} onClick={() => setFilter("done")} />
           </div>
 
           <div className="flex items-center gap-2 px-3 rounded-xl mb-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
@@ -2468,61 +2510,81 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
   return (
     <div
       id={`agenda-item-${task.id}`}
-      className={`flex items-start gap-2.5 rounded-xl p-2.5 ${highlighted ? "highlight-blink" : ""}`}
+      className={`rounded-2xl p-3.5 ${highlighted ? "highlight-blink" : ""}`}
       style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
     >
-      <button
-        onClick={onToggle}
-        className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
-        style={{ background: task.done ? COLORS.primary : "transparent", border: `1.5px solid ${task.done ? COLORS.primary : COLORS.border}` }}
-      >
-        {task.done && <Check size={13} color="#fff" />}
-      </button>
-      <div className="min-w-0 flex-1">
-        <div
-          className="text-sm flex items-center gap-1.5 flex-wrap"
-          style={{ color: task.done ? COLORS.inkSoft : COLORS.ink, textDecoration: task.done ? "line-through" : "none" }}
+      <div className="flex items-start gap-3">
+        <button
+          onClick={onToggle}
+          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+          style={{ background: task.done ? COLORS.safe : "transparent", border: `1.5px solid ${task.done ? COLORS.safe : COLORS.border}` }}
         >
-          {task.title}
-          {!task.done && (urgency === "overdue" || urgency === "soon") && (
-            <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg, textDecoration: "none" }}>
-              {deadlineLabel(task)}
-            </span>
+          {task.done && <Check size={14} color="#fff" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div
+            className="font-semibold text-base truncate"
+            style={{
+              color: task.done ? COLORS.inkSoft : COLORS.ink,
+              textDecoration: task.done ? "line-through" : "none",
+              fontFamily: "'Fraunces', serif",
+            }}
+          >
+            {task.title}
+          </div>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {!task.done && (urgency === "overdue" || urgency === "soon") && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg }}>
+                {deadlineLabel(task)}
+              </span>
+            )}
+            {task.recurrence && (
+              <span className="text-xs flex items-center gap-1" style={{ color: COLORS.inkSoft }}>
+                <Repeat size={11} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
+              </span>
+            )}
+          </div>
+          {task.planDate && (
+            <div className="text-xs mt-1.5" style={{ color: COLORS.inkSoft }}>
+              Rencana: {fmtDate(task.planDate)}
+            </div>
+          )}
+          {task.deadline && (
+            <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
+              Deadline: {fmtDate(task.deadline)}
+            </div>
+          )}
+          {task.notes && (
+            <div className="text-xs mt-1.5 italic" style={{ color: COLORS.inkSoft }}>
+              {task.notes}
+            </div>
           )}
         </div>
-        {task.planDate && (
-          <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
-            Rencana: {fmtDate(task.planDate)}
-          </div>
-        )}
-        {task.deadline && (
-          <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
-            Deadline: {fmtDate(task.deadline)}
-          </div>
-        )}
-        {task.recurrence && (
-          <div className="text-xs mt-0.5 flex items-center gap-1" style={{ color: COLORS.inkSoft }}>
-            <Repeat size={11} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
-          </div>
-        )}
-        {task.notes && (
-          <div className="text-xs mt-0.5 italic" style={{ color: COLORS.inkSoft }}>
-            {task.notes}
-          </div>
-        )}
-        <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
-          {task.done
-            ? `Diselesaikan oleh ${task.doneBy || "?"} \u00b7 ${fmtDateTime(task.doneAt)}`
-            : `Dibuat oleh ${task.createdBy || "?"} \u00b7 ${fmtDateTime(task.createdAt)}`}
-        </div>
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button onClick={onEdit} className="p-1" title="Edit">
-          <Pencil size={13} color={COLORS.inkSoft} />
-        </button>
-        <button onClick={onDelete} className="p-1" title="Hapus">
-          <Trash2 size={13} color={COLORS.out} />
-        </button>
+
+      <div className="flex items-end justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+        <div className="flex items-start gap-1.5 min-w-0">
+          <Clock size={12} color={task.done ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
+          <div className="text-xs leading-tight" style={{ color: task.done ? COLORS.safe : COLORS.inkSoft }}>
+            <div>{task.done ? "Selesai" : "Dibuat"}</div>
+            <div className="truncate">
+              {task.done ? `${task.doneBy || "?"} \u00b7 ${fmtDateTime(task.doneAt)}` : `${task.createdBy || "?"} \u00b7 ${fmtDateTime(task.createdAt)}`}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={onEdit} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
+            <Pencil size={13} color={COLORS.ink} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ border: `1px solid ${COLORS.out}55` }}
+            title="Hapus"
+          >
+            <Trash2 size={13} color={COLORS.out} />
+          </button>
+        </div>
       </div>
     </div>
   );
