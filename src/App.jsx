@@ -28,6 +28,7 @@ import {
   Home,
   CalendarCheck2,
   Calendar,
+  StickyNote,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe } from "./firebase";
 
@@ -815,14 +816,15 @@ export default function App() {
                 badge={stockPreview.total}
                 badgeColor={stockCounts.out > 0 ? COLORS.out : COLORS.low}
                 onOpen={() => setView("stock")}
-              >
-                {stockPreview.list.map((item) => (
+                rows={stockPreview.list.map((item) => (
                   <StockPreviewRow key={item.id} item={item} onClick={() => setView("stock")} />
                 ))}
-                {stockPreview.total > 3 && (
-                  <SeeAllButton count={stockPreview.total - stockPreview.list.length} onClick={() => setView("stock")} />
-                )}
-              </SectionCard>
+                moreButton={
+                  stockPreview.total > 3 && (
+                    <SeeAllButton count={stockPreview.total - stockPreview.list.length} onClick={() => setView("stock")} />
+                  )
+                }
+              />
 
               <SectionCard
                 icon={ShoppingCart}
@@ -839,14 +841,15 @@ export default function App() {
                 badge={toBuyPreview.total}
                 badgeColor={COLORS.low}
                 onOpen={() => setView("tobuy")}
-              >
-                {toBuyPreview.list.map((entry) => (
+                rows={toBuyPreview.list.map((entry) => (
                   <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => setView("tobuy")} />
                 ))}
-                {toBuyPreview.total > 3 && (
-                  <SeeAllButton count={toBuyPreview.total - toBuyPreview.list.length} onClick={() => setView("tobuy")} />
-                )}
-              </SectionCard>
+                moreButton={
+                  toBuyPreview.total > 3 && (
+                    <SeeAllButton count={toBuyPreview.total - toBuyPreview.list.length} onClick={() => setView("tobuy")} />
+                  )
+                }
+              />
 
               <SectionCard
                 icon={CalendarCheck2}
@@ -861,8 +864,7 @@ export default function App() {
                 badge={agendaCounts.overdue + agendaCounts.soon}
                 badgeColor={agendaCounts.overdue > 0 ? COLORS.out : COLORS.low}
                 onOpen={() => setView("agenda")}
-              >
-                {agendaPreview.list.map((task) => (
+                rows={agendaPreview.list.map((task) => (
                   <AgendaPreviewRow
                     key={task.id}
                     task={task}
@@ -871,10 +873,12 @@ export default function App() {
                     onClick={() => setView("agenda")}
                   />
                 ))}
-                {agendaPreview.total > 3 && (
-                  <SeeAllButton count={agendaPreview.total - agendaPreview.list.length} onClick={() => setView("agenda")} />
-                )}
-              </SectionCard>
+                moreButton={
+                  agendaPreview.total > 3 && (
+                    <SeeAllButton count={agendaPreview.total - agendaPreview.list.length} onClick={() => setView("agenda")} />
+                  )
+                }
+              />
             </div>
           </>
         )}
@@ -1221,7 +1225,7 @@ function TopBar({ title, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName
   );
 }
 
-function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badgeColor, onOpen, children }) {
+function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badgeColor, onOpen, rows, moreButton }) {
   return (
     <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
       {badge > 0 && (
@@ -1243,9 +1247,10 @@ function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badge
           </div>
         </div>
       </button>
-      {children && React.Children.count(children) > 0 && (
-        <div className="flex flex-col gap-1.5 mt-3.5">{children}</div>
+      {rows && React.Children.count(rows) > 0 && (
+        <div className="flex flex-col gap-1.5 mt-3.5 pl-14">{rows}</div>
       )}
+      {moreButton}
     </div>
   );
 }
@@ -1266,14 +1271,13 @@ function SeeAllButton({ count, onClick }) {
 function StockPreviewRow({ item, onClick }) {
   const status = statusOf(item);
   const meta = STATUS_META[status];
-  const detail = item.type === "level" ? LEVEL_LABEL[item.level] : `${item.qty ?? 0}${item.unit ? " " + item.unit : ""}`;
   return (
     <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left" style={{ background: COLORS.bg }}>
       <span className="flex-1 min-w-0 text-sm truncate" style={{ color: COLORS.ink }}>
         {item.name}
       </span>
       <span className="text-xs shrink-0" style={{ color: meta.fg }}>
-        {status === "out" ? "Habis" : `${meta.label} \u00b7 ${detail}`}
+        {meta.label}
       </span>
     </button>
   );
@@ -1294,12 +1298,13 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
         style={{ background: "transparent", border: `1.5px solid ${COLORS.border}` }}
         title="Tandai sudah dibeli"
       />
-      <button onClick={onClick} className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left">
-        <span className="text-sm truncate" style={{ color: COLORS.ink }}>
-          {entry.itemName}
+      <button onClick={onClick} className="flex-1 min-w-0 flex flex-col items-start text-left">
+        <span className="w-full flex items-center gap-1.5 text-sm truncate" style={{ color: COLORS.ink }}>
+          <span className="truncate">{entry.itemName}</span>
+          {entry.notes && <StickyNote size={12} color={COLORS.inkSoft} className="shrink-0" />}
         </span>
         {detailParts.length > 0 && (
-          <span className="text-xs shrink-0" style={{ color: COLORS.inkSoft }}>
+          <span className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
             {detailParts.join(" \u00b7 ")}
           </span>
         )}
