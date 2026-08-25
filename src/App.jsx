@@ -188,29 +188,52 @@ export default function App() {
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
 
-  // Swipe kiri/kanan untuk pindah antar tab Beranda-Stok-Beli-Agenda
+  // Swipe kiri/kanan untuk pindah antar tab Beranda-Stok-Beli-Agenda,
+  // dengan halaman sebelah ikut kegeser mengikuti jari (gaya carousel).
   const TAB_ORDER = ["dashboard", "stock", "tobuy", "agenda"];
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const touchStartRef = useRef(null);
+  const dragModeRef = useRef(null); // 'horizontal' | 'vertical' | null
+
   const handleTouchStart = (e) => {
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY };
+    dragModeRef.current = null;
+    setIsDragging(true);
   };
-  const handleTouchEnd = (e) => {
+  const handleTouchMove = (e) => {
     const start = touchStartRef.current;
-    touchStartRef.current = null;
     if (!start) return;
-    const t = e.changedTouches[0];
+    const t = e.touches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
-    const SWIPE_THRESHOLD = 60;
-    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+    if (dragModeRef.current === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      dragModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+    }
+    if (dragModeRef.current !== "horizontal") return;
+
     const idx = TAB_ORDER.indexOf(view);
-    if (idx === -1) return;
-    if (dx < 0 && idx < TAB_ORDER.length - 1) {
+    let clamped = dx;
+    if (idx === 0 && dx > 0) clamped = dx * 0.35; // efek "karet" di ujung paling awal
+    if (idx === TAB_ORDER.length - 1 && dx < 0) clamped = dx * 0.35; // di ujung paling akhir
+    setDragX(clamped);
+  };
+  const handleTouchEnd = () => {
+    const idx = TAB_ORDER.indexOf(view);
+    const dx = dragX;
+    const SWIPE_THRESHOLD = 60;
+    if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
       setView(TAB_ORDER[idx + 1]);
-    } else if (dx > 0 && idx > 0) {
+    } else if (dx > SWIPE_THRESHOLD && idx > 0) {
       setView(TAB_ORDER[idx - 1]);
     }
+    setIsDragging(false);
+    setDragX(0);
+    touchStartRef.current = null;
+    dragModeRef.current = null;
   };
 
   const [stockSearch, setStockSearch] = useState("");
@@ -812,22 +835,28 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
-      <div
-        className="max-w-2xl mx-auto px-4 pb-32"
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {view === "dashboard" && (
-          <>
-            <div className="relative pt-8 pb-5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
-                    {greeting}
-                    {userName ? `, ${userName}` : ""} <span>👋</span>
-                  </div>
-                  <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
+      <div className="fixed left-0 right-0 overflow-hidden" style={{ top: 0, bottom: 0 }}>
+        <div
+          className="flex h-full"
+          style={{
+            width: "400vw",
+            transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
+            transition: isDragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+              <div className="relative pt-8 pb-5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
+                      {greeting}
+                      {userName ? `, ${userName}` : ""} <span>👋</span>
+                    </div>
+                    <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
                     <span style={{ color: COLORS.primary }}>Frinirvan</span>
                     <br />
                     <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
@@ -931,10 +960,11 @@ export default function App() {
                 }
               />
             </div>
-          </>
-        )}
+          </div>
+          </div>
 
-        {view === "stock" && (
+          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
           <StockPage
             items={items}
             search={stockSearch}
@@ -953,9 +983,11 @@ export default function App() {
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
-        )}
+            </div>
+          </div>
 
-        {view === "tobuy" && (
+          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
           <ToBuyPage
             toBuy={toBuy}
             search={tobuySearch}
@@ -973,9 +1005,11 @@ export default function App() {
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
-        )}
+            </div>
+          </div>
 
-        {view === "agenda" && (
+          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
           <AgendaPage
             tasks={tasks}
             dueThreshold={dueThreshold}
@@ -995,7 +1029,9 @@ export default function App() {
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
-        )}
+            </div>
+          </div>
+        </div>
       </div>
 
       <BottomNav view={view} setView={setView} />
