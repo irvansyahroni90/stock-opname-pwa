@@ -1272,11 +1272,11 @@ function StockPreviewRow({ item, onClick }) {
   const status = statusOf(item);
   const meta = STATUS_META[status];
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left" style={{ background: COLORS.bg }}>
-      <span className="flex-1 min-w-0 text-sm truncate" style={{ color: COLORS.ink }}>
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left" style={{ background: COLORS.bg }}>
+      <span className="flex-1 min-w-0 truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
         {item.name}
       </span>
-      <span className="text-xs shrink-0" style={{ color: meta.fg }}>
+      <span className="shrink-0" style={{ color: meta.fg, fontSize: 11 }}>
         {meta.label}
       </span>
     </button>
@@ -1288,7 +1288,7 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
   if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
   if (entry.place) detailParts.push(entry.place);
   return (
-    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2" style={{ background: COLORS.bg }}>
+    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.bg }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -1299,12 +1299,12 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
         title="Tandai sudah dibeli"
       />
       <button onClick={onClick} className="flex-1 min-w-0 flex flex-col items-start text-left">
-        <span className="w-full flex items-center gap-1.5 text-sm truncate" style={{ color: COLORS.ink }}>
+        <span className="w-full flex items-center gap-1.5 truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
           <span className="truncate">{entry.itemName}</span>
-          {entry.notes && <StickyNote size={12} color={COLORS.inkSoft} className="shrink-0" />}
+          {entry.notes && <StickyNote size={11} color={COLORS.inkSoft} className="shrink-0" />}
         </span>
         {detailParts.length > 0 && (
-          <span className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
+          <span className="mt-0.5" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
             {detailParts.join(" \u00b7 ")}
           </span>
         )}
@@ -1317,7 +1317,7 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
   const urgency = taskUrgency(task, threshold);
   const meta = URGENCY_META[urgency];
   return (
-    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2" style={{ background: COLORS.bg }}>
+    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.bg }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -1328,10 +1328,10 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
         title="Tandai selesai"
       />
       <button onClick={onClick} className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left">
-        <span className="text-sm truncate" style={{ color: COLORS.ink }}>
+        <span className="truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
           {task.title}
         </span>
-        <span className="text-xs shrink-0" style={{ color: meta ? meta.fg : COLORS.inkSoft }}>
+        <span className="shrink-0" style={{ color: meta ? meta.fg : COLORS.inkSoft, fontSize: 11 }}>
           {deadlineLabel(task)}
         </span>
       </button>
