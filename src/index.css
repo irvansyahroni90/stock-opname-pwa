@@ -22,3 +22,12 @@ textarea,
 select {
   font-size: 16px !important;
 }
+
+/* Efek "kedip" saat item dituju dari preview Beranda */
+@keyframes highlight-blink {
+  0%, 100% { background-color: transparent; box-shadow: none; }
+  50% { background-color: rgba(224, 158, 62, 0.30); box-shadow: 0 0 0 2px rgba(224, 158, 62, 0.55); }
+}
+.highlight-blink {
+  animation: highlight-blink 0.6s ease-in-out 2;
+}

@@ -192,6 +192,32 @@ export default function App() {
   const [agendaSearch, setAgendaSearch] = useState("");
   const [agendaFilter, setAgendaFilter] = useState("all"); // 'all' | 'soon' | 'overdue' | 'done'
 
+  // Target "loncat & sorot" dari preview Beranda ke item spesifik di halaman penuh
+  const [highlightTarget, setHighlightTarget] = useState(null); // { type: 'stock'|'tobuy'|'agenda', id }
+
+  const goToStockItem = (item) => {
+    const status = statusOf(item);
+    setStockSearch("");
+    setStockFilter(status === "safe" ? "all" : status);
+    setHighlightTarget({ type: "stock", id: item.id });
+    setView("stock");
+  };
+
+  const goToToBuyEntry = (entry) => {
+    setTobuySearch("");
+    setTobuyFilter(entry.bought ? "bought" : "pending");
+    setHighlightTarget({ type: "tobuy", id: entry.id });
+    setView("tobuy");
+  };
+
+  const goToTask = (task) => {
+    const urgency = taskUrgency(task, dueThreshold);
+    setAgendaSearch("");
+    setAgendaFilter(task.done ? "done" : urgency === "overdue" ? "overdue" : urgency === "soon" ? "soon" : "all");
+    setHighlightTarget({ type: "agenda", id: task.id });
+    setView("agenda");
+  };
+
   const [showHistory, setShowHistory] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', item? }
@@ -817,7 +843,7 @@ export default function App() {
                 badgeColor={stockCounts.out > 0 ? COLORS.out : COLORS.low}
                 onOpen={() => setView("stock")}
                 rows={stockPreview.list.map((item) => (
-                  <StockPreviewRow key={item.id} item={item} onClick={() => setView("stock")} />
+                  <StockPreviewRow key={item.id} item={item} onClick={() => goToStockItem(item)} />
                 ))}
                 moreButton={
                   stockPreview.total > 3 && (
@@ -842,7 +868,7 @@ export default function App() {
                 badgeColor={COLORS.low}
                 onOpen={() => setView("tobuy")}
                 rows={toBuyPreview.list.map((entry) => (
-                  <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => setView("tobuy")} />
+                  <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => goToToBuyEntry(entry)} />
                 ))}
                 moreButton={
                   toBuyPreview.total > 3 && (
@@ -870,7 +896,7 @@ export default function App() {
                     task={task}
                     threshold={dueThreshold}
                     onToggle={() => handleToggleTaskDone(task.id)}
-                    onClick={() => setView("agenda")}
+                    onClick={() => goToTask(task)}
                   />
                 ))}
                 moreButton={
@@ -899,6 +925,8 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onRefresh={loadAll}
+            highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
+            onHighlightDone={() => setHighlightTarget(null)}
           />
         )}
 
@@ -917,6 +945,8 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onRefresh={loadAll}
+            highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
+            onHighlightDone={() => setHighlightTarget(null)}
           />
         )}
 
@@ -937,6 +967,8 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onRefresh={loadAll}
+            highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
+            onHighlightDone={() => setHighlightTarget(null)}
           />
         )}
       </div>
@@ -1434,7 +1466,7 @@ function SummaryCard({ label, value, color, active, onClick }) {
 
 /* ---------------- Stock page ---------------- */
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, userName, onOpenUserMenu, onRefresh }) {
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -1460,6 +1492,15 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         return a.name.localeCompare(b.name, "id");
       });
   }, [items, search, filter]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = document.getElementById(`stock-item-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId]);
 
   return (
     <>
@@ -1517,6 +1558,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
               onLevelChange={(lvl) => onLevelChange(item.id, lvl)}
               onEdit={() => onEditItem(item)}
               onDelete={() => onDeleteItem(item)}
+              highlighted={item.id === highlightId}
             />
           ))}
         </div>
@@ -1533,12 +1575,16 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
   );
 }
 
-function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete }) {
+function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted }) {
   const status = statusOf(item);
   const meta = STATUS_META[status];
   const isLevel = item.type === "level";
   return (
-    <div className="rounded-2xl overflow-hidden flex" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+    <div
+      id={`stock-item-${item.id}`}
+      className={`rounded-2xl overflow-hidden flex ${highlighted ? "highlight-blink" : ""}`}
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+    >
       <div style={{ width: 4, background: meta.fg }} />
       <div className="flex-1 p-3.5">
         <div className="flex items-start justify-between gap-2">
@@ -1801,7 +1847,7 @@ function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
 
 /* ---------------- Akan Dibeli page ---------------- */
 
-function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onRefresh }) {
+function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
   const pendingCount = toBuy.filter((e) => !e.bought).length;
   const boughtCount = toBuy.filter((e) => e.bought).length;
 
@@ -1816,6 +1862,15 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
         return new Date(db) - new Date(da);
       });
   }, [toBuy, search, filter]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = document.getElementById(`tobuy-item-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId]);
 
   return (
     <>
@@ -1865,7 +1920,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((e) => (
-            <ToBuyRow key={e.id} entry={e} onToggle={() => onToggle(e.id)} onEdit={() => onEditEntry(e)} onDelete={() => onDeleteEntry(e)} />
+            <ToBuyRow key={e.id} entry={e} onToggle={() => onToggle(e.id)} onEdit={() => onEditEntry(e)} onDelete={() => onDeleteEntry(e)} highlighted={e.id === highlightId} />
           ))}
         </div>
       )}
@@ -1881,14 +1936,18 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
   );
 }
 
-function ToBuyRow({ entry, onToggle, onEdit, onDelete }) {
+function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
   const statusMeta = entry.status ? STATUS_META[entry.status] : null;
   const detailParts = [];
   if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
   if (entry.place) detailParts.push(entry.place);
 
   return (
-    <div className="flex items-start gap-2.5 rounded-xl p-2.5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+    <div
+      id={`tobuy-item-${entry.id}`}
+      className={`flex items-start gap-2.5 rounded-xl p-2.5 ${highlighted ? "highlight-blink" : ""}`}
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+    >
       <button
         onClick={onToggle}
         className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
@@ -2095,7 +2154,7 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 /* ---------------- Agenda Rumah page ---------------- */
 
-function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onRefresh }) {
+function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
   const active = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
@@ -2138,6 +2197,15 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
 
   const showingDone = filter === "done";
   const listToShow = showingDone ? filteredDone : filteredActive;
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = document.getElementById(`agenda-item-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId]);
 
   return (
     <>
@@ -2218,7 +2286,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           ) : (
             <div className="flex flex-col gap-2">
               {listToShow.map((t) => (
-                <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} />
+                <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} highlighted={t.id === highlightId} />
               ))}
             </div>
           )}
@@ -2394,11 +2462,15 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
   );
 }
 
-function TaskRow({ task, threshold, onToggle, onEdit, onDelete }) {
+function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
   const urgency = taskUrgency(task, threshold);
   const meta = URGENCY_META[urgency];
   return (
-    <div className="flex items-start gap-2.5 rounded-xl p-2.5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+    <div
+      id={`agenda-item-${task.id}`}
+      className={`flex items-start gap-2.5 rounded-xl p-2.5 ${highlighted ? "highlight-blink" : ""}`}
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+    >
       <button
         onClick={onToggle}
         className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
