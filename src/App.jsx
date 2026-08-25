@@ -1371,8 +1371,8 @@ function HomeIllustration() {
       viewBox="0 0 140 120"
       width="112"
       height="96"
-      className="absolute -top-1 right-0 pointer-events-none select-none"
-      style={{ opacity: 0.95 }}
+      className="absolute right-0 pointer-events-none select-none"
+      style={{ opacity: 0.95, top: 58 }}
     >
       {/* soft floor shadow */}
       <ellipse cx="70" cy="108" rx="60" ry="7" fill={COLORS.border} opacity="0.5" />
