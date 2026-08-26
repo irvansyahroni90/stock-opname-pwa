@@ -1034,6 +1034,20 @@ export default function App() {
         </div>
       </div>
 
+      {(view === "stock" || view === "tobuy" || view === "agenda") && (
+        <button
+          onClick={() => {
+            if (view === "stock") setModal({ mode: "add" });
+            else if (view === "tobuy") setToBuyModal({ mode: "add" });
+            else setTaskModal({ mode: "add" });
+          }}
+          className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
+          style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
+        >
+          <Plus size={26} />
+        </button>
+      )}
+
       <BottomNav view={view} setView={setView} />
 
       {/* Name modal */}
@@ -1630,14 +1644,6 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
           ))}
         </div>
       )}
-
-      <button
-        onClick={onAdd}
-        className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
-      >
-        <Plus size={26} />
-      </button>
     </>
   );
 }
@@ -1993,14 +1999,6 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
           ))}
         </div>
       )}
-
-      <button
-        onClick={onAddManual}
-        className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
-      >
-        <Plus size={26} />
-      </button>
     </>
   );
 }
@@ -2374,14 +2372,6 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
       ) : (
         <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} />
       )}
-
-      <button
-        onClick={onAddTask}
-        className="fixed right-6 rounded-full flex items-center justify-center shadow-lg"
-        style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
-      >
-        <Plus size={26} />
-      </button>
     </>
   );
 }
