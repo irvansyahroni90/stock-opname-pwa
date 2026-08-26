@@ -834,6 +834,10 @@ export default function App() {
         .search-box:focus-within { box-shadow: 0 0 0 2px ${COLORS.primary}33; }
         button:focus { outline: none; }
         button:focus-visible { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
+        /* Search input tampak 13px (sama seperti nama item) tanpa mengubah
+           font-size asli 16px, supaya iOS tidak auto-zoom saat difokus. */
+        .search-box input { transform: scale(0.8125); transform-origin: 0 50%; }
+        .search-box input::placeholder { opacity: 1; }
         ::placeholder { color: #A6A296; }
       `}</style>
 
@@ -1621,7 +1625,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari item stok..."
             className="flex-1 py-1.5 bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 13 }}
+            style={{ color: COLORS.ink }}
           />
         </div>
       </div>
@@ -1984,7 +1988,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari di daftar ini..."
             className="flex-1 py-1.5 bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 13 }}
+            style={{ color: COLORS.ink }}
           />
         </div>
       </div>
@@ -2349,7 +2353,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari tugas..."
                 className="flex-1 py-1.5 bg-transparent"
-                style={{ color: COLORS.ink, fontSize: 13 }}
+                style={{ color: COLORS.ink }}
               />
             </div>
           </>
