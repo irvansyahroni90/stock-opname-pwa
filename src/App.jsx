@@ -829,7 +829,11 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         * { box-sizing: border-box; }
-        input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
+        input:focus, textarea:focus { outline: none; box-shadow: 0 0 0 2px ${COLORS.primary}33; }
+        .search-box input:focus { box-shadow: none; }
+        .search-box:focus-within { box-shadow: 0 0 0 2px ${COLORS.primary}33; }
+        button:focus { outline: none; }
+        button:focus-visible { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
       `}</style>
 
@@ -1610,14 +1614,14 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
           <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => setFilter("out")} />
         </div>
 
-        <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Search size={16} color={COLORS.inkSoft} />
+        <div className="search-box flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <Search size={15} color={COLORS.inkSoft} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari item stok..."
-            className="flex-1 py-2.5 bg-transparent text-sm"
-            style={{ color: COLORS.ink }}
+            className="flex-1 py-1.5 bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 13 }}
           />
         </div>
       </div>
@@ -1973,14 +1977,14 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
           <SummaryCard icon={CheckCircle2} label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
         </div>
 
-        <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Search size={16} color={COLORS.inkSoft} />
+        <div className="search-box flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <Search size={15} color={COLORS.inkSoft} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari di daftar ini..."
-            className="flex-1 py-2.5 bg-transparent text-sm"
-            style={{ color: COLORS.ink }}
+            className="flex-1 py-1.5 bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 13 }}
           />
         </div>
       </div>
@@ -2338,14 +2342,14 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
               <SummaryCard icon={CheckCircle2} label="Selesai" value={counts.done} color={COLORS.safe} active={filter === "done"} onClick={() => setFilter("done")} />
             </div>
 
-            <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-              <Search size={16} color={COLORS.inkSoft} />
+            <div className="search-box flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+              <Search size={15} color={COLORS.inkSoft} />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari tugas..."
-                className="flex-1 py-2.5 bg-transparent text-sm"
-                style={{ color: COLORS.ink }}
+                className="flex-1 py-1.5 bg-transparent"
+                style={{ color: COLORS.ink, fontSize: 13 }}
               />
             </div>
           </>
