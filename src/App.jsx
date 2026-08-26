@@ -901,7 +901,13 @@ export default function App() {
                 ))}
                 moreButton={
                   stockPreview.total > 3 && (
-                    <SeeAllButton count={stockPreview.total - stockPreview.list.length} onClick={() => setView("stock")} />
+                    <SeeAllButton
+                      count={stockPreview.total - stockPreview.list.length}
+                      onClick={() => {
+                        setStockFilter("all");
+                        setView("stock");
+                      }}
+                    />
                   )
                 }
               />
@@ -926,7 +932,13 @@ export default function App() {
                 ))}
                 moreButton={
                   toBuyPreview.total > 3 && (
-                    <SeeAllButton count={toBuyPreview.total - toBuyPreview.list.length} onClick={() => setView("tobuy")} />
+                    <SeeAllButton
+                      count={toBuyPreview.total - toBuyPreview.list.length}
+                      onClick={() => {
+                        setTobuyFilter("pending");
+                        setView("tobuy");
+                      }}
+                    />
                   )
                 }
               />
@@ -955,7 +967,13 @@ export default function App() {
                 ))}
                 moreButton={
                   agendaPreview.total > 3 && (
-                    <SeeAllButton count={agendaPreview.total - agendaPreview.list.length} onClick={() => setView("agenda")} />
+                    <SeeAllButton
+                      count={agendaPreview.total - agendaPreview.list.length}
+                      onClick={() => {
+                        setAgendaFilter("all");
+                        setView("agenda");
+                      }}
+                    />
                   )
                 }
               />
@@ -1371,7 +1389,7 @@ function SeeAllButton({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-center gap-1 py-2 text-sm font-semibold"
+      className="w-full flex items-center justify-center gap-1 py-2 mt-4 text-sm font-semibold"
       style={{ color: COLORS.primary }}
     >
       +{count} lainnya
