@@ -288,6 +288,30 @@ export default function App() {
 
   const fileInputRef = useRef(null);
   const userNameRef = useRef("");
+  const trackWrapRef = useRef(null);
+
+  // Guard cadangan (defense-in-depth) untuk bug navigasi tab yang salah
+  // geser: kontainer carousel 4-halaman (digeser via CSS transform) TIDAK
+  // PERNAH boleh punya scroll horizontal sendiri — posisi horizontalnya
+  // 100% dikendalikan oleh transform. Perbaikan utamanya ada di
+  // `overflow: "clip"` pada style kontainer ini (lihat di bawah), yang
+  // mencegah browser diam-diam menggeser scrollLeft kontainer saat
+  // scrollIntoView() dipanggil pada item yang di-highlight (mis. loncat
+  // dari Beranda ke item tertentu di Stok/Beli/Agenda) — browser tidak tahu
+  // posisi sebenarnya sudah benar lewat transform, jadi dulu dia
+  // "mengoreksi" sesuatu yang sebenarnya tidak perlu dikoreksi, membuat
+  // halaman yang tampil jadi salah/geser (mis. malah nampilin halaman Beli
+  // padahal lagi di tab Stok). Listener ini cuma jaring pengaman tambahan
+  // kalau suatu saat ada penyebab lain yang menggeser scrollLeft-nya.
+  useEffect(() => {
+    const el = trackWrapRef.current;
+    if (!el) return;
+    const resetScroll = () => {
+      if (el.scrollLeft !== 0) el.scrollLeft = 0;
+    };
+    el.addEventListener("scroll", resetScroll, { passive: true });
+    return () => el.removeEventListener("scroll", resetScroll);
+  }, []);
 
   useEffect(() => {
     userNameRef.current = userName;
@@ -841,7 +865,11 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
-      <div className="fixed left-0 right-0 overflow-hidden" style={{ top: 0, bottom: 0 }}>
+      <div
+        ref={trackWrapRef}
+        className="fixed left-0 right-0 overflow-hidden"
+        style={{ top: 0, bottom: 0, overflow: "clip" }}
+      >
         <div
           className="flex h-full"
           style={{
@@ -1613,7 +1641,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
   useEffect(() => {
     if (!highlightId) return;
     const el = document.getElementById(`stock-item-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
     const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1977,7 +2005,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
   useEffect(() => {
     if (!highlightId) return;
     const el = document.getElementById(`tobuy-item-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
     const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2311,7 +2339,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   useEffect(() => {
     if (!highlightId) return;
     const el = document.getElementById(`agenda-item-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
     const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
