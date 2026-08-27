@@ -1424,7 +1424,7 @@ function SeeAllButton({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-center gap-1 mt-1.5 text-sm font-semibold"
+      className="w-full flex items-center justify-center gap-1 mt-4 text-sm font-semibold"
       style={{ color: COLORS.primary }}
     >
       +{count} lainnya
