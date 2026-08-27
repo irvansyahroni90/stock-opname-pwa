@@ -1424,7 +1424,7 @@ function SeeAllButton({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-center gap-1 py-2 mt-4 text-sm font-semibold"
+      className="w-full flex items-center justify-center gap-1 py-2 mt-1.5 text-sm font-semibold"
       style={{ color: COLORS.primary }}
     >
       +{count} lainnya
@@ -1669,8 +1669,8 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari item stok..."
-            className="flex-1 py-2.5 bg-transparent text-sm"
-            style={{ color: COLORS.ink }}
+            className="flex-1 py-1.5 bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
           />
         </div>
       </div>
@@ -1762,8 +1762,11 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
                 <Minus size={13} color={COLORS.ink} />
               </button>
               <div className="text-center" style={{ minWidth: 48 }}>
-                <span className="font-bold" style={{ fontSize: 15, color: COLORS.ink }}>{item.qty}</span>
-                <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
+                <span className="font-bold" style={{ fontSize: 17, color: COLORS.ink }}>{item.qty}</span>
+                <span
+                  className="ml-1 font-semibold uppercase"
+                  style={{ color: COLORS.inkSoft, fontSize: 12, letterSpacing: 0.3 }}
+                >
                   {item.unit}
                 </span>
               </div>
@@ -2032,8 +2035,8 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari di daftar ini..."
-            className="flex-1 py-2.5 bg-transparent text-sm"
-            style={{ color: COLORS.ink }}
+            className="flex-1 py-1.5 bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
           />
         </div>
       </div>
@@ -2397,8 +2400,8 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari tugas..."
-                className="flex-1 py-2.5 bg-transparent text-sm"
-                style={{ color: COLORS.ink }}
+                className="flex-1 py-1.5 bg-transparent"
+                style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
               />
             </div>
           </>
