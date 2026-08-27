@@ -200,6 +200,7 @@ export default function App() {
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY };
     dragModeRef.current = null;
+    setDragX(0);
     setIsDragging(true);
   };
   const handleTouchMove = (e) => {
@@ -221,19 +222,24 @@ export default function App() {
     if (idx === TAB_ORDER.length - 1 && dx < 0) clamped = dx * 0.35; // di ujung paling akhir
     setDragX(clamped);
   };
-  const handleTouchEnd = () => {
-    const idx = TAB_ORDER.indexOf(view);
-    const dx = dragX;
-    const SWIPE_THRESHOLD = 60;
-    if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
-      setView(TAB_ORDER[idx + 1]);
-    } else if (dx > SWIPE_THRESHOLD && idx > 0) {
-      setView(TAB_ORDER[idx - 1]);
-    }
+  const resetDrag = () => {
     setIsDragging(false);
     setDragX(0);
     touchStartRef.current = null;
     dragModeRef.current = null;
+  };
+  const handleTouchEnd = () => {
+    const idx = TAB_ORDER.indexOf(view);
+    const dx = dragX;
+    const SWIPE_THRESHOLD = 60;
+    if (dragModeRef.current === "horizontal") {
+      if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
+        setView(TAB_ORDER[idx + 1]);
+      } else if (dx > SWIPE_THRESHOLD && idx > 0) {
+        setView(TAB_ORDER[idx - 1]);
+      }
+    }
+    resetDrag();
   };
 
   const [stockSearch, setStockSearch] = useState("");
@@ -846,6 +852,7 @@ export default function App() {
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onTouchCancel={resetDrag}
         >
           <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
