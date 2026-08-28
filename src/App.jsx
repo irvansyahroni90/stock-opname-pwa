@@ -237,10 +237,10 @@ function LoginScreen({ onLogin }) {
       <div className="w-full sm:max-w-xs p-5 rounded-2xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         <div className="flex flex-col items-center mb-6 mt-2">
           <img
-            src="/icon-512.png"
+            src="/frinirvan-icon.png"
             alt="Frinirvan Tracker"
-            className="w-12 h-12 rounded-2xl mb-3"
-            style={{ objectFit: "cover" }}
+            className="mb-3"
+            style={{ width: 96, height: "auto" }}
           />
           <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 22, lineHeight: 1.15, textAlign: "center" }}>
             <span style={{ color: COLORS.primary }}>Frinirvan</span>{" "}
