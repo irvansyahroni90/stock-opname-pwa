@@ -32,8 +32,10 @@ import {
   Clock,
   CheckCircle2,
   LayoutGrid,
+  LogOut,
+  Lock,
 } from "lucide-react";
-import { storageGet, storageSet, storageSubscribe } from "./firebase";
+import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 
 const COLORS = {
   bg: "#F1EEE3",
@@ -174,7 +176,111 @@ const CHIP_META = {
 
 const BACKUP_KEYS = ["stock-items", "stock-history", "stock-tobuy", "stock-places", "agenda-tasks", "agenda-due-threshold"];
 
+function loginErrorMessage(err) {
+  const code = err && err.code ? err.code : "";
+  if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(code)) {
+    return "Email atau password salah.";
+  }
+  if (code === "auth/too-many-requests") {
+    return "Terlalu banyak percobaan. Coba lagi beberapa saat lagi.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Tidak ada koneksi internet.";
+  }
+  return "Gagal masuk. Coba lagi.";
+}
+
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await onLogin(email.trim(), password);
+      // Berhasil: subscribeAuth di App akan otomatis update tampilan.
+    } catch (err) {
+      setError(loginErrorMessage(err));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }}
+      className="flex items-center justify-center px-4"
+    >
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+        input:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
+        ::placeholder { color: #A6A296; }
+      `}</style>
+      <div className="w-full sm:max-w-xs p-5 rounded-2xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <div className="flex flex-col items-center mb-6 mt-2">
+          <span
+            className="w-11 h-11 rounded-full flex items-center justify-center mb-3"
+            style={{ background: COLORS.safeBg }}
+          >
+            <Lock size={18} color={COLORS.primary} />
+          </span>
+          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+            Frinirvan Tracker
+          </div>
+          <div className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>Masuk untuk melanjutkan</div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <input
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            className="w-full px-3 py-2.5 rounded-xl bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 14, border: `1px solid ${COLORS.border}` }}
+          />
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            className="w-full px-3 py-2.5 rounded-xl bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 14, border: `1px solid ${COLORS.border}` }}
+          />
+
+          {error && (
+            <div className="text-xs" style={{ color: COLORS.out }}>{error}</div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting || !email.trim() || !password}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white mt-1"
+            style={{ background: COLORS.primary, opacity: submitting || !email.trim() || !password ? 0.6 : 1 }}
+          >
+            {submitting ? "Masuk..." : "Masuk"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  // undefined = masih dicek, null = belum login, object = sudah login
+  const [authUser, setAuthUser] = useState(undefined);
+
+  useEffect(() => {
+    const unsub = subscribeAuth((u) => setAuthUser(u));
+    return unsub;
+  }, []);
+
   const [items, setItems] = useState([]);
   const [history, setHistory] = useState([]);
   const [toBuy, setToBuy] = useState([]);
@@ -182,6 +288,12 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [dueThreshold, setDueThreshold] = useState(3);
   const [loading, setLoading] = useState(true);
+
+  // Kalau logout, siapkan ulang supaya lain kali login lagi tampil "Memuat
+  // data..." dulu, bukan sekilas nampilin data punya sesi sebelumnya.
+  useEffect(() => {
+    if (authUser === null) setLoading(true);
+  }, [authUser]);
   const [userName, setUserName] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [askName, setAskName] = useState(false);
@@ -329,7 +441,10 @@ export default function App() {
 
   // Semua data toko disinkronkan real-time lewat Firestore: perubahan dari
   // HP/perangkat lain akan langsung muncul di sini tanpa perlu refresh.
+  // Baru mulai sinkron setelah login berhasil (authUser terisi) — sebelum
+  // itu Firestore memang akan menolak aksesnya (lihat Security Rules).
   useEffect(() => {
+    if (!authUser) return;
     let pending = 6;
     const markLoaded = () => {
       pending -= 1;
@@ -364,7 +479,7 @@ export default function App() {
     ];
 
     return () => unsubs.forEach((fn) => fn && fn());
-  }, []);
+  }, [authUser]);
 
   // Data sudah sinkron otomatis lewat listener real-time di atas. Tombol
   // "Muat ulang" cuma memaksa ambil ulang sekali dari server (mis. kalau
@@ -846,6 +961,20 @@ export default function App() {
     return { list: active.slice(0, 3), total: active.length };
   }, [tasks, dueThreshold]);
 
+  // Masih mengecek status login ke Firebase (sekejap saat pertama buka app)
+  if (authUser === undefined) {
+    return (
+      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.inkSoft }} className="flex items-center justify-center text-sm">
+        Memuat...
+      </div>
+    );
+  }
+
+  // Belum login (atau baru logout) — tampilkan layar login, jangan render app-nya
+  if (authUser === null) {
+    return <LoginScreen onLogin={login} />;
+  }
+
   if (loading) {
     return (
       <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.inkSoft }} className="flex items-center justify-center text-sm">
@@ -1173,11 +1302,13 @@ export default function App() {
       {showUserMenu && (
         <UserMenuPanel
           userName={userName}
+          userEmail={authUser ? authUser.email : ""}
           onClose={() => setShowUserMenu(false)}
           onChangeName={() => setAskName(true)}
           onOpenHistory={() => setShowHistory(true)}
           onBackup={handleBackupDownload}
           onRestore={triggerRestorePicker}
+          onLogout={logout}
         />
       )}
 
@@ -1269,7 +1400,7 @@ export default function App() {
   );
 }
 
-function UserMenuPanel({ userName, onClose, onChangeName, onOpenHistory, onBackup, onRestore }) {
+function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onLogout }) {
   const [entered, setEntered] = useState(false);
 
   useEffect(() => {
@@ -1314,7 +1445,7 @@ function UserMenuPanel({ userName, onClose, onChangeName, onOpenHistory, onBacku
             </span>
             <div>
               <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
-              <div className="text-xs" style={{ color: COLORS.inkSoft }}>Frinirvan Tracker</div>
+              <div className="text-xs" style={{ color: COLORS.inkSoft }}>{userEmail || "Frinirvan Tracker"}</div>
             </div>
           </div>
           <button onClick={handleClose}>
@@ -1328,19 +1459,24 @@ function UserMenuPanel({ userName, onClose, onChangeName, onOpenHistory, onBacku
           <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
           <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
         </div>
+
+        <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <UserMenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
+        </div>
       </div>
     </div>
   );
 }
 
-function UserMenuItem({ icon: Icon, label, onClick, last }) {
+function UserMenuItem({ icon: Icon, label, onClick, last, danger }) {
+  const color = danger ? COLORS.out : COLORS.ink;
   return (
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3.5 text-sm text-left"
-      style={{ color: COLORS.ink, borderBottom: last ? "none" : `1px solid ${COLORS.border}` }}
+      style={{ color, borderBottom: last ? "none" : `1px solid ${COLORS.border}` }}
     >
-      <Icon size={16} color={COLORS.inkSoft} />
+      <Icon size={16} color={danger ? COLORS.out : COLORS.inkSoft} />
       {label}
     </button>
   );
