@@ -34,6 +34,7 @@ import {
   LayoutGrid,
   LogOut,
   Eye,
+  EyeOff,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 
@@ -221,8 +222,17 @@ function LoginScreen({ onLogin }) {
     >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+        html, body {
+          position: fixed;
+          inset: 0;
+          overflow: hidden;
+          overscroll-behavior: none;
+          width: 100%;
+          height: 100%;
+        }
         input:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
+        @keyframes eyePop { 0% { transform: scale(0.6); opacity: 0.3; } 100% { transform: scale(1); opacity: 1; } }
       `}</style>
       <div className="w-full sm:max-w-xs p-5 rounded-2xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         <div className="flex flex-col items-center mb-6 mt-2">
@@ -232,10 +242,11 @@ function LoginScreen({ onLogin }) {
             className="w-12 h-12 rounded-2xl mb-3"
             style={{ objectFit: "cover" }}
           />
-          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
-            Frinirvan Tracker
+          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 22, lineHeight: 1.15, textAlign: "center" }}>
+            <span style={{ color: COLORS.primary }}>Frinirvan</span>{" "}
+            <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
           </div>
-          <div className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>Masuk untuk melanjutkan</div>
+          <div className="text-xs mt-1.5" style={{ color: COLORS.inkSoft }}>Masuk untuk melanjutkan</div>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -272,7 +283,16 @@ function LoginScreen({ onLogin }) {
               className="absolute"
               style={{ right: 10, top: "50%", transform: "translateY(-50%)", padding: 4 }}
             >
-              <Eye size={16} color={showPassword ? COLORS.primary : COLORS.inkSoft} />
+              <span
+                key={showPassword ? "open" : "closed"}
+                style={{ display: "inline-flex", animation: "eyePop 180ms ease-out" }}
+              >
+                {showPassword ? (
+                  <Eye size={16} color={COLORS.primary} />
+                ) : (
+                  <EyeOff size={16} color={COLORS.inkSoft} />
+                )}
+              </span>
             </button>
           </div>
 
@@ -1010,6 +1030,14 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         * { box-sizing: border-box; }
+        html, body {
+          position: fixed;
+          inset: 0;
+          overflow: hidden;
+          overscroll-behavior: none;
+          width: 100%;
+          height: 100%;
+        }
         input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
       `}</style>
@@ -1033,7 +1061,7 @@ export default function App() {
           onTouchEnd={handleTouchEnd}
           onTouchCancel={resetDrag}
         >
-          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
               <div className="relative pt-8 pb-5">
                 <div className="flex items-start justify-between gap-2">
@@ -1167,7 +1195,7 @@ export default function App() {
           </div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
           <StockPage
             items={items}
@@ -1190,7 +1218,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
           <ToBuyPage
             toBuy={toBuy}
@@ -1212,7 +1240,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ width: "100vw" }}>
+          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
           <AgendaPage
             tasks={tasks}
@@ -1454,6 +1482,7 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
           paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)",
           transform: `translateX(${entered ? "0" : "100%"})`,
           transition: "transform 260ms ease-out",
+          overscrollBehaviorY: "contain",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -3068,7 +3097,7 @@ function Field({ label, children, className = "" }) {
 function HistoryPanel({ history, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div className="w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)" }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <ClipboardList size={18} color={COLORS.primary} />
