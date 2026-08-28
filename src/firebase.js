@@ -1,5 +1,11 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth";
 
 // Isi nilai-nilai ini di file .env (lihat .env.example) — JANGAN hardcode di sini.
 const firebaseConfig = {
@@ -13,6 +19,27 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
+
+// --- Login (khusus kamu & istri) ---------------------------------------
+// Akun-akunnya dibuat manual di Firebase Console (Authentication > Users),
+// BUKAN lewat app ini — jadi tidak ada tombol "daftar" di mana pun.
+
+// Dengarkan status login (langsung dipanggil sekali saat pertama subscribe
+// dengan status saat itu, lalu setiap kali login/logout berubah).
+// Mengembalikan fungsi untuk berhenti mendengarkan.
+export function subscribeAuth(callback) {
+  return onAuthStateChanged(auth, callback);
+}
+
+// Login pakai email + password yang sudah dibuat di Firebase Console.
+export async function login(email, password) {
+  await signInWithEmailAndPassword(auth, email, password);
+}
+
+export async function logout() {
+  await signOut(auth);
+}
 
 // Semua perangkat yang pakai WORKSPACE_ID yang sama akan berbagi data yang sama.
 // Ganti VITE_WORKSPACE_ID di .env kalau mau pisahkan beberapa toko/tim dalam
