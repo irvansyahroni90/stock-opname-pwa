@@ -223,12 +223,8 @@ function LoginScreen({ onLogin }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
         html, body {
-          position: fixed;
-          inset: 0;
           overflow: hidden;
           overscroll-behavior: none;
-          width: 100%;
-          height: 100%;
         }
         input:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
@@ -465,6 +461,60 @@ export default function App() {
     };
     el.addEventListener("scroll", resetScroll, { passive: true });
     return () => el.removeEventListener("scroll", resetScroll);
+  }, []);
+
+  // Cegah efek "karet"/tembus ala iOS (rubber-band bounce) saat list
+  // discroll sampai mentok atas/bawah. CSS overscroll-behavior saja
+  // ternyata tidak selalu cukup diandalkan di semua versi iOS/Android
+  // (event React (onTouchMove) juga otomatis "passive" sehingga
+  // preventDefault()-nya tidak selalu didengar browser) — jadi di sini
+  // dipasang listener sentuhan native (bukan lewat React) yang secara
+  // eksplisit non-passive, supaya preventDefault() benar-benar dipatuhi
+  // browser tepat saat jari menggeser melewati batas atas/bawah list.
+  // Ini tidak mengganggu swipe kiri/kanan pindah tab (itu sudah ditangani
+  // terpisah oleh handleTouchStart/Move/End di atas).
+  useEffect(() => {
+    const el = trackWrapRef.current;
+    if (!el) return;
+
+    let startY = 0;
+    let scrollTarget = null;
+
+    function findScrollable(node) {
+      while (node && node !== el) {
+        if (node.scrollHeight > node.clientHeight) {
+          const overflowY = window.getComputedStyle(node).overflowY;
+          if (overflowY === "auto" || overflowY === "scroll") return node;
+        }
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    function onStart(e) {
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      scrollTarget = findScrollable(e.target);
+    }
+
+    function onMove(e) {
+      if (!scrollTarget || e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - startY;
+      const atTop = scrollTarget.scrollTop <= 0;
+      const atBottom = scrollTarget.scrollTop + scrollTarget.clientHeight >= scrollTarget.scrollHeight - 1;
+      // dy > 0: jari geser ke bawah (menarik konten atas) — cegah kalau sudah mentok atas.
+      // dy < 0: jari geser ke atas (menarik konten bawah) — cegah kalau sudah mentok bawah.
+      if ((dy > 0 && atTop) || (dy < 0 && atBottom)) {
+        e.preventDefault();
+      }
+    }
+
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+    };
   }, []);
 
   useEffect(() => {
@@ -1031,12 +1081,8 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         * { box-sizing: border-box; }
         html, body {
-          position: fixed;
-          inset: 0;
           overflow: hidden;
           overscroll-behavior: none;
-          width: 100%;
-          height: 100%;
         }
         input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
