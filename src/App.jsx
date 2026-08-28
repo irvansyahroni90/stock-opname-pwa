@@ -33,7 +33,7 @@ import {
   CheckCircle2,
   LayoutGrid,
   LogOut,
-  Lock,
+  Eye,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 
@@ -193,6 +193,7 @@ function loginErrorMessage(err) {
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -210,6 +211,9 @@ function LoginScreen({ onLogin }) {
     }
   };
 
+  const reveal = () => setShowPassword(true);
+  const hide = () => setShowPassword(false);
+
   return (
     <div
       style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }}
@@ -222,12 +226,12 @@ function LoginScreen({ onLogin }) {
       `}</style>
       <div className="w-full sm:max-w-xs p-5 rounded-2xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         <div className="flex flex-col items-center mb-6 mt-2">
-          <span
-            className="w-11 h-11 rounded-full flex items-center justify-center mb-3"
-            style={{ background: COLORS.safeBg }}
-          >
-            <Lock size={18} color={COLORS.primary} />
-          </span>
+          <img
+            src="/icon-512.png"
+            alt="Frinirvan Tracker"
+            className="w-12 h-12 rounded-2xl mb-3"
+            style={{ objectFit: "cover" }}
+          />
           <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
             Frinirvan Tracker
           </div>
@@ -244,15 +248,33 @@ function LoginScreen({ onLogin }) {
             className="w-full px-3 py-2.5 rounded-xl bg-transparent"
             style={{ color: COLORS.ink, fontSize: 14, border: `1px solid ${COLORS.border}` }}
           />
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full px-3 py-2.5 rounded-xl bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 14, border: `1px solid ${COLORS.border}` }}
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full px-3 py-2.5 rounded-xl bg-transparent"
+              style={{ color: COLORS.ink, fontSize: 14, border: `1px solid ${COLORS.border}`, paddingRight: 40 }}
+            />
+            <button
+              type="button"
+              aria-label="Tahan untuk lihat password"
+              // Tahan (mouse/jari) untuk lihat, lepas untuk sembunyikan lagi.
+              onMouseDown={reveal}
+              onMouseUp={hide}
+              onMouseLeave={hide}
+              onTouchStart={(e) => { e.preventDefault(); reveal(); }}
+              onTouchEnd={hide}
+              onTouchCancel={hide}
+              tabIndex={-1}
+              className="absolute"
+              style={{ right: 10, top: "50%", transform: "translateY(-50%)", padding: 4 }}
+            >
+              <Eye size={16} color={showPassword ? COLORS.primary : COLORS.inkSoft} />
+            </button>
+          </div>
 
           {error && (
             <div className="text-xs" style={{ color: COLORS.out }}>{error}</div>
