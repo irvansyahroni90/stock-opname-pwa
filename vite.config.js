@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["apple-touch-icon.png", "favicon.png"],
       manifest: {
-        name: "Stock Opname",
-        short_name: "Stock Opname",
-        description: "Pencatatan stok, daftar belanja, dan agenda toko",
+        name: "Frinirvan Tracker",
+        short_name: "Frinirvan Tracker",
+        description: "Pencatatan stok, daftar belanja, dan agenda rumah",
         start_url: "/",
         display: "standalone",
         background_color: "#F1EEE3",
