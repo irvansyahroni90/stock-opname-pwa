@@ -464,24 +464,35 @@ export default function App() {
   }, []);
 
   // Cegah efek "karet"/tembus ala iOS (rubber-band bounce) saat list
-  // discroll sampai mentok atas/bawah. CSS overscroll-behavior saja
-  // ternyata tidak selalu cukup diandalkan di semua versi iOS/Android
-  // (event React (onTouchMove) juga otomatis "passive" sehingga
-  // preventDefault()-nya tidak selalu didengar browser) — jadi di sini
-  // dipasang listener sentuhan native (bukan lewat React) yang secara
-  // eksplisit non-passive, supaya preventDefault() benar-benar dipatuhi
-  // browser tepat saat jari menggeser melewati batas atas/bawah list.
-  // Ini tidak mengganggu swipe kiri/kanan pindah tab (itu sudah ditangani
-  // terpisah oleh handleTouchStart/Move/End di atas).
+  // discroll sampai mentok atas/bawah — TERMASUK saat app dibuka dari
+  // "Add to Home Screen" (mode standalone).
+  //
+  // Kenapa perlu terpisah dari fix sebelumnya: di Safari biasa (bukan
+  // standalone), toolbar Safari sendiri "menutupi" area status bar,
+  // jadi walau ada bug bouncing di situ, ketutup dan gak kelihatan. Begitu
+  // dibuka sebagai app standalone (tanpa toolbar Safari), area itu jadi
+  // polos milik app sepenuhnya — dan ternyata WebKit di mode standalone
+  // punya perilaku "bounce" sendiri di level SELURUH HALAMAN (bukan cuma
+  // di dalam list), yang tidak bisa dicegah hanya dengan menjaga area di
+  // dalam trackWrapRef saja. Makanya sekarang listener-nya dipasang di
+  // `document` (mencakup seluruh app, termasuk BottomNav & menu/riwayat
+  // yang render di luar trackWrapRef), dan sentuhan yang TIDAK sedang
+  // scroll list apa pun (mis. nyentuh area kosong/BottomNav) langsung
+  // dicegah juga — supaya WebKit gak sempat mengambil alih dan mem-bounce
+  // seluruh halaman.
+  //
+  // CSS overscroll-behavior saja ternyata tidak selalu cukup diandalkan
+  // (apalagi di mode standalone), dan event React (onTouchMove) otomatis
+  // "passive" sehingga preventDefault()-nya tidak selalu didengar browser
+  // — jadi dipasang listener sentuhan native (bukan lewat React) yang
+  // eksplisit non-passive. Ini tidak mengganggu swipe kiri/kanan pindah
+  // tab (itu sudah ditangani terpisah oleh handleTouchStart/Move/End).
   useEffect(() => {
-    const el = trackWrapRef.current;
-    if (!el) return;
-
     let startY = 0;
     let scrollTarget = null;
 
     function findScrollable(node) {
-      while (node && node !== el) {
+      while (node && node !== document.body) {
         if (node.scrollHeight > node.clientHeight) {
           const overflowY = window.getComputedStyle(node).overflowY;
           if (overflowY === "auto" || overflowY === "scroll") return node;
@@ -498,7 +509,21 @@ export default function App() {
     }
 
     function onMove(e) {
-      if (!scrollTarget || e.touches.length !== 1) return;
+      if (e.touches.length !== 1) return;
+
+      // Kalau ini bagian dari swipe geser kiri/kanan pindah tab (sudah
+      // dideteksi & ditangani terpisah oleh handleTouchMove/handleTouchEnd
+      // lewat dragModeRef), jangan diganggu sama sekali di sini.
+      if (dragModeRef.current === "horizontal") return;
+
+      // Tidak ada elemen yang bisa di-scroll di jalur sentuhan ini (mis.
+      // BottomNav, area kosong) — cegah total supaya WebKit standalone
+      // tidak mem-bounce seluruh halaman.
+      if (!scrollTarget) {
+        e.preventDefault();
+        return;
+      }
+
       const dy = e.touches[0].clientY - startY;
       const atTop = scrollTarget.scrollTop <= 0;
       const atBottom = scrollTarget.scrollTop + scrollTarget.clientHeight >= scrollTarget.scrollHeight - 1;
@@ -509,11 +534,11 @@ export default function App() {
       }
     }
 
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchmove", onMove, { passive: false });
     return () => {
-      el.removeEventListener("touchstart", onStart);
-      el.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchmove", onMove);
     };
   }, []);
 
