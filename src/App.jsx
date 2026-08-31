@@ -1772,7 +1772,7 @@ function BottomNav({ view, setView }) {
   return (
     <div
       className="fixed bottom-0 left-0 right-0 z-40"
-      style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
     >
       <div className="max-w-2xl mx-auto flex items-stretch justify-around px-1.5 py-2">
         {tabs.map((t) => {
