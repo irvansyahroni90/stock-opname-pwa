@@ -2,12 +2,18 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#2F4A3C" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#F1EEE3" />
 
-    <!-- Supaya bisa di-"Add to Home Screen" dan tampil fullscreen di iPhone -->
+    <!-- Supaya bisa di-"Add to Home Screen" dan tampil fullscreen di iPhone.
+         Sengaja TIDAK pakai viewport-fit=cover + black-translucent lagi:
+         itu yang bikin konten "nembus" ke area status bar/home indicator
+         di mode standalone. Dengan status bar style "default", iOS akan
+         gambar status bar solid/opaque sendiri — konten app dijamin tidak
+         akan pernah bisa menembus ke situ, karena areanya memang bukan
+         punya app lagi (dikunci sistem, bukan cuma diatur lewat CSS). -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Frinirvan Tracker" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
