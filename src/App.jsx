@@ -1652,6 +1652,7 @@ export default function App() {
 
 function NotifBell({ count, activity, open, onOpen, onClose }) {
   const wrapRef = useRef(null);
+  const [panelMaxHeight, setPanelMaxHeight] = useState(420);
 
   useEffect(() => {
     if (!open) return;
@@ -1665,6 +1666,29 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
       document.removeEventListener("touchstart", handleOutside);
     };
   }, [open, onClose]);
+
+  // Hitung ulang tinggi maksimal panel berdasar sisa ruang layar, biar
+  // selalu pas baik di iPhone maupun Android (tinggi status bar/layar beda-beda)
+  // dan tidak pernah kepotong di layar pendek.
+  useEffect(() => {
+    if (!open) return;
+    function recompute() {
+      const el = wrapRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      const bottomGap = 20;
+      const available = viewportH - rect.bottom - bottomGap;
+      setPanelMaxHeight(Math.max(240, Math.min(460, available)));
+    }
+    recompute();
+    window.addEventListener("resize", recompute);
+    window.addEventListener("orientationchange", recompute);
+    return () => {
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("orientationchange", recompute);
+    };
+  }, [open]);
 
   // Kelompokkan per hari, urutan kemunculan grup mengikuti urutan item
   // (yang sudah terurut terbaru duluan), jadi labelnya otomatis benar.
@@ -1712,8 +1736,17 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
       {open && (
         <div
           className="absolute"
-          style={{ top: "calc(100% + 10px)", right: 0, zIndex: 60, width: "min(340px, calc(100vw - 32px))" }}
+          style={{
+            top: "calc(100% + 10px)",
+            right: 0,
+            zIndex: 60,
+            width: "min(340px, calc(100vw - 32px))",
+            filter: "drop-shadow(0 16px 30px rgba(43,42,37,0.20)) drop-shadow(0 2px 6px rgba(43,42,37,0.10))",
+            animation: "notifPop 180ms ease-out",
+          }}
         >
+          {/* Panah penunjuk: bentuknya menyatu dengan kartu (bayangan gabungan
+              lewat drop-shadow di wrapper), jadi tidak ada garis sambungan */}
           <div
             className="absolute"
             style={{
@@ -1722,26 +1755,27 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
               width: 14,
               height: 14,
               background: COLORS.card,
-              border: `1px solid ${COLORS.border}`,
+              borderRadius: 3,
               transform: "rotate(45deg)",
-              zIndex: 1,
             }}
           />
           <div
-            className="relative rounded-2xl overflow-hidden"
-            style={{
-              background: COLORS.card,
-              border: `1px solid ${COLORS.border}`,
-              boxShadow: "0 12px 32px rgba(43,42,37,0.18)",
-              animation: "notifPop 180ms ease-out",
-              zIndex: 2,
-            }}
+            className="relative rounded-2xl flex flex-col"
+            style={{ background: COLORS.card, maxHeight: panelMaxHeight, overflow: "hidden" }}
           >
-            <div className="px-4 pt-3.5 pb-2.5" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15, color: COLORS.ink }}>
-                Aktivitas Terbaru
+            <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 shrink-0">
+              <span
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: COLORS.iconAgendaBg }}
+              >
+                <Bell size={14} color={COLORS.iconAgendaFg} />
+              </span>
+              <div className="min-w-0">
+                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15, color: COLORS.ink, lineHeight: 1.2 }}>
+                  Aktivitas Terbaru
+                </div>
+                <div className="text-[11px] mt-0.5" style={{ color: COLORS.inkSoft }}>3 hari terakhir</div>
               </div>
-              <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>3 hari terakhir</div>
             </div>
 
             {activity.length === 0 ? (
@@ -1755,35 +1789,53 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
                 <div className="text-sm" style={{ color: COLORS.inkSoft }}>Belum ada aktivitas baru</div>
               </div>
             ) : (
-              <div style={{ maxHeight: 336, overflowY: "auto" }}>
-                {groups.map((g) => (
-                  <div key={g.label}>
-                    <div
-                      className="px-4 pt-2.5 pb-1 uppercase"
-                      style={{ fontSize: 10, letterSpacing: 0.5, fontWeight: 600, color: COLORS.inkSoft, background: COLORS.bg }}
-                    >
-                      {g.label}
-                    </div>
-                    {g.items.map((a) => {
-                      const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
-                      const Icon = meta.icon;
-                      return (
-                        <div key={a.id} className="flex items-start gap-2.5 px-4 py-2.5">
-                          <span
-                            className="shrink-0 rounded-full flex items-center justify-center"
-                            style={{ width: 30, height: 30, background: meta.bg }}
-                          >
-                            <Icon size={14} color={meta.fg} />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
-                            <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
+              <div className="relative flex-1" style={{ minHeight: 0 }}>
+                {/* Gradasi halus, ganti garis tegas biar transisi ke area scroll gak kaku */}
+                <div
+                  className="pointer-events-none absolute top-0 inset-x-0 z-10"
+                  style={{ height: 16, background: `linear-gradient(to bottom, ${COLORS.card}, ${COLORS.card}00)` }}
+                />
+                <div className="overflow-y-auto h-full">
+                  {groups.map((g, gi) => (
+                    <div key={g.label}>
+                      <div
+                        className="px-4 uppercase"
+                        style={{
+                          fontSize: 10,
+                          letterSpacing: 0.6,
+                          fontWeight: 700,
+                          color: COLORS.primaryLight,
+                          paddingTop: gi === 0 ? 2 : 14,
+                          paddingBottom: 6,
+                        }}
+                      >
+                        {g.label}
+                      </div>
+                      {g.items.map((a) => {
+                        const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
+                        const Icon = meta.icon;
+                        return (
+                          <div key={a.id} className="flex items-start gap-2.5 px-4 py-2.5">
+                            <span
+                              className="shrink-0 rounded-full flex items-center justify-center"
+                              style={{ width: 30, height: 30, background: meta.bg }}
+                            >
+                              <Icon size={14} color={meta.fg} />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
+                              <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="pointer-events-none absolute bottom-0 inset-x-0 z-10"
+                  style={{ height: 16, background: `linear-gradient(to top, ${COLORS.card}, ${COLORS.card}00)` }}
+                />
               </div>
             )}
           </div>
