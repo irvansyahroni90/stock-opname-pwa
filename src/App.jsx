@@ -1652,7 +1652,6 @@ export default function App() {
 
 function NotifBell({ count, activity, open, onOpen, onClose }) {
   const wrapRef = useRef(null);
-  const [panelMaxHeight, setPanelMaxHeight] = useState(420);
 
   useEffect(() => {
     if (!open) return;
@@ -1666,29 +1665,6 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
       document.removeEventListener("touchstart", handleOutside);
     };
   }, [open, onClose]);
-
-  // Hitung ulang tinggi maksimal panel berdasar sisa ruang layar, biar
-  // selalu pas baik di iPhone maupun Android (tinggi status bar/layar beda-beda)
-  // dan tidak pernah kepotong di layar pendek.
-  useEffect(() => {
-    if (!open) return;
-    function recompute() {
-      const el = wrapRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
-      const bottomGap = 20;
-      const available = viewportH - rect.bottom - bottomGap;
-      setPanelMaxHeight(Math.max(240, Math.min(460, available)));
-    }
-    recompute();
-    window.addEventListener("resize", recompute);
-    window.addEventListener("orientationchange", recompute);
-    return () => {
-      window.removeEventListener("resize", recompute);
-      window.removeEventListener("orientationchange", recompute);
-    };
-  }, [open]);
 
   // Kelompokkan per hari, urutan kemunculan grup mengikuti urutan item
   // (yang sudah terurut terbaru duluan), jadi labelnya otomatis benar.
@@ -1760,10 +1736,10 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
             }}
           />
           <div
-            className="relative rounded-2xl flex flex-col"
-            style={{ background: COLORS.card, maxHeight: panelMaxHeight, overflow: "hidden" }}
+            className="relative rounded-2xl"
+            style={{ background: COLORS.card, overflow: "hidden", maxHeight: "calc(100dvh - 170px)" }}
           >
-            <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 shrink-0">
+            <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
               <span
                 className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
                 style={{ background: COLORS.iconAgendaBg }}
@@ -1789,13 +1765,13 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
                 <div className="text-sm" style={{ color: COLORS.inkSoft }}>Belum ada aktivitas baru</div>
               </div>
             ) : (
-              <div className="relative flex-1" style={{ minHeight: 0 }}>
+              <div className="relative">
                 {/* Gradasi halus, ganti garis tegas biar transisi ke area scroll gak kaku */}
                 <div
                   className="pointer-events-none absolute top-0 inset-x-0 z-10"
                   style={{ height: 16, background: `linear-gradient(to bottom, ${COLORS.card}, ${COLORS.card}00)` }}
                 />
-                <div className="overflow-y-auto h-full">
+                <div style={{ maxHeight: 272, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
                   {groups.map((g, gi) => (
                     <div key={g.label}>
                       <div
