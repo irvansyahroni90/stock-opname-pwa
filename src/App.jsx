@@ -35,6 +35,7 @@ import {
   LogOut,
   Eye,
   EyeOff,
+  Bell,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 
@@ -155,6 +156,108 @@ function deadlineLabel(task) {
   if (diff === 0) return "Deadline hari ini";
   if (diff === 1) return "Besok deadline";
   return `${diff} hari lagi`;
+}
+
+// --- Aktivitas terbaru (buat lonceng notifikasi di Beranda) --------------
+// Menggabungkan riwayat stok, aktivitas Akan Dibeli, dan Agenda jadi satu
+// daftar kejadian terurut waktu (terbaru duluan), dibatasi 3 hari terakhir.
+// Ini murni turunan dari data yang sudah ada — tidak nambah tabel/koleksi
+// baru di Firestore.
+const ACTIVITY_ICON = {
+  stockAdd: { icon: Package, bg: COLORS.iconStockBg, fg: COLORS.iconStockFg },
+  stockUpdate: { icon: Package, bg: COLORS.iconStockBg, fg: COLORS.iconStockFg },
+  stockDelete: { icon: Trash2, bg: COLORS.outBg, fg: COLORS.out },
+  tobuyAdd: { icon: ShoppingCart, bg: COLORS.iconBuyBg, fg: COLORS.iconBuyFg },
+  tobuyBought: { icon: Check, bg: COLORS.safeBg, fg: COLORS.safe },
+  agendaAdd: { icon: CalendarCheck2, bg: COLORS.iconAgendaBg, fg: COLORS.iconAgendaFg },
+  agendaDone: { icon: CheckCircle2, bg: COLORS.safeBg, fg: COLORS.safe },
+};
+
+function buildActivityFeed(history, toBuy, tasks) {
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - 2); // hari ini + 2 hari ke belakang = 3 hari
+
+  const items = [];
+
+  for (const h of history || []) {
+    if (!h.timestamp) continue;
+    let kind, text;
+    if (h.action === "add") {
+      kind = "stockAdd";
+      text = `${h.user || "Seseorang"} menambahkan ${h.itemName} ke stok`;
+    } else if (h.action === "delete") {
+      kind = "stockDelete";
+      text = `${h.user || "Seseorang"} menghapus ${h.itemName} dari stok`;
+    } else if (h.newLevel) {
+      kind = "stockUpdate";
+      text = `${h.user || "Seseorang"} mengubah ${h.itemName} jadi ${LEVEL_LABEL[h.newLevel] || h.newLevel}`;
+    } else {
+      kind = "stockUpdate";
+      text = `${h.user || "Seseorang"} mengubah ${h.itemName} jadi ${h.newQty} ${h.unit || ""}`.trim();
+    }
+    items.push({ id: `h-${h.id}`, kind, text, timestamp: h.timestamp });
+  }
+
+  for (const e of toBuy || []) {
+    if (e.addedAt) {
+      const text = e.addedBy
+        ? `${e.addedBy} menambahkan ${e.itemName} ke Akan Dibeli`
+        : `${e.itemName} otomatis masuk Akan Dibeli (stok menipis)`;
+      items.push({ id: `tb-add-${e.id}`, kind: "tobuyAdd", text, timestamp: e.addedAt });
+    }
+    if (e.bought && e.boughtAt) {
+      items.push({
+        id: `tb-bought-${e.id}`,
+        kind: "tobuyBought",
+        text: `${e.boughtBy || "Seseorang"} membeli ${e.itemName}`,
+        timestamp: e.boughtAt,
+      });
+    }
+  }
+
+  for (const t of tasks || []) {
+    if (t.createdAt) {
+      items.push({
+        id: `tk-add-${t.id}`,
+        kind: "agendaAdd",
+        text: `${t.createdBy || "Seseorang"} menambahkan tugas "${t.title}"`,
+        timestamp: t.createdAt,
+      });
+    }
+    if (t.done && t.doneAt) {
+      items.push({
+        id: `tk-done-${t.id}`,
+        kind: "agendaDone",
+        text: `${t.doneBy || "Seseorang"} menyelesaikan tugas "${t.title}"`,
+        timestamp: t.doneAt,
+      });
+    }
+  }
+
+  return items
+    .filter((a) => new Date(a.timestamp) >= cutoff)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+}
+
+function activityDayLabel(iso) {
+  const d = new Date(iso);
+  const day = new Date(d);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - day) / 86400000);
+  if (diff <= 0) return "Hari ini";
+  if (diff === 1) return "Kemarin";
+  return `${diff} hari lalu`;
+}
+
+function fmtClock(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
 }
 
 const STATUS_META = {
@@ -427,6 +530,22 @@ export default function App() {
 
   const [showHistory, setShowHistory] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Aktivitas terbaru untuk lonceng notifikasi (murni turunan dari data
+  // yang sudah ada — lihat buildActivityFeed di atas).
+  const activityFeed = useMemo(() => buildActivityFeed(history, toBuy, tasks), [history, toBuy, tasks]);
+  const [showNotif, setShowNotif] = useState(false);
+  const [notifSeenAt, setNotifSeenAt] = useState(() => localStorage.getItem("stock-notif-seen") || "");
+  const unreadCount = useMemo(
+    () => activityFeed.filter((a) => a.timestamp > notifSeenAt).length,
+    [activityFeed, notifSeenAt]
+  );
+  const openNotif = () => {
+    setShowNotif(true);
+    const now = new Date().toISOString();
+    setNotifSeenAt(now);
+    localStorage.setItem("stock-notif-seen", now);
+  };
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', item? }
   const [toBuyModal, setToBuyModal] = useState(null); // { mode: 'add'|'edit', entry? }
   const [taskModal, setTaskModal] = useState(null); // { mode: 'add'|'edit', task? }
@@ -844,6 +963,7 @@ export default function App() {
       place: place || "",
       notes: notes ? notes.trim() : "",
       addedAt: new Date().toISOString(),
+      addedBy: userName,
       bought: false,
       boughtBy: null,
       boughtAt: null,
@@ -1110,6 +1230,8 @@ export default function App() {
           overscroll-behavior: none;
         }
         input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
+        @keyframes notifPop { 0% { opacity: 0; transform: scale(0.92) translateY(-6px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+        @keyframes notifBadgePop { 0% { transform: scale(0.5); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
         ::placeholder { color: #A6A296; }
       `}</style>
 
@@ -1148,6 +1270,13 @@ export default function App() {
                   </h1>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <NotifBell
+                    count={unreadCount}
+                    activity={activityFeed}
+                    open={showNotif}
+                    onOpen={openNotif}
+                    onClose={() => setShowNotif(false)}
+                  />
                   <button
                     onClick={() => setShowUserMenu(true)}
                     className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -1516,6 +1645,149 @@ export default function App() {
             Oke
           </button>
         </Overlay>
+      )}
+    </div>
+  );
+}
+
+function NotifBell({ count, activity, open, onOpen, onClose }) {
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutside(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) onClose();
+    }
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [open, onClose]);
+
+  // Kelompokkan per hari, urutan kemunculan grup mengikuti urutan item
+  // (yang sudah terurut terbaru duluan), jadi labelnya otomatis benar.
+  const groups = [];
+  for (const a of activity) {
+    const label = activityDayLabel(a.timestamp);
+    let g = groups.find((x) => x.label === label);
+    if (!g) {
+      g = { label, items: [] };
+      groups.push(g);
+    }
+    g.items.push(a);
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={() => (open ? onClose() : onOpen())}
+        className="relative w-10 h-10 rounded-full flex items-center justify-center"
+        style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+        title="Notifikasi"
+      >
+        <Bell size={16} color={COLORS.ink} />
+        {count > 0 && (
+          <span
+            key={count}
+            className="absolute flex items-center justify-center font-semibold text-white"
+            style={{
+              top: -2,
+              right: -2,
+              minWidth: 17,
+              height: 17,
+              padding: "0 4px",
+              borderRadius: 999,
+              background: COLORS.out,
+              fontSize: 10,
+              animation: "notifBadgePop 220ms ease-out",
+            }}
+          >
+            {count > 9 ? "9+" : count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          className="absolute"
+          style={{ top: "calc(100% + 10px)", right: 0, zIndex: 60, width: "min(340px, calc(100vw - 32px))" }}
+        >
+          <div
+            className="absolute"
+            style={{
+              top: -6,
+              right: 14,
+              width: 14,
+              height: 14,
+              background: COLORS.card,
+              border: `1px solid ${COLORS.border}`,
+              transform: "rotate(45deg)",
+              zIndex: 1,
+            }}
+          />
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              background: COLORS.card,
+              border: `1px solid ${COLORS.border}`,
+              boxShadow: "0 12px 32px rgba(43,42,37,0.18)",
+              animation: "notifPop 180ms ease-out",
+              zIndex: 2,
+            }}
+          >
+            <div className="px-4 pt-3.5 pb-2.5" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15, color: COLORS.ink }}>
+                Aktivitas Terbaru
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>3 hari terakhir</div>
+            </div>
+
+            {activity.length === 0 ? (
+              <div className="flex flex-col items-center text-center px-6 py-8">
+                <span
+                  className="w-11 h-11 rounded-full flex items-center justify-center mb-2.5"
+                  style={{ background: COLORS.bg }}
+                >
+                  <Bell size={17} color={COLORS.inkSoft} />
+                </span>
+                <div className="text-sm" style={{ color: COLORS.inkSoft }}>Belum ada aktivitas baru</div>
+              </div>
+            ) : (
+              <div style={{ maxHeight: 336, overflowY: "auto" }}>
+                {groups.map((g) => (
+                  <div key={g.label}>
+                    <div
+                      className="px-4 pt-2.5 pb-1 uppercase"
+                      style={{ fontSize: 10, letterSpacing: 0.5, fontWeight: 600, color: COLORS.inkSoft, background: COLORS.bg }}
+                    >
+                      {g.label}
+                    </div>
+                    {g.items.map((a) => {
+                      const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
+                      const Icon = meta.icon;
+                      return (
+                        <div key={a.id} className="flex items-start gap-2.5 px-4 py-2.5">
+                          <span
+                            className="shrink-0 rounded-full flex items-center justify-center"
+                            style={{ width: 30, height: 30, background: meta.bg }}
+                          >
+                            <Icon size={14} color={meta.fg} />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
+                            <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
