@@ -1652,6 +1652,9 @@ export default function App() {
 
 function NotifBell({ count, activity, open, onOpen, onClose }) {
   const wrapRef = useRef(null);
+  const headerRef = useRef(null);
+  const [listMaxHeight, setListMaxHeight] = useState(272);
+  const [panelWidth, setPanelWidth] = useState(320);
 
   useEffect(() => {
     if (!open) return;
@@ -1665,6 +1668,40 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
       document.removeEventListener("touchstart", handleOutside);
     };
   }, [open, onClose]);
+
+  // Hitung sisa ruang di layar dari POSISI ASLI tombol lonceng (bukan cuma
+  // asumsi jarak tetap). Ini juga yang bikin lebar panel sebelumnya mepet ke
+  // kiri: panel digantung dari sisi kanan tombol lonceng, tapi tombol itu
+  // sendiri bukan elemen paling kanan di layar (ada tombol menu di sebelahnya),
+  // jadi lebar tetap 340px kepanjangan ke kiri. Sekarang lebar & tinggi
+  // dihitung dari posisi asli tombol, dipasang sebagai angka piksel pasti
+  // (bukan %/vw), biar selalu pas & tetap bisa discroll di iPhone maupun Android.
+  useEffect(() => {
+    if (!open) return;
+    function recompute() {
+      const btn = wrapRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const headerH = headerRef.current ? headerRef.current.getBoundingClientRect().height : 64;
+      const viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      const viewportW = (window.visualViewport && window.visualViewport.width) || window.innerWidth;
+
+      const leftMargin = 16;
+      const availableWidth = rect.right - leftMargin;
+      setPanelWidth(Math.max(220, Math.min(340, availableWidth, viewportW - 32)));
+
+      const reserved = 10 + 24 + headerH + 12; // jarak ke tombol + jarak aman bawah + tinggi header + padding
+      const availableHeight = viewportH - rect.bottom - reserved;
+      setListMaxHeight(Math.max(140, Math.min(320, availableHeight)));
+    }
+    recompute();
+    window.addEventListener("resize", recompute);
+    window.addEventListener("orientationchange", recompute);
+    return () => {
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("orientationchange", recompute);
+    };
+  }, [open]);
 
   // Kelompokkan per hari, urutan kemunculan grup mengikuti urutan item
   // (yang sudah terurut terbaru duluan), jadi labelnya otomatis benar.
@@ -1716,7 +1753,7 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
             top: "calc(100% + 10px)",
             right: 0,
             zIndex: 60,
-            width: "min(340px, calc(100vw - 32px))",
+            width: panelWidth,
             filter: "drop-shadow(0 16px 30px rgba(43,42,37,0.20)) drop-shadow(0 2px 6px rgba(43,42,37,0.10))",
             animation: "notifPop 180ms ease-out",
           }}
@@ -1735,11 +1772,8 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
               transform: "rotate(45deg)",
             }}
           />
-          <div
-            className="relative rounded-2xl"
-            style={{ background: COLORS.card, overflow: "hidden", maxHeight: "calc(100dvh - 170px)" }}
-          >
-            <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
+          <div className="relative rounded-2xl" style={{ background: COLORS.card, overflow: "hidden" }}>
+            <div ref={headerRef} className="px-4 pt-4 pb-3 flex items-center gap-2.5">
               <span
                 className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
                 style={{ background: COLORS.iconAgendaBg }}
@@ -1771,7 +1805,7 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
                   className="pointer-events-none absolute top-0 inset-x-0 z-10"
                   style={{ height: 16, background: `linear-gradient(to bottom, ${COLORS.card}, ${COLORS.card}00)` }}
                 />
-                <div style={{ maxHeight: 272, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+                <div style={{ maxHeight: listMaxHeight, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
                   {groups.map((g, gi) => (
                     <div key={g.label}>
                       <div
