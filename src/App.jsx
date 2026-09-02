@@ -173,20 +173,6 @@ const ACTIVITY_ICON = {
   agendaDone: { icon: CheckCircle2, bg: COLORS.safeBg, fg: COLORS.safe },
 };
 
-// Kalau timestamp dua kejadian sama persis (mis. tugas dibuat lalu langsung
-// diselesaikan di saat yang "sama"), kejadian yang menandakan "hasil akhir"
-// (selesai/dibeli/dihapus) harus tetap tampil di atas kejadian "awal"
-// (dibuat/ditambahkan) — bukan kebalik.
-const ACTIVITY_TIE_PRIORITY = {
-  agendaDone: 1,
-  tobuyBought: 1,
-  stockDelete: 1,
-  agendaAdd: 0,
-  tobuyAdd: 0,
-  stockAdd: 0,
-  stockUpdate: 0,
-};
-
 function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
   const items = [];
 
@@ -253,11 +239,10 @@ function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
     filtered = items.filter((a) => new Date(a.timestamp) >= cutoff);
   }
 
-  return filtered.sort((a, b) => {
-    const diff = new Date(b.timestamp) - new Date(a.timestamp);
-    if (diff !== 0) return diff;
-    return (ACTIVITY_TIE_PRIORITY[b.kind] || 0) - (ACTIVITY_TIE_PRIORITY[a.kind] || 0);
-  });
+  // Semua timestamp berasal dari new Date().toISOString(), yang presisinya
+  // sudah sampai milidetik — jadi urut turun berdasar waktu asli ini saja
+  // sudah cukup dan selalu benar (gak butuh aturan tie-breaker tambahan).
+  return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 
 function activityDayLabel(iso) {
