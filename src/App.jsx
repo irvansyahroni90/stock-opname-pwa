@@ -173,11 +173,21 @@ const ACTIVITY_ICON = {
   agendaDone: { icon: CheckCircle2, bg: COLORS.safeBg, fg: COLORS.safe },
 };
 
-function buildActivityFeed(history, toBuy, tasks) {
-  const cutoff = new Date();
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - 2); // hari ini + 2 hari ke belakang = 3 hari
+// Kalau timestamp dua kejadian sama persis (mis. tugas dibuat lalu langsung
+// diselesaikan di saat yang "sama"), kejadian yang menandakan "hasil akhir"
+// (selesai/dibeli/dihapus) harus tetap tampil di atas kejadian "awal"
+// (dibuat/ditambahkan) — bukan kebalik.
+const ACTIVITY_TIE_PRIORITY = {
+  agendaDone: 1,
+  tobuyBought: 1,
+  stockDelete: 1,
+  agendaAdd: 0,
+  tobuyAdd: 0,
+  stockAdd: 0,
+  stockUpdate: 0,
+};
 
+function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
   const items = [];
 
   for (const h of history || []) {
@@ -235,9 +245,19 @@ function buildActivityFeed(history, toBuy, tasks) {
     }
   }
 
-  return items
-    .filter((a) => new Date(a.timestamp) >= cutoff)
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  let filtered = items;
+  if (days != null) {
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - (days - 1));
+    filtered = items.filter((a) => new Date(a.timestamp) >= cutoff);
+  }
+
+  return filtered.sort((a, b) => {
+    const diff = new Date(b.timestamp) - new Date(a.timestamp);
+    if (diff !== 0) return diff;
+    return (ACTIVITY_TIE_PRIORITY[b.kind] || 0) - (ACTIVITY_TIE_PRIORITY[a.kind] || 0);
+  });
 }
 
 function activityDayLabel(iso) {
@@ -249,7 +269,12 @@ function activityDayLabel(iso) {
   const diff = Math.round((today - day) / 86400000);
   if (diff <= 0) return "Hari ini";
   if (diff === 1) return "Kemarin";
-  return `${diff} hari lalu`;
+  if (diff < 7) return `${diff} hari lalu`;
+  return day.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: day.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
+  });
 }
 
 function fmtClock(iso) {
@@ -531,9 +556,12 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  // Aktivitas terbaru untuk lonceng notifikasi (murni turunan dari data
-  // yang sudah ada — lihat buildActivityFeed di atas).
-  const activityFeed = useMemo(() => buildActivityFeed(history, toBuy, tasks), [history, toBuy, tasks]);
+  // Aktivitas terbaru untuk lonceng notifikasi: dibatasi 3 hari terakhir
+  // (murni turunan dari data yang sudah ada — lihat buildActivityFeed di atas).
+  const activityFeed = useMemo(() => buildActivityFeed(history, toBuy, tasks, { days: 3 }), [history, toBuy, tasks]);
+  // Riwayat penuh (halaman "Riwayat" di menu): semua perubahan, semua fitur,
+  // tanpa batas hari — sumbernya sama persis dengan feed notifikasi.
+  const fullActivityFeed = useMemo(() => buildActivityFeed(history, toBuy, tasks), [history, toBuy, tasks]);
   const [showNotif, setShowNotif] = useState(false);
   const [notifSeenAt, setNotifSeenAt] = useState(() => localStorage.getItem("stock-notif-seen") || "");
   const unreadCount = useMemo(
@@ -1546,7 +1574,7 @@ export default function App() {
       )}
 
       {/* History panel */}
-      {showHistory && <HistoryPanel history={history} onClose={() => setShowHistory(false)} />}
+      {showHistory && <HistoryPanel activity={fullActivityFeed} onClose={() => setShowHistory(false)} />}
 
       {/* User menu drawer */}
       {showUserMenu && (
@@ -3499,7 +3527,20 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-function HistoryPanel({ history, onClose }) {
+function HistoryPanel({ activity, onClose }) {
+  // Kelompokkan per hari, urutan grup mengikuti urutan item (terbaru duluan
+  // — sudah diurutkan oleh buildActivityFeed).
+  const groups = [];
+  for (const a of activity || []) {
+    const label = activityDayLabel(a.timestamp);
+    let g = groups.find((x) => x.label === label);
+    if (!g) {
+      g = { label, items: [] };
+      groups.push(g);
+    }
+    g.items.push(a);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
       <div className="w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }} onClick={(e) => e.stopPropagation()}>
@@ -3513,26 +3554,50 @@ function HistoryPanel({ history, onClose }) {
           </button>
         </div>
 
-        {history.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="text-sm text-center py-10" style={{ color: COLORS.inkSoft }}>
             Belum ada riwayat perubahan.
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {history.map((h) => (
-              <div key={h.id} className="rounded-xl p-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-                <div className="text-sm font-medium" style={{ color: COLORS.ink }}>
-                  {h.itemName}
+          <div className="flex flex-col">
+            {groups.map((g, gi) => (
+              <div key={g.label}>
+                <div
+                  className="uppercase"
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: 0.6,
+                    fontWeight: 700,
+                    color: COLORS.primaryLight,
+                    paddingTop: gi === 0 ? 0 : 18,
+                    paddingBottom: 8,
+                  }}
+                >
+                  {g.label}
                 </div>
-                <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                  {h.action === "add" && h.newLevel && `+ ditambahkan (${LEVEL_LABEL[h.newLevel] || h.newLevel})`}
-                  {h.action === "add" && !h.newLevel && `+ ditambahkan (${h.newQty} ${h.unit})`}
-                  {h.action === "update" && h.newLevel && `${LEVEL_LABEL[h.oldLevel] || h.oldLevel} \u2192 ${LEVEL_LABEL[h.newLevel] || h.newLevel}`}
-                  {h.action === "update" && !h.newLevel && `${h.oldQty} \u2192 ${h.newQty} ${h.unit}`}
-                  {h.action === "delete" && `dihapus (terakhir ${h.oldQty} ${h.unit})`}
-                </div>
-                <div className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>
-                  {h.user || "?"} &middot; {fmtDateTime(h.timestamp)}
+                <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card }}>
+                  {g.items.map((a, ai) => {
+                    const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
+                    const Icon = meta.icon;
+                    return (
+                      <div
+                        key={a.id}
+                        className="flex items-start gap-2.5 px-3.5 py-3"
+                        style={{ borderTop: ai === 0 ? "none" : `1px solid ${COLORS.bg}` }}
+                      >
+                        <span
+                          className="shrink-0 rounded-full flex items-center justify-center"
+                          style={{ width: 32, height: 32, background: meta.bg }}
+                        >
+                          <Icon size={15} color={meta.fg} />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
+                          <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
