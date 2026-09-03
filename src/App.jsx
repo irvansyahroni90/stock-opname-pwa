@@ -2323,6 +2323,14 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
       });
   }, [items, search, filter]);
 
+  const guardedSetFilter = (f) => {
+    if (pendingEdit) {
+      onBlockedAttempt();
+      return;
+    }
+    setFilter(f);
+  };
+
   useEffect(() => {
     if (!highlightId) return;
     const el = document.getElementById(`stock-item-${highlightId}`);
@@ -2345,10 +2353,11 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         />
 
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <SummaryCard icon={Package} label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-          <SummaryCard icon={Clock} label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => setFilter("low")} />
-          <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => setFilter("out")} />
+          <SummaryCard icon={Package} label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => guardedSetFilter("all")} />
+          <SummaryCard icon={Clock} label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
+          <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
         </div>
+
 
         <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
           <Search size={16} color={COLORS.inkSoft} />
