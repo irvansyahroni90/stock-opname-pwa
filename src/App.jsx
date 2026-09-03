@@ -491,15 +491,70 @@ export default function App() {
     touchStartRef.current = null;
     dragModeRef.current = null;
   };
+
+  // --- Perubahan qty/level yang belum dikonfirmasi ------------------------
+  // Cuma boleh ada SATU perubahan yang "menggantung" (belum ditekan centang)
+  // di seluruh app. Selama itu ada: list gak akan di-sort ulang (karena data
+  // aslinya belum berubah sama sekali, cuma draft lokal), dan navigasi ke
+  // mana pun diblokir sampai dikonfirmasi atau draft-nya balik ke nilai semula.
+  const [pendingEdit, setPendingEdit] = useState(null); // { itemId, itemName, kind: 'qty'|'level', draft, unit }
+  const [blockedNotice, setBlockedNotice] = useState(null); // nama item yang perubahannya belum dikonfirmasi
+
+  const attemptNavigate = (fn) => {
+    if (pendingEdit) {
+      setBlockedNotice(pendingEdit.itemName);
+      return;
+    }
+    fn();
+  };
+
+  const beginOrUpdatePendingQty = (item, delta) => {
+    setPendingEdit((prev) => {
+      const base = prev && prev.itemId === item.id ? prev.draft : item.qty;
+      const draft = Math.max(0, Number((base + delta).toFixed(3)));
+      if (draft === item.qty) return null; // balik ke nilai semula -> gak perlu dikonfirmasi
+      return { itemId: item.id, itemName: item.name, kind: "qty", draft, unit: item.unit };
+    });
+  };
+
+  const setPendingLevelEdit = (item, newLevel) => {
+    if (newLevel === item.level) {
+      setPendingEdit(null);
+      return;
+    }
+    setPendingEdit({ itemId: item.id, itemName: item.name, kind: "level", draft: newLevel });
+  };
+
+  const confirmPendingEdit = async () => {
+    if (!pendingEdit) return;
+    const { itemId, kind, draft } = pendingEdit;
+    if (kind === "qty") {
+      const current = items.find((i) => i.id === itemId);
+      if (current) await handleQuickAdjust(itemId, Number((draft - current.qty).toFixed(3)));
+    } else {
+      await handleLevelChange(itemId, draft);
+    }
+    setPendingEdit(null);
+  };
+
+  const handleBlockedNoticeOk = () => {
+    if (!pendingEdit) {
+      setBlockedNotice(null);
+      return;
+    }
+    setBlockedNotice(null);
+    setHighlightTarget({ type: "stock", id: pendingEdit.itemId });
+  };
+
   const handleTouchEnd = () => {
     const idx = TAB_ORDER.indexOf(view);
     const dx = dragX;
     const SWIPE_THRESHOLD = 60;
     if (dragModeRef.current === "horizontal") {
       if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
-        setView(TAB_ORDER[idx + 1]);
+        attemptNavigate(() => setView(TAB_ORDER[idx + 1]));
       } else if (dx > SWIPE_THRESHOLD && idx > 0) {
-        setView(TAB_ORDER[idx - 1]);
+        attemptNavigate(() => setView(TAB_ORDER[idx - 1]));
       }
     }
     resetDrag();
@@ -1245,6 +1300,14 @@ export default function App() {
         input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         @keyframes notifPop { 0% { opacity: 0; transform: scale(0.92) translateY(-6px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
         @keyframes notifBadgePop { 0% { transform: scale(0.5); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+        @keyframes highlightBlinkTwice {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(107,143,113,0); }
+          15%, 45% { box-shadow: 0 0 0 3px rgba(107,143,113,0.55); }
+          30%, 60% { box-shadow: 0 0 0 0 rgba(107,143,113,0); }
+        }
+        .highlight-blink { animation: highlightBlinkTwice 1.1s ease-in-out; }
+        @keyframes confirmSlideIn { 0% { opacity: 0; transform: translateX(14px) scale(0.85); } 100% { opacity: 1; transform: translateX(0) scale(1); } }
+        .confirm-slide-in { animation: confirmSlideIn 220ms cubic-bezier(0.22, 1, 0.36, 1); }
         ::placeholder { color: #A6A296; }
       `}</style>
 
@@ -1408,31 +1471,31 @@ export default function App() {
           </div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
-            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+          <div className="h-full" style={{ width: "100vw" }}>
           <StockPage
             items={items}
             search={stockSearch}
             setSearch={setStockSearch}
             filter={stockFilter}
             setFilter={setStockFilter}
-            onBack={() => setView("dashboard")}
-            onAdd={() => setModal({ mode: "add" })}
-            onEditItem={(item) => setModal({ mode: "edit", item })}
-            onDeleteItem={(item) => setConfirmDelete({ type: "item", id: item.id, label: item.name })}
-            onAdjust={handleQuickAdjust}
-            onLevelChange={handleLevelChange}
+            onBack={() => attemptNavigate(() => setView("dashboard"))}
+            onAdd={() => attemptNavigate(() => setModal({ mode: "add" }))}
+            onEditItem={(item) => attemptNavigate(() => setModal({ mode: "edit", item }))}
+            onDeleteItem={(item) => attemptNavigate(() => setConfirmDelete({ type: "item", id: item.id, label: item.name }))}
+            onAdjust={beginOrUpdatePendingQty}
+            onLevelChange={setPendingLevelEdit}
+            pendingEdit={pendingEdit}
+            onConfirmPending={confirmPendingEdit}
+            onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
             userName={userName}
-            onOpenUserMenu={() => setShowUserMenu(true)}
+            onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
-            </div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
-            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+          <div className="h-full" style={{ width: "100vw" }}>
           <ToBuyPage
             toBuy={toBuy}
             search={tobuySearch}
@@ -1450,11 +1513,9 @@ export default function App() {
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
-            </div>
           </div>
 
-          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
-            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+          <div className="h-full" style={{ width: "100vw" }}>
           <AgendaPage
             tasks={tasks}
             dueThreshold={dueThreshold}
@@ -1474,18 +1535,19 @@ export default function App() {
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
-            </div>
           </div>
         </div>
       </div>
 
       {(view === "stock" || view === "tobuy" || view === "agenda") && (
         <button
-          onClick={() => {
-            if (view === "stock") setModal({ mode: "add" });
-            else if (view === "tobuy") setToBuyModal({ mode: "add" });
-            else setTaskModal({ mode: "add" });
-          }}
+          onClick={() =>
+            attemptNavigate(() => {
+              if (view === "stock") setModal({ mode: "add" });
+              else if (view === "tobuy") setToBuyModal({ mode: "add" });
+              else setTaskModal({ mode: "add" });
+            })
+          }
           className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
           style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
         >
@@ -1493,7 +1555,7 @@ export default function App() {
         </button>
       )}
 
-      <BottomNav view={view} setView={setView} />
+      <BottomNav view={view} setView={(v) => attemptNavigate(() => setView(v))} />
 
       {/* Name modal */}
       {askName && (
@@ -1555,6 +1617,24 @@ export default function App() {
               Hapus
             </button>
           </div>
+        </Overlay>
+      )}
+
+      {/* Peringatan: ada perubahan qty/level yang belum ditekan centang */}
+      {blockedNotice && (
+        <Overlay onClose={handleBlockedNoticeOk}>
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle size={18} color={COLORS.low} />
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+              Perubahan belum disetujui
+            </div>
+          </div>
+          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+            Kamu belum menyetujui perubahan pada "{blockedNotice}". Tekan centang pada item itu dulu, atau kembalikan ke nilai semula.
+          </p>
+          <button onClick={handleBlockedNoticeOk} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
+            OK
+          </button>
         </Overlay>
       )}
 
@@ -2216,7 +2296,7 @@ function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
 
 /* ---------------- Stock page ---------------- */
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -2253,8 +2333,10 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
   }, [highlightId]);
 
   return (
-    <>
-      <div className="sticky z-20 pb-3" style={{ top: "env(safe-area-inset-top)", background: COLORS.bg }}>
+    <div className="h-full flex flex-col">
+      {/* Header: elemen biasa (bukan sticky di dalam area scroll), jadi gak
+          pernah ikut ketarik pas list-nya di-bounce/overscroll. */}
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
         <TopBar
           title="Stok Rumah"
           onBack={onBack}
@@ -2280,43 +2362,63 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         </div>
       </div>
 
-      {filteredSorted.length === 0 ? (
-        <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
-          <Package size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
-          <div style={{ color: COLORS.inkSoft }} className="text-sm">
-            {items.length === 0 ? "Belum ada item. Tambahkan yang pertama." : "Tidak ada item yang cocok."}
-          </div>
+      {/* Area list: satu-satunya yang scroll & bounce, terpisah dari header. */}
+      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div className="max-w-2xl mx-auto px-4 pb-32">
+          {filteredSorted.length === 0 ? (
+            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+              <Package size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
+              <div style={{ color: COLORS.inkSoft }} className="text-sm">
+                {items.length === 0 ? "Belum ada item. Tambahkan yang pertama." : "Tidak ada item yang cocok."}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {filteredSorted.map((item) => {
+                const isPending = pendingEdit && pendingEdit.itemId === item.id;
+                const isBlocked = !!pendingEdit && !isPending;
+                return (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    pendingDraft={isPending ? pendingEdit : null}
+                    blocked={isBlocked}
+                    onAdjust={(d) => (isBlocked ? onBlockedAttempt() : onAdjust(item, d))}
+                    onLevelChange={(lvl) => (isBlocked ? onBlockedAttempt() : onLevelChange(item, lvl))}
+                    onConfirmPending={onConfirmPending}
+                    onEdit={() => onEditItem(item)}
+                    onDelete={() => onDeleteItem(item)}
+                    highlighted={item.id === highlightId}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="flex flex-col gap-2.5">
-          {filteredSorted.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onAdjust={(d) => onAdjust(item.id, d)}
-              onLevelChange={(lvl) => onLevelChange(item.id, lvl)}
-              onEdit={() => onEditItem(item)}
-              onDelete={() => onDeleteItem(item)}
-              highlighted={item.id === highlightId}
-            />
-          ))}
-        </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 
-function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted }) {
+function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConfirmPending, onEdit, onDelete, highlighted }) {
   const status = statusOf(item);
   const meta = STATUS_META[status];
   const isLevel = item.type === "level";
+  const isPending = !!pendingDraft;
+  const displayQty = isPending && pendingDraft.kind === "qty" ? pendingDraft.draft : item.qty;
+  const displayLevel = isPending && pendingDraft.kind === "level" ? pendingDraft.draft : item.level;
   return (
     <div
       id={`stock-item-${item.id}`}
       className={`rounded-2xl overflow-hidden flex ${highlighted ? "highlight-blink" : ""}`}
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+      style={{
+        background: COLORS.card,
+        border: `1px solid ${isPending ? COLORS.low : COLORS.border}`,
+        opacity: blocked ? 0.55 : 1,
+        transition: "border-color 160ms ease, opacity 160ms ease",
+      }}
     >
-      <div style={{ width: 4, background: meta.fg }} />
+      <div style={{ width: 4, background: isPending ? COLORS.low : meta.fg }} />
       <div className="flex-1 p-3">
         <div className="min-w-0">
           <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
@@ -2331,55 +2433,73 @@ function ItemCard({ item, onAdjust, onLevelChange, onEdit, onDelete, highlighted
                 min {item.minQty} {item.unit}
               </span>
             )}
+            {isPending && (
+              <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: COLORS.lowBg, color: COLORS.low, fontSize: 11 }}>
+                Belum disetujui
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="mt-2.5">
-          {isLevel ? (
-            <div className="flex items-center gap-1 flex-wrap">
-              {LEVEL_OPTIONS.map((opt) => {
-                const active = item.level === opt.key;
-                const optMeta = STATUS_META[opt.status];
-                return (
-                  <button
-                    key={opt.key}
-                    onClick={() => onLevelChange(opt.key)}
-                    className="px-2.5 py-1 rounded-full font-medium"
-                    style={{
-                      background: active ? optMeta.fg : COLORS.bg,
-                      color: active ? "#fff" : COLORS.inkSoft,
-                      border: `1px solid ${active ? optMeta.fg : COLORS.border}`,
-                      fontSize: 11,
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => onAdjust(-1)}
-                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                style={{ border: `1.5px solid ${COLORS.border}` }}
-              >
-                <Minus size={13} color={COLORS.ink} />
-              </button>
-              <div className="text-center" style={{ minWidth: 48 }}>
-                <span className="font-bold" style={{ fontSize: 15, color: COLORS.ink }}>{item.qty}</span>
-                <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-                  {item.unit}
-                </span>
+        <div className="mt-2.5 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            {isLevel ? (
+              <div className="flex items-center gap-1 flex-wrap">
+                {LEVEL_OPTIONS.map((opt) => {
+                  const active = displayLevel === opt.key;
+                  const optMeta = STATUS_META[opt.status];
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => onLevelChange(opt.key)}
+                      className="px-2.5 py-1 rounded-full font-medium"
+                      style={{
+                        background: active ? optMeta.fg : COLORS.bg,
+                        color: active ? "#fff" : COLORS.inkSoft,
+                        border: `1px solid ${active ? optMeta.fg : COLORS.border}`,
+                        fontSize: 11,
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
-              <button
-                onClick={() => onAdjust(1)}
-                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                style={{ border: `1.5px solid ${COLORS.border}` }}
-              >
-                <Plus size={13} color={COLORS.ink} />
-              </button>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => onAdjust(-1)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                  style={{ border: `1.5px solid ${COLORS.border}` }}
+                >
+                  <Minus size={13} color={COLORS.ink} />
+                </button>
+                <div className="text-center" style={{ minWidth: 48 }}>
+                  <span className="font-bold" style={{ fontSize: 15, color: isPending ? COLORS.low : COLORS.ink }}>{displayQty}</span>
+                  <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
+                    {item.unit}
+                  </span>
+                </div>
+                <button
+                  onClick={() => onAdjust(1)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                  style={{ border: `1.5px solid ${COLORS.border}` }}
+                >
+                  <Plus size={13} color={COLORS.ink} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {isPending && (
+            <button
+              onClick={onConfirmPending}
+              className="confirm-slide-in w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white"
+              style={{ background: COLORS.safe, boxShadow: "0 3px 10px rgba(107,143,113,0.4)" }}
+              title="Setujui perubahan"
+            >
+              <Check size={16} />
+            </button>
           )}
         </div>
 
@@ -2617,8 +2737,8 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
   }, [highlightId]);
 
   return (
-    <>
-      <div className="sticky z-20 pb-3" style={{ top: "env(safe-area-inset-top)", background: COLORS.bg }}>
+    <div className="h-full flex flex-col">
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
         <TopBar
           title="Akan Dibeli"
           onBack={onBack}
@@ -2643,21 +2763,25 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
-          <ShoppingCart size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
-          <div style={{ color: COLORS.inkSoft }} className="text-sm">
-            {filter === "pending" ? "Gak ada yang perlu dibeli." : "Belum ada yang dibeli."}
-          </div>
+      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div className="max-w-2xl mx-auto px-4 pb-32">
+          {filtered.length === 0 ? (
+            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+              <ShoppingCart size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
+              <div style={{ color: COLORS.inkSoft }} className="text-sm">
+                {filter === "pending" ? "Gak ada yang perlu dibeli." : "Belum ada yang dibeli."}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filtered.map((e) => (
+                <ToBuyRow key={e.id} entry={e} onToggle={() => onToggle(e.id)} onEdit={() => onEditEntry(e)} onDelete={() => onDeleteEntry(e)} highlighted={e.id === highlightId} />
+              ))}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {filtered.map((e) => (
-            <ToBuyRow key={e.id} entry={e} onToggle={() => onToggle(e.id)} onEdit={() => onEditEntry(e)} onDelete={() => onDeleteEntry(e)} highlighted={e.id === highlightId} />
-          ))}
-        </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -2951,8 +3075,8 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   }, [highlightId]);
 
   return (
-    <>
-      <div className="sticky z-20 pb-3" style={{ top: "env(safe-area-inset-top)", background: COLORS.bg }}>
+    <div className="h-full flex flex-col">
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
         <TopBar
           title="Agenda Rumah"
           onBack={onBack}
@@ -3010,27 +3134,31 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
         )}
       </div>
 
-      {subView === "list" ? (
-        <>
-          {listToShow.length === 0 ? (
-            <div className="py-10 text-center rounded-2xl mb-3" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
-              <ListTodo size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
-              <div style={{ color: COLORS.inkSoft }} className="text-sm">
-                {tasks.length === 0 ? "Belum ada tugas." : showingDone ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
-              </div>
-            </div>
+      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div className="max-w-2xl mx-auto px-4 pb-32">
+          {subView === "list" ? (
+            <>
+              {listToShow.length === 0 ? (
+                <div className="py-10 text-center rounded-2xl mb-3" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+                  <ListTodo size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
+                  <div style={{ color: COLORS.inkSoft }} className="text-sm">
+                    {tasks.length === 0 ? "Belum ada tugas." : showingDone ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {listToShow.map((t) => (
+                    <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} highlighted={t.id === highlightId} />
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
-            <div className="flex flex-col gap-2">
-              {listToShow.map((t) => (
-                <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} highlighted={t.id === highlightId} />
-              ))}
-            </div>
+            <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} />
           )}
-        </>
-      ) : (
-        <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} />
-      )}
-    </>
+        </div>
+      </div>
+    </div>
   );
 }
 
