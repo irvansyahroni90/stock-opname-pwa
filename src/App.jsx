@@ -36,8 +36,10 @@ import {
   Eye,
   EyeOff,
   Bell,
+  Wallet,
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
+import KasRumahApp from "./KasRumah";
 
 const COLORS = {
   bg: "#F1EEE3",
@@ -304,6 +306,100 @@ function loginErrorMessage(err) {
   return "Gagal masuk. Coba lagi.";
 }
 
+function AppPicker({ userName, onPick, onLogout }) {
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 10) return "Selamat pagi";
+    if (h < 15) return "Selamat siang";
+    if (h < 18) return "Selamat sore";
+    return "Selamat malam";
+  }, []);
+
+  const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const cards = [
+    {
+      key: "stok",
+      title: "Stok Rumah",
+      subtitle: "Stok barang, daftar belanja, dan agenda",
+      icon: Package,
+      iconBg: COLORS.iconStockBg,
+      iconFg: COLORS.iconStockFg,
+    },
+    {
+      key: "kas",
+      title: "Kas Rumah",
+      subtitle: "Catat pemasukan dan pengeluaran rumah",
+      icon: Wallet,
+      iconBg: COLORS.iconBuyBg,
+      iconFg: COLORS.iconBuyFg,
+    },
+  ];
+
+  return (
+    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Inter', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+      `}</style>
+      <div className="max-w-2xl mx-auto px-4 pb-10" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        <div className="relative pt-8 pb-5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
+                {greeting}
+                {userName ? `, ${userName}` : ""} <span>👋</span>
+              </div>
+              <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
+                <span style={{ color: COLORS.primary }}>Frinirvan</span>
+                <br />
+                <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
+              </h1>
+            </div>
+            <button
+              onClick={onLogout}
+              className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+              title="Keluar"
+            >
+              <LogOut size={16} color={COLORS.ink} />
+            </button>
+          </div>
+          <div className="text-sm mt-3 flex items-center gap-1.5 capitalize" style={{ color: COLORS.inkSoft }}>
+            <Calendar size={14} color={COLORS.inkSoft} />
+            {todayLabel}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {cards.map((c) => {
+            const Icon = c.icon;
+            return (
+              <button
+                key={c.key}
+                onClick={() => onPick(c.key)}
+                className="relative w-full rounded-2xl p-4 flex items-center gap-3 text-left"
+                style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}
+              >
+                <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: c.iconBg }}>
+                  <Icon size={20} color={c.iconFg} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{c.title}</div>
+                  <div className="text-xs mt-0.5" style={{ color: c.iconFg }}>
+                    {c.subtitle}
+                  </div>
+                </div>
+                <ChevronRight size={18} color={COLORS.inkSoft} className="shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -448,6 +544,9 @@ export default function App() {
   const [userName, setUserName] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [askName, setAskName] = useState(false);
+  // Aplikasi yang sedang dibuka: null = belum pilih (tampilkan kartu pilihan),
+  // 'stok' = Stok Rumah, 'kas' = Kas Rumah.
+  const [activeApp, setActiveApp] = useState(null);
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
 
@@ -1288,6 +1387,43 @@ export default function App() {
     );
   }
 
+  // Belum isi nama — tanya dulu sebelum masuk ke pemilihan aplikasi.
+  if (askName) {
+    return (
+      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Inter', sans-serif" }}>
+        <Overlay onClose={() => userName && setAskName(false)}>
+          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
+            Siapa kamu?
+          </div>
+          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+            Nama ini bakal dicatat tiap kali kamu mengubah sesuatu, biar kelihatan siapa yang mengubah apa.
+          </p>
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            placeholder="Nama kamu, mis. Sari"
+            className="w-full px-3 py-2.5 rounded-lg text-sm mb-4"
+            style={{ border: `1px solid ${COLORS.border}` }}
+            onKeyDown={(e) => e.key === "Enter" && saveUserName(nameDraft)}
+          />
+          <button onClick={() => saveUserName(nameDraft)} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
+            Simpan
+          </button>
+        </Overlay>
+      </div>
+    );
+  }
+
+  // Sudah login & sudah punya nama — pilih mau buka aplikasi yang mana.
+  if (!activeApp) {
+    return <AppPicker userName={userName} onPick={setActiveApp} onLogout={logout} />;
+  }
+
+  if (activeApp === "kas") {
+    return <KasRumahApp userName={userName} onBackToPicker={() => setActiveApp(null)} onSwitchApp={() => setActiveApp(null)} onLogout={logout} />;
+  }
+
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Inter', sans-serif" }}>
       <style>{`
@@ -1340,9 +1476,9 @@ export default function App() {
                       {userName ? `, ${userName}` : ""} <span>👋</span>
                     </div>
                     <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
-                    <span style={{ color: COLORS.primary }}>Frinirvan</span>
+                    <span style={{ color: COLORS.primary }}>Stok</span>
                     <br />
-                    <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
+                    <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Rumah</span>
                   </h1>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -1557,30 +1693,6 @@ export default function App() {
 
       <BottomNav view={view} setView={(v) => attemptNavigate(() => setView(v))} />
 
-      {/* Name modal */}
-      {askName && (
-        <Overlay onClose={() => userName && setAskName(false)}>
-          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
-            Siapa kamu?
-          </div>
-          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
-            Nama ini bakal dicatat tiap kali kamu update stok, akan dibeli, atau agenda, biar kelihatan siapa yang mengubah apa.
-          </p>
-          <input
-            autoFocus
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            placeholder="Nama kamu, mis. Sari"
-            className="w-full px-3 py-2.5 rounded-lg text-sm mb-4"
-            style={{ border: `1px solid ${COLORS.border}` }}
-            onKeyDown={(e) => e.key === "Enter" && saveUserName(nameDraft)}
-          />
-          <button onClick={() => saveUserName(nameDraft)} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
-            Simpan
-          </button>
-        </Overlay>
-      )}
-
       {/* Item add/edit modal */}
       {modal && (
         <ItemFormModal
@@ -1651,6 +1763,7 @@ export default function App() {
           onOpenHistory={() => setShowHistory(true)}
           onBackup={handleBackupDownload}
           onRestore={triggerRestorePicker}
+          onSwitchApp={() => setActiveApp(null)}
           onLogout={logout}
         />
       )}
@@ -1948,7 +2061,7 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
   );
 }
 
-function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onLogout }) {
+function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onSwitchApp, onLogout }) {
   const [entered, setEntered] = useState(false);
 
   useEffect(() => {
@@ -2010,6 +2123,7 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
         </div>
 
         <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <UserMenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
           <UserMenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
         </div>
       </div>
