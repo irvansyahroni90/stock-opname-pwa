@@ -16,6 +16,8 @@ import {
   Calendar,
   Menu,
   Check,
+  Copy,
+  Split,
   ChevronRight,
   LayoutGrid,
   LogOut,
@@ -56,8 +58,6 @@ const COLORS = {
   out: "#B5432E",
   outBg: "#FBE7E1",
   border: "#E4DFCF",
-  iconBuyBg: "#FCEBD8",
-  iconBuyFg: "#C98A3E",
   iconAgendaBg: "#E7F0EA",
   iconAgendaFg: "#3F7D5C",
 };
@@ -154,6 +154,65 @@ function toLocalInput(iso) {
   const d = iso ? new Date(iso) : new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Hitung ekspresi angka sederhana seperti "50000+25000" atau "120000/3".
+// Ditulis manual (bukan eval) supaya aman: hanya angka, + - * / dan kurung.
+function evalAmount(raw) {
+  if (!raw) return null;
+  const expr = String(raw).replace(/x/gi, "*").replace(/[×]/g, "*").replace(/[÷]/g, "/").replace(/\s/g, "");
+  if (!expr) return null;
+  if (!/^[0-9+\-*/().]+$/.test(expr)) return null;
+  // Kalau isinya cuma angka polos, gak usah dihitung.
+  if (/^[0-9.]+$/.test(expr)) return Number(expr);
+
+  let pos = 0;
+  const peek = () => expr[pos];
+  function parseExpr() {
+    let val = parseTerm();
+    while (peek() === "+" || peek() === "-") {
+      const op = expr[pos++];
+      const rhs = parseTerm();
+      if (rhs === null) return null;
+      val = op === "+" ? val + rhs : val - rhs;
+    }
+    return val;
+  }
+  function parseTerm() {
+    let val = parseFactor();
+    if (val === null) return null;
+    while (peek() === "*" || peek() === "/") {
+      const op = expr[pos++];
+      const rhs = parseFactor();
+      if (rhs === null) return null;
+      if (op === "/" && rhs === 0) return null;
+      val = op === "*" ? val * rhs : val / rhs;
+    }
+    return val;
+  }
+  function parseFactor() {
+    if (peek() === "(") {
+      pos++;
+      const val = parseExpr();
+      if (peek() !== ")") return null;
+      pos++;
+      return val;
+    }
+    if (peek() === "-") {
+      pos++;
+      const val = parseFactor();
+      return val === null ? null : -val;
+    }
+    let start = pos;
+    while (pos < expr.length && /[0-9.]/.test(expr[pos])) pos++;
+    if (start === pos) return null;
+    const n = Number(expr.slice(start, pos));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  const result = parseExpr();
+  if (pos !== expr.length || result === null || !Number.isFinite(result)) return null;
+  return result;
 }
 
 function walletBalance(wallet, transactions) {
@@ -484,6 +543,13 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
     [transactions]
   );
 
+  // Semua tag yang pernah dipakai, buat saran di modal transaksi.
+  const allTags = useMemo(() => {
+    const set = new Set();
+    transactions.forEach((t) => (t.tags || []).forEach((tag) => set.add(tag)));
+    return Array.from(set).sort();
+  }, [transactions]);
+
   const totals = useMemo(() => {
     const ref = new Date();
     let income = 0,
@@ -607,6 +673,12 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onOpenMenu={() => setShowMenu(true)}
               onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
               onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
+              onDuplicate={(tx) =>
+                setTxModal({
+                  mode: "duplicate",
+                  tx: { ...tx, id: undefined, date: new Date().toISOString() },
+                })
+              }
             />
           </div>
 
@@ -653,9 +725,10 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
           initialType={txModal.type}
           categories={categories}
           wallets={wallets}
+          allTags={allTags}
           saving={saving}
           onClose={() => setTxModal(null)}
-          onSubmit={(data) => handleSaveTx(data, txModal.tx)}
+          onSubmit={(data) => handleSaveTx(data, txModal.mode === "edit" ? txModal.tx : null)}
         />
       )}
 
@@ -821,12 +894,12 @@ function DashboardPage({ userName, totals, recent, catById, walById, onOpenMenu,
 
         <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
           <button onClick={onSeeAll} className="w-full flex items-center gap-3 text-left">
-            <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: COLORS.iconBuyBg }}>
-              <Receipt size={20} color={COLORS.iconBuyFg} />
+            <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: COLORS.iconAgendaBg }}>
+              <Receipt size={20} color={COLORS.iconAgendaFg} />
             </div>
             <div className="flex-1 min-w-0">
               <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Transaksi Terbaru</div>
-              <div className="text-xs mt-0.5" style={{ color: COLORS.iconBuyFg }}>
+              <div className="text-xs mt-0.5" style={{ color: COLORS.iconAgendaFg }}>
                 {totals.monthCount > 0 ? `${totals.monthCount} transaksi bulan ini` : "Belum ada transaksi bulan ini"}
               </div>
             </div>
@@ -858,7 +931,7 @@ function DashboardPage({ userName, totals, recent, catById, walById, onOpenMenu,
 }
 
 // --- Halaman transaksi --------------------------------------------------
-function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onEdit, onDelete }) {
+function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onEdit, onDelete, onDuplicate }) {
   const counts = useMemo(() => {
     let income = 0,
       expense = 0,
@@ -883,6 +956,7 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
           (t.note || "").toLowerCase().includes(q) ||
           cat.toLowerCase().includes(q) ||
           wal.toLowerCase().includes(q) ||
+          (t.tags || []).some((tag) => tag.toLowerCase().includes(q.replace(/^#/, ""))) ||
           String(t.amount).includes(q)
         );
       });
@@ -948,8 +1022,10 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
                       category={catById[t.categoryId]}
                       wallet={walById[t.walletId]}
                       toWallet={walById[t.toWalletId]}
+                      catById={catById}
                       onEdit={() => onEdit(t)}
                       onDelete={() => onDelete(t)}
+                      onDuplicate={() => onDuplicate(t)}
                     />
                   ))}
                 </div>
@@ -962,10 +1038,12 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
   );
 }
 
-function TransactionRow({ tx, category, wallet, toWallet, onEdit, onDelete }) {
+function TransactionRow({ tx, category, wallet, toWallet, catById, onEdit, onDelete, onDuplicate }) {
   const isIncome = tx.type === "income";
   const isTransfer = tx.type === "transfer";
-  const Icon = isTransfer ? ArrowLeftRight : CATEGORY_ICONS[category?.icon] || Tag;
+  const hasSplit = !!(tx.splits && tx.splits.length);
+  const [openSplit, setOpenSplit] = useState(false);
+  const Icon = isTransfer ? ArrowLeftRight : hasSplit ? Split : CATEGORY_ICONS[category?.icon] || Tag;
   const color = isTransfer ? COLORS.low : isIncome ? COLORS.safe : category?.color || COLORS.out;
   const amountColor = isTransfer ? COLORS.inkSoft : isIncome ? COLORS.safe : COLORS.out;
 
@@ -979,7 +1057,11 @@ function TransactionRow({ tx, category, wallet, toWallet, onEdit, onDelete }) {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
-                {isTransfer ? `${wallet?.name || "?"} → ${toWallet?.name || "?"}` : category?.name || "Tanpa kategori"}
+                {isTransfer
+                  ? `${wallet?.name || "?"} → ${toWallet?.name || "?"}`
+                  : hasSplit
+                  ? `${tx.splits.length} kategori`
+                  : category?.name || "Tanpa kategori"}
               </div>
               {tx.note && (
                 <div className="text-xs mt-0.5 truncate" style={{ color: COLORS.inkSoft }}>
@@ -992,10 +1074,44 @@ function TransactionRow({ tx, category, wallet, toWallet, onEdit, onDelete }) {
               {fmtShortRupiah(tx.amount)}
             </div>
           </div>
+
+          {tx.tags && tx.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {tx.tags.map((t) => (
+                <span key={t} className="px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={{ background: COLORS.bg, color: COLORS.primaryLight }}>
+                  #{t}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>
             {!isTransfer && `${wallet?.name || "?"} · `}
             {fmtDateTime(tx.date)}
           </div>
+
+          {hasSplit && (
+            <>
+              <button onClick={() => setOpenSplit((v) => !v)} className="text-[11px] font-medium mt-1.5 flex items-center gap-1" style={{ color: COLORS.primary }}>
+                {openSplit ? "Sembunyikan rincian" : "Lihat rincian"}
+                <ChevronRight size={11} style={{ transform: openSplit ? "rotate(90deg)" : "none" }} />
+              </button>
+              {openSplit && (
+                <div className="flex flex-col gap-1 mt-1.5">
+                  {tx.splits.map((s, i) => (
+                    <div key={i} className="rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2" style={{ background: COLORS.bg }}>
+                      <span className="text-[11px] truncate" style={{ color: COLORS.ink }}>
+                        {catById?.[s.categoryId]?.name || "Tanpa kategori"}
+                      </span>
+                      <span className="text-[11px] font-medium shrink-0" style={{ color: COLORS.inkSoft }}>
+                        {fmtShortRupiah(s.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
       <div className="flex items-center justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
@@ -1003,6 +1119,11 @@ function TransactionRow({ tx, category, wallet, toWallet, onEdit, onDelete }) {
           {tx.createdBy || "?"}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
+          {!isTransfer && (
+            <button onClick={onDuplicate} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Duplikat">
+              <Copy size={12} color={COLORS.ink} />
+            </button>
+          )}
           <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }}>
             <Pencil size={12} color={COLORS.ink} />
           </button>
@@ -1107,13 +1228,13 @@ function ComingSoonPage({ title, icon: Icon, message, onBack, onOpenMenu }) {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 pb-32">
           <div className="rounded-2xl p-8 text-center" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
-            <span className="rounded-full flex items-center justify-center mx-auto mb-3" style={{ width: 44, height: 44, background: COLORS.iconBuyBg }}>
-              <Icon size={20} color={COLORS.iconBuyFg} />
+            <span className="rounded-full flex items-center justify-center mx-auto mb-3" style={{ width: 44, height: 44, background: COLORS.iconAgendaBg }}>
+              <Icon size={20} color={COLORS.iconAgendaFg} />
             </span>
             <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }} className="mb-1">
               Segera hadir
             </div>
-            <p className="text-xs" style={{ color: COLORS.iconBuyFg }}>
+            <p className="text-xs" style={{ color: COLORS.iconAgendaFg }}>
               {message}
             </p>
           </div>
@@ -1124,23 +1245,52 @@ function ComingSoonPage({ title, icon: Icon, message, onBack, onOpenMenu }) {
 }
 
 // --- Modal transaksi ----------------------------------------------------
-function TransactionModal({ mode, tx, initialType, categories, wallets, saving, onClose, onSubmit }) {
+function TransactionModal({ mode, tx, initialType, categories, wallets, allTags, saving, onClose, onSubmit }) {
   const [type, setType] = useState(tx?.type || initialType || "expense");
   const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
   const [categoryId, setCategoryId] = useState(tx?.categoryId || "");
   const [walletId, setWalletId] = useState(tx?.walletId || wallets[0]?.id || "");
   const [date, setDate] = useState(toLocalInput(tx?.date));
   const [note, setNote] = useState(tx?.note || "");
+  const [tags, setTags] = useState(tx?.tags || []);
+  const [tagDraft, setTagDraft] = useState("");
+  const [isSplit, setIsSplit] = useState(!!(tx?.splits && tx.splits.length));
+  const [splits, setSplits] = useState(
+    tx?.splits && tx.splits.length ? tx.splits.map((s) => ({ ...s, amount: String(s.amount) })) : [{ categoryId: "", amount: "" }]
+  );
   const [error, setError] = useState("");
 
   const catOptions = categories.filter((c) => c.kind === type);
 
   useEffect(() => {
     if (categoryId && !catOptions.some((c) => c.id === categoryId)) setCategoryId("");
+    setSplits((prev) => prev.map((s) => (catOptions.some((c) => c.id === s.categoryId) ? s : { ...s, categoryId: "" })));
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Nominal utama: hasil hitungan kalkulator kalau dipakai.
+  const computedAmount = evalAmount(amount);
+  const isExpression = amount && !/^[0-9]+$/.test(String(amount).replace(/\s/g, ""));
+
+  const splitTotal = useMemo(
+    () => splits.reduce((sum, s) => sum + (evalAmount(s.amount) || 0), 0),
+    [splits]
+  );
+
+  const addTag = (raw) => {
+    const clean = String(raw).trim().replace(/^#/, "").replace(/\s+/g, "-").toLowerCase();
+    if (!clean) return;
+    setTags((prev) => (prev.includes(clean) ? prev : [...prev, clean]));
+    setTagDraft("");
+  };
+
+  const suggestions = (allTags || []).filter((t) => !tags.includes(t)).slice(0, 8);
+
+  const updateSplit = (i, patch) => setSplits((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  const addSplitRow = () => setSplits((prev) => [...prev, { categoryId: "", amount: "" }]);
+  const removeSplitRow = (i) => setSplits((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
+
   const submit = () => {
-    const value = Number(String(amount).replace(/[^\d.-]/g, ""));
+    const value = computedAmount;
     if (!value || value <= 0) {
       setError("Isi nominalnya dulu.");
       return;
@@ -1149,15 +1299,38 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, saving, 
       setError("Pilih dompetnya dulu.");
       return;
     }
-    if (!categoryId) {
+
+    let splitPayload = null;
+    if (isSplit) {
+      const rows = splits
+        .map((s) => ({ categoryId: s.categoryId, amount: evalAmount(s.amount) || 0 }))
+        .filter((s) => s.amount > 0);
+      if (rows.length < 2) {
+        setError("Isi minimal dua baris pembagian.");
+        return;
+      }
+      if (rows.some((s) => !s.categoryId)) {
+        setError("Setiap baris pembagian harus punya kategori.");
+        return;
+      }
+      const sum = rows.reduce((a, s) => a + s.amount, 0);
+      if (Math.round(sum) !== Math.round(value)) {
+        setError(`Total pembagian (${fmtRupiah(sum)}) belum sama dengan nominal (${fmtRupiah(value)}).`);
+        return;
+      }
+      splitPayload = rows;
+    } else if (!categoryId) {
       setError("Pilih kategorinya dulu.");
       return;
     }
+
     onSubmit({
       type,
-      amount: value,
-      categoryId,
+      amount: Math.round(value),
+      categoryId: isSplit ? splitPayload[0].categoryId : categoryId,
+      splits: splitPayload,
       walletId,
+      tags,
       date: new Date(date).toISOString(),
       note: note.trim(),
     });
@@ -1166,7 +1339,7 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, saving, 
   return (
     <Overlay onClose={onClose}>
       <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
-        {mode === "edit" ? "Edit Transaksi" : "Transaksi Baru"}
+        {mode === "edit" ? "Edit Transaksi" : mode === "duplicate" ? "Duplikat Transaksi" : "Transaksi Baru"}
       </div>
 
       <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.bg }}>
@@ -1192,44 +1365,123 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, saving, 
           </span>
           <input
             autoFocus
-            inputMode="numeric"
+            inputMode="text"
             value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, ""))}
             placeholder="0"
             className="flex-1 py-2.5 bg-transparent font-bold"
             style={{ color: COLORS.ink, fontSize: 18, outline: "none", border: "none" }}
           />
         </div>
-        {amount && (
-          <div className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>
-            {fmtRupiah(amount)}
-          </div>
-        )}
-      </Field>
-
-      <Field label="Kategori" className="mb-3">
-        <div className="flex flex-wrap gap-1.5">
-          {catOptions.map((c) => {
-            const Icon = CATEGORY_ICONS[c.icon] || Tag;
-            const active = categoryId === c.id;
-            return (
-              <button
-                key={c.id}
-                onClick={() => setCategoryId(c.id)}
-                className="px-2.5 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-medium"
-                style={{
-                  background: active ? c.color : COLORS.bg,
-                  color: active ? "#fff" : COLORS.inkSoft,
-                  border: `1px solid ${active ? c.color : COLORS.border}`,
-                }}
-              >
-                <Icon size={12} />
-                {c.name}
-              </button>
-            );
-          })}
+        <div className="text-xs mt-1" style={{ color: computedAmount === null && amount ? COLORS.out : COLORS.inkSoft }}>
+          {amount
+            ? computedAmount === null
+              ? "Rumusnya belum benar"
+              : isExpression
+              ? `= ${fmtRupiah(computedAmount)}`
+              : fmtRupiah(computedAmount)
+            : "Bisa ketik hitungan, mis. 50000+25000"}
         </div>
       </Field>
+
+      <button
+        onClick={() => setIsSplit((v) => !v)}
+        className="w-full mb-3 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5"
+        style={{
+          background: isSplit ? COLORS.primary : COLORS.bg,
+          color: isSplit ? "#fff" : COLORS.primary,
+          border: `1px solid ${isSplit ? COLORS.primary : COLORS.border}`,
+        }}
+      >
+        <Split size={13} /> {isSplit ? "Pakai satu kategori saja" : "Bagi ke beberapa kategori"}
+      </button>
+
+      {isSplit ? (
+        <Field label="Pembagian" className="mb-3">
+          <div className="flex flex-col gap-2">
+            {splits.map((s, i) => (
+              <div key={i} className="rounded-lg p-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}` }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <select
+                    value={s.categoryId}
+                    onChange={(e) => updateSplit(i, { categoryId: e.target.value })}
+                    className="flex-1 min-w-0 px-2 py-1.5 rounded-lg text-xs"
+                    style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card, color: COLORS.ink }}
+                  >
+                    <option value="">Pilih kategori</option>
+                    {catOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {splits.length > 1 && (
+                    <button onClick={() => removeSplitRow(i)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.out}55` }}>
+                      <Trash2 size={12} color={COLORS.out} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 px-2 rounded-lg" style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card }}>
+                  <span className="text-xs" style={{ color: COLORS.inkSoft }}>
+                    Rp
+                  </span>
+                  <input
+                    inputMode="text"
+                    value={s.amount}
+                    onChange={(e) => updateSplit(i, { amount: e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, "") })}
+                    placeholder="0"
+                    className="flex-1 py-1.5 bg-transparent text-sm font-semibold"
+                    style={{ color: COLORS.ink, outline: "none", border: "none" }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={addSplitRow}
+            className="w-full mt-2 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5"
+            style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.primary }}
+          >
+            <Plus size={13} /> Tambah baris
+          </button>
+
+          <div className="flex items-center justify-between mt-2 text-xs">
+            <span style={{ color: COLORS.inkSoft }}>Total pembagian</span>
+            <span
+              className="font-semibold"
+              style={{ color: computedAmount && Math.round(splitTotal) === Math.round(computedAmount) ? COLORS.safe : COLORS.out }}
+            >
+              {fmtRupiah(splitTotal)}
+              {computedAmount ? ` / ${fmtRupiah(computedAmount)}` : ""}
+            </span>
+          </div>
+        </Field>
+      ) : (
+        <Field label="Kategori" className="mb-3">
+          <div className="flex flex-wrap gap-1.5">
+            {catOptions.map((c) => {
+              const Icon = CATEGORY_ICONS[c.icon] || Tag;
+              const active = categoryId === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setCategoryId(c.id)}
+                  className="px-2.5 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-medium"
+                  style={{
+                    background: active ? c.color : COLORS.bg,
+                    color: active ? "#fff" : COLORS.inkSoft,
+                    border: `1px solid ${active ? c.color : COLORS.border}`,
+                  }}
+                >
+                  <Icon size={12} />
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+      )}
 
       <Field label="Dompet" className="mb-3">
         <div className="flex flex-wrap gap-1.5">
@@ -1251,6 +1503,53 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, saving, 
             );
           })}
         </div>
+      </Field>
+
+      <Field label="Tag (opsional)" className="mb-3">
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {tags.map((t) => (
+              <span
+                key={t}
+                className="px-2 py-1 rounded-full flex items-center gap-1 text-xs font-medium"
+                style={{ background: COLORS.primary, color: "#fff" }}
+              >
+                #{t}
+                <button onClick={() => setTags((prev) => prev.filter((x) => x !== t))}>
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <input
+          value={tagDraft}
+          onChange={(e) => setTagDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              addTag(tagDraft);
+            }
+          }}
+          onBlur={() => tagDraft && addTag(tagDraft)}
+          placeholder="ketik lalu Enter, mis. liburan"
+          className="w-full px-3 py-2.5 rounded-lg text-sm"
+          style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+        />
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {suggestions.map((t) => (
+              <button
+                key={t}
+                onClick={() => addTag(t)}
+                className="px-2 py-1 rounded-full text-xs"
+                style={{ background: COLORS.bg, color: COLORS.inkSoft, border: `1px solid ${COLORS.border}` }}
+              >
+                #{t}
+              </button>
+            ))}
+          </div>
+        )}
       </Field>
 
       <Field label="Tanggal & jam" className="mb-3">
