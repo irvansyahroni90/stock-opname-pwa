@@ -331,8 +331,8 @@ function AppPicker({ userName, onPick, onLogout }) {
       title: "Kas Rumah",
       subtitle: "Catat pemasukan dan pengeluaran rumah",
       icon: Wallet,
-      iconBg: COLORS.iconBuyBg,
-      iconFg: COLORS.iconBuyFg,
+      iconBg: COLORS.iconAgendaBg,
+      iconFg: COLORS.iconAgendaFg,
     },
   ];
 
