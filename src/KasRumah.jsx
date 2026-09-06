@@ -35,6 +35,11 @@ import {
   Banknote,
   Briefcase,
   TrendingUp,
+  TrendingDown,
+  BarChart3,
+  Sparkles,
+  ScanLine,
+  Camera,
   MoreHorizontal,
   Landmark,
   Smartphone,
@@ -42,6 +47,7 @@ import {
   Coins,
 } from "lucide-react";
 import { storageSet, storageSubscribe } from "./firebase";
+import { scanReceipt, guessWallet, findDuplicate } from "./receiptScan";
 
 const COLORS = {
   bg: "#F1EEE3",
@@ -404,6 +410,9 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   const [categoryModal, setCategoryModal] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [scanModal, setScanModal] = useState(false);
+  const [toBuy, setToBuy] = useState([]);
+  const [aliases, setAliases] = useState({});
   const [saving, setSaving] = useState(false);
 
   // --- Sinkron Firestore ------------------------------------------------
@@ -439,6 +448,11 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         setTransactions(Array.isArray(data) ? data : []);
         markLoaded();
       }),
+      // Daftar "Akan Dibeli" dari Stok Rumah — dibaca saja, buat pencocokan
+      // hasil scan struk. Tidak pernah ditulis ulang dari sini kecuali saat
+      // pengguna menyetujui pencocokan.
+      storageSubscribe("stock-tobuy", (data) => setToBuy(Array.isArray(data) ? data : [])),
+      storageSubscribe("kas-aliases", (data) => setAliases(data && typeof data === "object" ? data : {})),
     ];
     return () => unsubs.forEach((u) => u && u());
   }, []);
@@ -479,6 +493,23 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 
   const handleDeleteTx = async (id) => {
     await persistTransactions(transactions.filter((t) => t.id !== id));
+  };
+
+  // Centang item di daftar "Akan Dibeli" milik Stok Rumah setelah pengguna
+  // menyetujui pencocokan hasil scan struk.
+  const handleMarkBought = async (entryIds) => {
+    if (!entryIds || !entryIds.length) return;
+    const now = new Date().toISOString();
+    const next = toBuy.map((e) =>
+      entryIds.includes(e.id) && !e.bought ? { ...e, bought: true, boughtBy: userName, boughtAt: now } : e
+    );
+    setToBuy(next);
+    await storageSet("stock-tobuy", next);
+  };
+
+  const handleSaveAliases = async (next) => {
+    setAliases(next);
+    await storageSet("kas-aliases", next);
   };
 
   // --- Aksi dompet ------------------------------------------------------
@@ -632,6 +663,8 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; }
         ::placeholder { color: #A6A296; }
+        @keyframes scanPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.12); opacity: 0.75; } }
+        .scan-pulse { animation: scanPulse 1.1s ease-in-out infinite; }
       `}</style>
 
       <div className="h-full overflow-hidden">
@@ -695,16 +728,27 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
           </div>
 
           <div className="h-full" style={{ width: "100vw" }}>
-            <ComingSoonPage
-              title="Analisis"
-              icon={PieChart}
-              message="Grafik pengeluaran, tren bulanan, dan insight otomatis lagi disiapkan di tahap berikutnya."
+            <AnalysisPage
+              transactions={transactions}
+              catById={catById}
+              walById={walById}
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
             />
           </div>
         </div>
       </div>
+
+      {(view === "dashboard" || view === "transactions") && (
+        <button
+          onClick={() => setScanModal(true)}
+          className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
+          style={{ width: 46, height: 46, background: COLORS.card, color: COLORS.primary, border: `1.5px solid ${COLORS.border}`, bottom: "calc(176px + env(safe-area-inset-bottom))" }}
+          title="Scan struk"
+        >
+          <ScanLine size={20} />
+        </button>
+      )}
 
       {view !== "analysis" && (
         <button
@@ -770,6 +814,24 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
           saving={saving}
           onClose={() => setCategoryModal(null)}
           onSubmit={(data) => handleSaveCategory(data, categoryModal.category)}
+        />
+      )}
+
+      {scanModal && (
+        <ReceiptScanModal
+          categories={categories}
+          wallets={wallets}
+          transactions={transactions}
+          toBuy={toBuy}
+          aliases={aliases}
+          saving={saving}
+          onClose={() => setScanModal(false)}
+          onSubmit={async (data) => {
+            await handleSaveTx(data, null);
+            setScanModal(false);
+          }}
+          onMarkBought={handleMarkBought}
+          onSaveAliases={handleSaveAliases}
         />
       )}
 
@@ -1219,6 +1281,582 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onEdit, onDele
   );
 }
 
+// --- Analisis -----------------------------------------------------------
+// Rentang waktu yang bisa dipilih. Semuanya dihitung dari hari ini.
+const PERIODS = [
+  { key: "week", label: "7 Hari" },
+  { key: "month", label: "Bulan Ini" },
+  { key: "3m", label: "3 Bulan" },
+  { key: "6m", label: "6 Bulan" },
+  { key: "year", label: "Tahun Ini" },
+  { key: "custom", label: "Pilih Sendiri" },
+];
+
+const DIMENSIONS = [
+  { key: "category", label: "Kategori" },
+  { key: "wallet", label: "Dompet" },
+  { key: "person", label: "Orang" },
+  { key: "tag", label: "Tag" },
+];
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+function getRange(period, customFrom, customTo) {
+  const now = new Date();
+  const end = endOfDay(now);
+  let start;
+  switch (period) {
+    case "week":
+      start = startOfDay(now);
+      start.setDate(start.getDate() - 6);
+      break;
+    case "month":
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case "3m":
+      start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      break;
+    case "6m":
+      start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      break;
+    case "year":
+      start = new Date(now.getFullYear(), 0, 1);
+      break;
+    case "custom":
+      return {
+        start: customFrom ? startOfDay(new Date(customFrom)) : startOfDay(now),
+        end: customTo ? endOfDay(new Date(customTo)) : end,
+      };
+    default:
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  return { start, end };
+}
+
+// Rentang sebelumnya dengan panjang yang sama, tepat sebelum rentang ini.
+function previousRange({ start, end }) {
+  const span = end - start;
+  return { start: new Date(start.getTime() - span - 1), end: new Date(start.getTime() - 1) };
+}
+
+function inRange(iso, { start, end }) {
+  const t = new Date(iso).getTime();
+  return t >= start.getTime() && t <= end.getTime();
+}
+
+function fmtRangeLabel({ start, end }) {
+  const opt = { day: "numeric", month: "short" };
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const s = start.toLocaleDateString("id-ID", sameYear ? opt : { ...opt, year: "numeric" });
+  const e = end.toLocaleDateString("id-ID", { ...opt, year: "numeric" });
+  return `${s} – ${e}`;
+}
+
+// Pecah satu transaksi jadi beberapa bagian sesuai dimensi yang dipilih,
+// supaya transaksi yang di-split tetap dihitung ke kategori masing-masing.
+function breakdownParts(tx, dimension, catById, walById) {
+  if (dimension === "category") {
+    if (tx.splits && tx.splits.length) {
+      return tx.splits.map((s) => ({
+        key: s.categoryId || "none",
+        label: catById[s.categoryId]?.name || "Tanpa kategori",
+        color: catById[s.categoryId]?.color || COLORS.inkSoft,
+        amount: Number(s.amount) || 0,
+      }));
+    }
+    return [
+      {
+        key: tx.categoryId || "none",
+        label: catById[tx.categoryId]?.name || "Tanpa kategori",
+        color: catById[tx.categoryId]?.color || COLORS.inkSoft,
+        amount: Number(tx.amount) || 0,
+      },
+    ];
+  }
+  if (dimension === "wallet") {
+    return [
+      {
+        key: tx.walletId || "none",
+        label: walById[tx.walletId]?.name || "Tanpa dompet",
+        color: walById[tx.walletId]?.color || COLORS.inkSoft,
+        amount: Number(tx.amount) || 0,
+      },
+    ];
+  }
+  if (dimension === "person") {
+    const who = tx.createdBy || "Tidak diketahui";
+    return [{ key: who, label: who, color: COLORS.primary, amount: Number(tx.amount) || 0 }];
+  }
+  // tag: satu transaksi bisa punya beberapa tag, tiap tag dapat nilai penuh
+  const tags = tx.tags && tx.tags.length ? tx.tags : ["tanpa-tag"];
+  return tags.map((t) => ({ key: t, label: `#${t}`, color: COLORS.primaryLight, amount: Number(tx.amount) || 0 }));
+}
+
+function DonutChart({ slices, total, size = 168, stroke = 22 }) {
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+  return (
+    <div className="relative mx-auto" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={COLORS.border} strokeWidth={stroke} />
+        {slices.map((s) => {
+          const frac = total > 0 ? s.total / total : 0;
+          const len = frac * circumference;
+          const el = (
+            <circle
+              key={s.key}
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={stroke}
+              strokeDasharray={`${len} ${circumference - len}`}
+              strokeDashoffset={-offset}
+            />
+          );
+          offset += len;
+          return el;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+        <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>
+          Total
+        </div>
+        <div className="font-bold leading-tight" style={{ fontSize: 15, color: COLORS.ink }}>
+          {fmtShortRupiah(total)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrendChart({ months }) {
+  const max = Math.max(1, ...months.map((m) => Math.max(m.income, m.expense)));
+  return (
+    <div className="flex items-end justify-between gap-2" style={{ height: 130 }}>
+      {months.map((m) => (
+        <div key={m.label} className="flex-1 flex flex-col items-center gap-1.5 h-full">
+          <div className="flex-1 w-full flex items-end justify-center gap-1">
+            <div
+              className="rounded-t"
+              style={{ width: "42%", height: `${Math.max(2, (m.income / max) * 100)}%`, background: COLORS.safe }}
+              title={`Masuk ${fmtRupiah(m.income)}`}
+            />
+            <div
+              className="rounded-t"
+              style={{ width: "42%", height: `${Math.max(2, (m.expense / max) * 100)}%`, background: COLORS.out }}
+              title={`Keluar ${fmtRupiah(m.expense)}`}
+            />
+          </div>
+          <div className="text-[10px] shrink-0" style={{ color: COLORS.inkSoft }}>
+            {m.label}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu }) {
+  const [period, setPeriod] = useState("month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [dimension, setDimension] = useState("category");
+  const [txType, setTxType] = useState("expense");
+  const [drill, setDrill] = useState(null);
+
+  const range = useMemo(() => getRange(period, customFrom, customTo), [period, customFrom, customTo]);
+  const prev = useMemo(() => previousRange(range), [range]);
+
+  const scoped = useMemo(
+    () => transactions.filter((t) => t.type === txType && inRange(t.date, range)),
+    [transactions, txType, range]
+  );
+  const scopedPrev = useMemo(
+    () => transactions.filter((t) => t.type === txType && inRange(t.date, prev)),
+    [transactions, txType, prev]
+  );
+
+  const total = useMemo(() => scoped.reduce((s, t) => s + (Number(t.amount) || 0), 0), [scoped]);
+  const totalPrev = useMemo(() => scopedPrev.reduce((s, t) => s + (Number(t.amount) || 0), 0), [scopedPrev]);
+
+  const groups = useMemo(() => {
+    const map = new Map();
+    scoped.forEach((t) => {
+      breakdownParts(t, dimension, catById, walById).forEach((p) => {
+        const cur = map.get(p.key) || { key: p.key, label: p.label, color: p.color, total: 0, count: 0 };
+        cur.total += p.amount;
+        cur.count += 1;
+        map.set(p.key, cur);
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [scoped, dimension, catById, walById]);
+
+  const groupsPrev = useMemo(() => {
+    const map = new Map();
+    scopedPrev.forEach((t) => {
+      breakdownParts(t, dimension, catById, walById).forEach((p) => {
+        map.set(p.key, (map.get(p.key) || 0) + p.amount);
+      });
+    });
+    return map;
+  }, [scopedPrev, dimension, catById, walById]);
+
+  // Tren 6 bulan terakhir (selalu, terlepas dari rentang yang dipilih).
+  const trendMonths = useMemo(() => {
+    const out = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const from = ref;
+      const to = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
+      let income = 0,
+        expense = 0;
+      transactions.forEach((t) => {
+        const d = new Date(t.date);
+        if (d < from || d > to) return;
+        if (t.type === "income") income += Number(t.amount) || 0;
+        else if (t.type === "expense") expense += Number(t.amount) || 0;
+      });
+      out.push({ label: ref.toLocaleDateString("id-ID", { month: "short" }), income, expense });
+    }
+    return out;
+  }, [transactions]);
+
+  const insights = useMemo(() => {
+    const out = [];
+    const days = Math.max(1, Math.round((range.end - range.start) / 86400000) + 1);
+    const kindWord = txType === "expense" ? "pengeluaran" : "pemasukan";
+
+    if (total > 0) {
+      out.push({ tone: "neutral", text: `Rata-rata ${kindWord} ${fmtRupiah(total / days)} per hari selama ${days} hari.` });
+    }
+
+    if (totalPrev > 0 && total > 0) {
+      const diff = ((total - totalPrev) / totalPrev) * 100;
+      const naik = diff >= 0;
+      out.push({
+        tone: txType === "expense" ? (naik ? "bad" : "good") : naik ? "good" : "bad",
+        text: `Total ${kindWord} ${naik ? "naik" : "turun"} ${Math.abs(diff).toFixed(0)}% dibanding periode sebelumnya (${fmtRupiah(totalPrev)}).`,
+      });
+    }
+
+    if (groups.length > 0 && total > 0) {
+      const top = groups[0];
+      const share = ((top.total / total) * 100).toFixed(0);
+      out.push({ tone: "neutral", text: `Terbesar: ${top.label}, ${fmtRupiah(top.total)} (${share}% dari total).` });
+
+      // Kategori yang melonjak paling tajam dibanding periode sebelumnya.
+      let spike = null;
+      groups.forEach((g) => {
+        const before = groupsPrev.get(g.key) || 0;
+        if (before <= 0) return;
+        const change = ((g.total - before) / before) * 100;
+        if (change >= 30 && (!spike || change > spike.change)) spike = { ...g, change, before };
+      });
+      if (spike) {
+        out.push({
+          tone: txType === "expense" ? "bad" : "good",
+          text: `${spike.label} melonjak ${spike.change.toFixed(0)}% (dari ${fmtRupiah(spike.before)} jadi ${fmtRupiah(spike.total)}).`,
+        });
+      }
+    }
+
+    // Proyeksi khusus kalau lagi lihat bulan berjalan.
+    if (period === "month" && total > 0) {
+      const now = new Date();
+      const passed = now.getDate();
+      const inMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      if (passed < inMonth) {
+        const projected = (total / passed) * inMonth;
+        out.push({ tone: "neutral", text: `Kalau polanya sama, akhir bulan diperkirakan ${fmtRupiah(projected)}.` });
+      }
+    }
+
+    // Hari kerja vs akhir pekan.
+    let weekday = 0,
+      weekend = 0,
+      wdDays = new Set(),
+      weDays = new Set();
+    scoped.forEach((t) => {
+      const d = new Date(t.date);
+      const key = d.toDateString();
+      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+      if (isWeekend) {
+        weekend += Number(t.amount) || 0;
+        weDays.add(key);
+      } else {
+        weekday += Number(t.amount) || 0;
+        wdDays.add(key);
+      }
+    });
+    if (wdDays.size > 0 && weDays.size > 0) {
+      const wdAvg = weekday / wdDays.size;
+      const weAvg = weekend / weDays.size;
+      const higher = weAvg > wdAvg;
+      out.push({
+        tone: "neutral",
+        text: `Akhir pekan rata-rata ${fmtRupiah(weAvg)} per hari, hari kerja ${fmtRupiah(wdAvg)} — ${higher ? "lebih boros di akhir pekan" : "lebih hemat di akhir pekan"}.`,
+      });
+    }
+
+    return out;
+  }, [total, totalPrev, groups, groupsPrev, range, period, scoped, txType]);
+
+  const drillTx = useMemo(() => {
+    if (!drill) return [];
+    return scoped
+      .filter((t) => breakdownParts(t, dimension, catById, walById).some((p) => p.key === drill.key))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [drill, scoped, dimension, catById, walById]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
+        <TopBar title="Analisis" onBack={onBack} onOpenMenu={onOpenMenu} />
+
+        <div className="flex gap-1 p-1 rounded-xl mb-2" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          {[
+            { key: "expense", label: "Pengeluaran", color: COLORS.out },
+            { key: "income", label: "Pemasukan", color: COLORS.safe },
+          ].map((o) => (
+            <button
+              key={o.key}
+              onClick={() => {
+                setTxType(o.key);
+                setDrill(null);
+              }}
+              className="flex-1 py-2 rounded-lg text-sm font-medium"
+              style={{ background: txType === o.key ? o.color : "transparent", color: txType === o.key ? "#fff" : COLORS.inkSoft }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+          {PERIODS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => {
+                setPeriod(p.key);
+                setDrill(null);
+              }}
+              className="px-2.5 py-1.5 rounded-full text-xs font-medium shrink-0"
+              style={{
+                background: period === p.key ? COLORS.primary : COLORS.card,
+                color: period === p.key ? "#fff" : COLORS.inkSoft,
+                border: `1px solid ${period === p.key ? COLORS.primary : COLORS.border}`,
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div className="max-w-2xl mx-auto px-4 pb-32">
+          {period === "custom" && (
+            <div className="rounded-2xl p-3 mb-3 flex gap-2" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+              <Field label="Dari" className="flex-1 min-w-0">
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="w-full px-2 py-2 rounded-lg text-xs"
+                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+                />
+              </Field>
+              <Field label="Sampai" className="flex-1 min-w-0">
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="w-full px-2 py-2 rounded-lg text-xs"
+                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+                />
+              </Field>
+            </div>
+          )}
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.primary }}>
+            <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
+              {txType === "expense" ? "Total pengeluaran" : "Total pemasukan"} · {fmtRangeLabel(range)}
+            </div>
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
+              {fmtRupiah(total)}
+            </div>
+            {totalPrev > 0 && (
+              <div className="text-xs mt-1.5 flex items-center gap-1" style={{ color: total >= totalPrev ? "#F0C994" : "#BEE0CB" }}>
+                {total >= totalPrev ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                {total >= totalPrev ? "Naik" : "Turun"} {Math.abs(((total - totalPrev) / totalPrev) * 100).toFixed(0)}% dari periode sebelumnya
+              </div>
+            )}
+          </div>
+
+          {total === 0 ? (
+            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+              <PieChart size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
+              <div style={{ color: COLORS.inkSoft }} className="text-sm">
+                Belum ada data di rentang ini.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <PieChart size={16} color={COLORS.primary} />
+                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Komposisi</div>
+                </div>
+
+                <div className="flex gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                  {DIMENSIONS.map((d) => (
+                    <button
+                      key={d.key}
+                      onClick={() => {
+                        setDimension(d.key);
+                        setDrill(null);
+                      }}
+                      className="px-2.5 py-1 rounded-full text-[11px] font-medium shrink-0"
+                      style={{
+                        background: dimension === d.key ? COLORS.primaryLight : COLORS.bg,
+                        color: dimension === d.key ? "#fff" : COLORS.inkSoft,
+                        border: `1px solid ${dimension === d.key ? COLORS.primaryLight : COLORS.border}`,
+                      }}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+
+                <DonutChart slices={groups.slice(0, 8)} total={total} />
+
+                <div className="flex flex-col gap-1.5 mt-4">
+                  {groups.map((g) => {
+                    const before = groupsPrev.get(g.key) || 0;
+                    const share = ((g.total / total) * 100).toFixed(0);
+                    return (
+                      <button
+                        key={g.key}
+                        onClick={() => setDrill(drill?.key === g.key ? null : g)}
+                        className="w-full rounded-xl px-3 py-2.5 text-left"
+                        style={{ background: drill?.key === g.key ? `${g.color}14` : COLORS.bg, border: `1px solid ${drill?.key === g.key ? g.color : "transparent"}` }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: g.color }} />
+                          <span className="flex-1 min-w-0 text-xs font-medium truncate" style={{ color: COLORS.ink }}>
+                            {g.label}
+                          </span>
+                          <span className="text-xs font-semibold shrink-0" style={{ color: COLORS.ink }}>
+                            {fmtShortRupiah(g.total)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.border }}>
+                            <div style={{ width: `${share}%`, height: "100%", background: g.color }} />
+                          </div>
+                          <span className="text-[10px] shrink-0" style={{ color: COLORS.inkSoft }}>
+                            {share}%
+                          </span>
+                          {before > 0 && (
+                            <span className="text-[10px] shrink-0" style={{ color: g.total >= before ? COLORS.out : COLORS.safe }}>
+                              {g.total >= before ? "▲" : "▼"}
+                              {Math.abs(((g.total - before) / before) * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {drill && (
+                  <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs font-semibold" style={{ color: COLORS.ink }}>
+                        Transaksi {drill.label} ({drillTx.length})
+                      </div>
+                      <button onClick={() => setDrill(null)}>
+                        <X size={14} color={COLORS.inkSoft} />
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {drillTx.map((t) => (
+                        <div key={t.id} className="rounded-lg px-3 py-2 flex items-center justify-between gap-2" style={{ background: COLORS.bg }}>
+                          <div className="min-w-0">
+                            <div className="text-xs truncate" style={{ color: COLORS.ink }}>
+                              {t.note || catById[t.categoryId]?.name || "Tanpa catatan"}
+                            </div>
+                            <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>
+                              {fmtDateTime(t.date)}
+                            </div>
+                          </div>
+                          <span className="text-xs font-semibold shrink-0" style={{ color: COLORS.ink }}>
+                            {fmtShortRupiah(t.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 size={16} color={COLORS.primary} />
+                    <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Tren 6 Bulan</div>
+                  </div>
+                  <div className="flex items-center gap-2.5 text-[10px]" style={{ color: COLORS.inkSoft }}>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-sm" style={{ background: COLORS.safe }} /> Masuk
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-sm" style={{ background: COLORS.out }} /> Keluar
+                    </span>
+                  </div>
+                </div>
+                <TrendChart months={trendMonths} />
+              </div>
+
+              {insights.length > 0 && (
+                <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={16} color={COLORS.primary} />
+                    <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Yang Menarik</div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {insights.map((ins, i) => (
+                      <div key={i} className="rounded-xl px-3 py-2.5 text-xs leading-relaxed" style={{ background: COLORS.bg, color: COLORS.ink }}>
+                        <span style={{ color: ins.tone === "bad" ? COLORS.out : ins.tone === "good" ? COLORS.safe : COLORS.primaryLight }}>●</span>{" "}
+                        {ins.text}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ComingSoonPage({ title, icon: Icon, message, onBack, onOpenMenu }) {
   return (
     <div className="h-full flex flex-col">
@@ -1586,6 +2224,451 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
           {saving ? "Menyimpan..." : "Simpan"}
         </button>
       </div>
+    </Overlay>
+  );
+}
+
+// --- Scan struk ---------------------------------------------------------
+function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, saving, onClose, onSubmit, onMarkBought, onSaveAliases }) {
+  const [step, setStep] = useState("pick"); // pick | loading | review
+  const [files, setFiles] = useState([]);
+  const [error, setError] = useState("");
+  const [parsed, setParsed] = useState(null);
+  const [walletId, setWalletId] = useState(wallets[0]?.id || "");
+  const [date, setDate] = useState(toLocalInput());
+  const [note, setNote] = useState("");
+  const [saveMode, setSaveMode] = useState("single"); // single | split
+  const [matches, setMatches] = useState({}); // itemId -> { entryId, name } | null
+  const [duplicate, setDuplicate] = useState(null);
+  const fileRef = useRef(null);
+
+  const pendingToBuy = useMemo(() => (toBuy || []).filter((e) => !e.bought), [toBuy]);
+
+  const runScan = async (picked) => {
+    setStep("loading");
+    setError("");
+    try {
+      const result = await scanReceipt(picked, {
+        categories: categories.filter((c) => c.kind === "expense"),
+        toBuyNames: pendingToBuy.map((e) => e.itemName),
+        aliases: aliases || {},
+      });
+      setParsed(result);
+      if (result.date) setDate(toLocalInput(result.date));
+      if (result.store) setNote(result.store);
+      const guessed = guessWallet(result.paymentMethod, wallets);
+      if (guessed) setWalletId(guessed.id);
+      setDuplicate(findDuplicate(result, transactions));
+      // Siapkan saran pencocokan ke daftar Akan Dibeli.
+      const initial = {};
+      result.items.forEach((it) => {
+        if (!it.toBuyMatch) return;
+        const entry = pendingToBuy.find((e) => e.itemName.toLowerCase() === String(it.toBuyMatch).toLowerCase());
+        if (entry) initial[it.id] = { entryId: entry.id, name: entry.itemName, accepted: null };
+      });
+      setMatches(initial);
+      setStep("review");
+    } catch (err) {
+      if (err.message === "NO_API_KEY") {
+        setError("NO_API_KEY");
+      } else {
+        setError(err.message || "Gagal membaca struk.");
+      }
+      setStep("pick");
+    }
+  };
+
+  const handlePick = (e) => {
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+    setFiles(picked);
+    runScan(picked);
+  };
+
+  const updateItem = (id, patch) =>
+    setParsed((p) => ({ ...p, items: p.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) }));
+
+  const removeItem = (id) => setParsed((p) => ({ ...p, items: p.items.filter((it) => it.id !== id) }));
+
+  const addItem = () =>
+    setParsed((p) => ({
+      ...p,
+      items: [
+        ...p.items,
+        { id: `ri-new-${Date.now()}`, rawName: "", name: "", qty: 1, unitPrice: 0, subtotal: 0, discount: 0, categoryId: "", toBuyMatch: null, confident: true },
+      ],
+    }));
+
+  const itemsTotal = useMemo(
+    () => (parsed ? parsed.items.reduce((s, it) => s + (Number(it.subtotal) || 0), 0) : 0),
+    [parsed]
+  );
+
+  const expenseCats = categories.filter((c) => c.kind === "expense");
+
+  const submit = () => {
+    if (!parsed) return;
+    const amount = Math.round(parsed.total || itemsTotal);
+    if (!amount) {
+      setError("Totalnya belum keisi.");
+      return;
+    }
+    if (!walletId) {
+      setError("Pilih dompetnya dulu.");
+      return;
+    }
+
+    let splits = null;
+    if (saveMode === "split") {
+      const byCat = new Map();
+      parsed.items.forEach((it) => {
+        if (!it.categoryId || !it.subtotal) return;
+        byCat.set(it.categoryId, (byCat.get(it.categoryId) || 0) + Number(it.subtotal));
+      });
+      if (byCat.size < 2) {
+        setError("Butuh minimal dua kategori berbeda untuk dipecah. Pilih 'Satu transaksi' saja.");
+        return;
+      }
+      const rows = Array.from(byCat.entries()).map(([categoryId, amt]) => ({ categoryId, amount: Math.round(amt) }));
+      const sum = rows.reduce((a, r) => a + r.amount, 0);
+      // Selisih pembulatan/pajak ditempelkan ke baris pertama supaya pas.
+      if (sum !== amount && rows.length) rows[0].amount += amount - sum;
+      splits = rows;
+    }
+
+    const fallbackCat = parsed.items.find((it) => it.categoryId)?.categoryId || expenseCats[0]?.id || "";
+
+    onSubmit({
+      type: "expense",
+      amount,
+      categoryId: splits ? splits[0].categoryId : fallbackCat,
+      splits,
+      walletId,
+      tags: [],
+      date: new Date(date).toISOString(),
+      note: note.trim(),
+    });
+
+    // Centang item di Akan Dibeli yang disetujui, lalu simpan padanan namanya.
+    const accepted = Object.entries(matches).filter(([, m]) => m && m.accepted === true);
+    if (accepted.length) {
+      onMarkBought(accepted.map(([, m]) => m.entryId));
+      const newAliases = { ...(aliases || {}) };
+      accepted.forEach(([itemId, m]) => {
+        const it = parsed.items.find((x) => x.id === itemId);
+        if (it && it.rawName) newAliases[it.rawName.toLowerCase()] = m.name;
+      });
+      onSaveAliases(newAliases);
+    }
+  };
+
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center gap-2 mb-3">
+        <ScanLine size={18} color={COLORS.primary} />
+        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Scan Struk</div>
+      </div>
+
+      {step === "pick" && (
+        <>
+          {error === "NO_API_KEY" ? (
+            <div className="rounded-xl p-3.5 mb-3" style={{ background: COLORS.lowBg, border: `1px solid ${COLORS.low}55` }}>
+              <div className="text-sm font-semibold mb-1" style={{ color: COLORS.low }}>
+                Fitur scan belum aktif
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: COLORS.ink }}>
+                API key Gemini belum dipasang. Buka Google AI Studio untuk ambil key gratis, lalu tambahkan sebagai
+                <span className="font-semibold"> VITE_GEMINI_API_KEY</span> di pengaturan Vercel.
+              </p>
+            </div>
+          ) : error ? (
+            <div className="rounded-xl p-3 mb-3 text-xs" style={{ background: COLORS.outBg, color: COLORS.out }}>
+              {error}
+            </div>
+          ) : null}
+
+          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+            Foto struknya, nanti AI yang baca isinya. Struk panjang boleh difoto beberapa kali sekaligus.
+          </p>
+
+          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePick} />
+
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="w-full py-3 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2 mb-2"
+            style={{ background: COLORS.primary }}
+          >
+            <Camera size={16} /> Pilih atau ambil foto
+          </button>
+
+          <button onClick={onClose} className="w-full py-2.5 rounded-lg text-sm font-medium" style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}>
+            Batal
+          </button>
+        </>
+      )}
+
+      {step === "loading" && (
+        <div className="py-10 text-center">
+          <div className="scan-pulse rounded-full mx-auto mb-3 flex items-center justify-center" style={{ width: 52, height: 52, background: COLORS.iconAgendaBg }}>
+            <ScanLine size={22} color={COLORS.iconAgendaFg} />
+          </div>
+          <div className="text-sm font-medium" style={{ color: COLORS.ink }}>
+            Membaca struk...
+          </div>
+          <div className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>
+            {files.length > 1 ? `${files.length} foto` : "Sebentar ya"}
+          </div>
+        </div>
+      )}
+
+      {step === "review" && parsed && (
+        <>
+          {duplicate && (
+            <div className="rounded-xl p-3 mb-3" style={{ background: COLORS.lowBg, border: `1px solid ${COLORS.low}55` }}>
+              <div className="text-xs font-semibold mb-0.5" style={{ color: COLORS.low }}>
+                Sepertinya sudah pernah dicatat
+              </div>
+              <div className="text-[11px]" style={{ color: COLORS.ink }}>
+                Ada transaksi {fmtRupiah(duplicate.amount)} pada {fmtDateTime(duplicate.date)}. Cek dulu biar gak dobel.
+              </div>
+            </div>
+          )}
+
+          {parsed.mismatch !== 0 && (
+            <div className="rounded-xl p-3 mb-3 text-[11px]" style={{ background: COLORS.outBg, color: COLORS.out }}>
+              Jumlah barang belum pas dengan total struk (selisih {fmtRupiah(Math.abs(parsed.mismatch))}). Cek lagi daftarnya.
+            </div>
+          )}
+
+          {parsed.notes && (
+            <div className="rounded-xl p-3 mb-3 text-[11px]" style={{ background: COLORS.bg, color: COLORS.inkSoft }}>
+              Catatan AI: {parsed.notes}
+            </div>
+          )}
+
+          <Field label="Toko / catatan" className="mb-3">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg text-sm"
+              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+            />
+          </Field>
+
+          <Field label={`Barang (${parsed.items.length})`} className="mb-3">
+            <div className="flex flex-col gap-2">
+              {parsed.items.map((it) => {
+                const match = matches[it.id];
+                return (
+                  <div
+                    key={it.id}
+                    className="rounded-lg p-2.5"
+                    style={{ background: COLORS.bg, border: `1px solid ${it.confident ? COLORS.border : COLORS.low}` }}
+                  >
+                    {!it.confident && (
+                      <div className="text-[10px] mb-1.5 flex items-center gap-1" style={{ color: COLORS.low }}>
+                        <AlertTriangle size={10} /> AI kurang yakin, cek nama & harganya
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        value={it.name}
+                        onChange={(e) => updateItem(it.id, { name: e.target.value })}
+                        placeholder="Nama barang"
+                        className="flex-1 min-w-0 px-2 py-1.5 rounded-lg text-xs"
+                        style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card, color: COLORS.ink }}
+                      />
+                      <button onClick={() => removeItem(it.id)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.out}55` }}>
+                        <Trash2 size={12} color={COLORS.out} />
+                      </button>
+                    </div>
+
+                    {it.rawName && it.rawName !== it.name && (
+                      <div className="text-[10px] mb-1.5" style={{ color: COLORS.inkSoft }}>
+                        Di struk: {it.rawName}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-1 px-2 rounded-lg shrink-0" style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card }}>
+                        <span className="text-[10px]" style={{ color: COLORS.inkSoft }}>
+                          x
+                        </span>
+                        <input
+                          inputMode="numeric"
+                          value={it.qty}
+                          onChange={(e) => updateItem(it.id, { qty: Number(e.target.value.replace(/[^\d]/g, "")) || 0 })}
+                          className="py-1.5 bg-transparent text-xs"
+                          style={{ width: 32, color: COLORS.ink, outline: "none", border: "none" }}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 px-2 rounded-lg flex-1 min-w-0" style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card }}>
+                        <span className="text-[10px]" style={{ color: COLORS.inkSoft }}>
+                          Rp
+                        </span>
+                        <input
+                          inputMode="numeric"
+                          value={it.subtotal}
+                          onChange={(e) => updateItem(it.id, { subtotal: Number(e.target.value.replace(/[^\d]/g, "")) || 0 })}
+                          className="flex-1 min-w-0 py-1.5 bg-transparent text-xs font-semibold"
+                          style={{ color: COLORS.ink, outline: "none", border: "none" }}
+                        />
+                      </div>
+                    </div>
+
+                    <select
+                      value={it.categoryId}
+                      onChange={(e) => updateItem(it.id, { categoryId: e.target.value })}
+                      className="w-full px-2 py-1.5 rounded-lg text-xs"
+                      style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card, color: COLORS.ink }}
+                    >
+                      <option value="">Tanpa kategori</option>
+                      {expenseCats.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    {match && match.accepted === null && (
+                      <div className="mt-2 rounded-lg p-2" style={{ background: COLORS.card, border: `1px dashed ${COLORS.primaryLight}` }}>
+                        <div className="text-[10px] mb-1.5" style={{ color: COLORS.ink }}>
+                          Sepertinya ini <span className="font-semibold">{match.name}</span> di daftar Akan Dibeli. Cocokkan?
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => setMatches((m) => ({ ...m, [it.id]: { ...match, accepted: true } }))}
+                            className="flex-1 py-1 rounded text-[10px] font-medium text-white"
+                            style={{ background: COLORS.safe }}
+                          >
+                            Ya, cocok
+                          </button>
+                          <button
+                            onClick={() => setMatches((m) => ({ ...m, [it.id]: { ...match, accepted: false } }))}
+                            className="flex-1 py-1 rounded text-[10px] font-medium"
+                            style={{ border: `1px solid ${COLORS.border}`, color: COLORS.inkSoft }}
+                          >
+                            Bukan
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {match && match.accepted === true && (
+                      <div className="mt-2 text-[10px] flex items-center gap-1" style={{ color: COLORS.safe }}>
+                        <Check size={11} /> Bakal dicentang di Akan Dibeli: {match.name}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={addItem}
+              className="w-full mt-2 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5"
+              style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.primary }}
+            >
+              <Plus size={13} /> Tambah barang
+            </button>
+          </Field>
+
+          <div className="rounded-xl p-3 mb-3" style={{ background: COLORS.bg }}>
+            {[
+              ["Jumlah barang", itemsTotal],
+              parsed.discountTotal ? ["Diskon", -parsed.discountTotal] : null,
+              parsed.tax ? ["Pajak", parsed.tax] : null,
+              parsed.serviceCharge ? ["Biaya layanan", parsed.serviceCharge] : null,
+              parsed.rounding ? ["Pembulatan", parsed.rounding] : null,
+            ]
+              .filter(Boolean)
+              .map(([label, val]) => (
+                <div key={label} className="flex justify-between text-[11px] mb-1" style={{ color: COLORS.inkSoft }}>
+                  <span>{label}</span>
+                  <span>{fmtRupiah(val)}</span>
+                </div>
+              ))}
+            <div className="flex justify-between items-center pt-2 mt-1" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+              <span className="text-xs font-semibold" style={{ color: COLORS.ink }}>
+                Total
+              </span>
+              <div className="flex items-center gap-1 px-2 rounded-lg" style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card }}>
+                <span className="text-[10px]" style={{ color: COLORS.inkSoft }}>
+                  Rp
+                </span>
+                <input
+                  inputMode="numeric"
+                  value={parsed.total}
+                  onChange={(e) => setParsed((p) => ({ ...p, total: Number(e.target.value.replace(/[^\d]/g, "")) || 0 }))}
+                  className="py-1.5 bg-transparent text-sm font-bold text-right"
+                  style={{ width: 96, color: COLORS.ink, outline: "none", border: "none" }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <Field label="Simpan sebagai" className="mb-3">
+            <div className="flex gap-1 p-1 rounded-xl" style={{ background: COLORS.bg }}>
+              {[
+                { key: "single", label: "Satu transaksi" },
+                { key: "split", label: "Pecah per kategori" },
+              ].map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setSaveMode(o.key)}
+                  className="flex-1 py-2 rounded-lg text-xs font-medium"
+                  style={{ background: saveMode === o.key ? COLORS.primary : "transparent", color: saveMode === o.key ? "#fff" : COLORS.inkSoft }}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="Dompet" className="mb-3">
+            <div className="flex flex-wrap gap-1.5">
+              {wallets.map((w) => (
+                <button
+                  key={w.id}
+                  onClick={() => setWalletId(w.id)}
+                  className="px-2.5 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    background: walletId === w.id ? w.color : COLORS.bg,
+                    color: walletId === w.id ? "#fff" : COLORS.inkSoft,
+                    border: `1px solid ${walletId === w.id ? w.color : COLORS.border}`,
+                  }}
+                >
+                  {w.name}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="Tanggal & jam" className="mb-4">
+            <input
+              type="datetime-local"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg text-sm"
+              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+            />
+          </Field>
+
+          {error && error !== "NO_API_KEY" && (
+            <div className="text-xs mb-3" style={{ color: COLORS.out }}>
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}>
+              Batal
+            </button>
+            <button onClick={submit} disabled={saving} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Menyimpan..." : "Simpan"}
+            </button>
+          </div>
+        </>
+      )}
     </Overlay>
   );
 }
