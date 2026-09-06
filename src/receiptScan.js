@@ -29,6 +29,62 @@ function fileToBase64(file) {
   });
 }
 
+// Kecilkan foto sebelum dikirim. Foto kamera HP biasanya 3–8 MB dan bagian
+// paling lama dari proses scan adalah mengunggahnya. Diperkecil ke lebar
+// maksimal 1200px kualitas 80% biasanya cuma 200–400 KB — jauh lebih cepat
+// diunggah, sementara tulisan di struk tetap terbaca jelas.
+// Prosesnya berjalan otomatis di HP dan hanya makan waktu sepersekian detik.
+const MAX_DIMENSION = 1200;
+const JPEG_QUALITY = 0.8;
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Gambar tidak bisa dibuka."));
+    };
+    img.src = url;
+  });
+}
+
+async function shrinkImage(file) {
+  // Kalau bukan gambar atau sudah kecil, pakai apa adanya.
+  if (!file.type || !file.type.startsWith("image/") || file.size < 400 * 1024) {
+    return { data: await fileToBase64(file), mimeType: file.type || "image/jpeg" };
+  }
+
+  try {
+    const img = await loadImage(file);
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(img.naturalWidth, img.naturalHeight));
+
+    // Sudah cukup kecil dimensinya — gak perlu digambar ulang.
+    if (scale >= 1) {
+      return { data: await fileToBase64(file), mimeType: file.type };
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+    const comma = dataUrl.indexOf(",");
+    if (comma < 0) throw new Error("gagal");
+    return { data: dataUrl.slice(comma + 1), mimeType: "image/jpeg" };
+  } catch (err) {
+    // Kalau apa pun gagal, kirim foto aslinya saja — lebih lambat tapi tetap jalan.
+    return { data: await fileToBase64(file), mimeType: file.type || "image/jpeg" };
+  }
+}
+
 function buildPrompt({ categories, toBuyNames, aliases }) {
   const catList = categories.map((c) => `- ${c.id} = ${c.name}`).join("\n");
   const buyList = toBuyNames.length ? toBuyNames.map((n) => `- ${n}`).join("\n") : "(kosong)";
@@ -108,16 +164,22 @@ export async function scanReceipt(files, ctx) {
   if (!key) throw new Error("NO_API_KEY");
   if (!files || !files.length) throw new Error("Belum ada foto yang dipilih.");
 
+  // Semua foto dikecilkan bersamaan supaya tidak antre satu per satu.
+  const shrunk = await Promise.all(files.map((f) => shrinkImage(f)));
   const parts = [{ text: buildPrompt(ctx) }];
-  for (const f of files) {
-    const data = await fileToBase64(f);
-    parts.push({ inline_data: { mime_type: f.type || "image/jpeg", data } });
-  }
-
-  const payload = JSON.stringify({
-    contents: [{ parts }],
-    generationConfig: { responseMimeType: "application/json" },
+  shrunk.forEach(({ data, mimeType }) => {
+    parts.push({ inline_data: { mime_type: mimeType, data } });
   });
+
+  // Membaca struk itu tugas menyalin, bukan menalar — tingkat "berpikir"
+  // dikecilkan supaya balasannya jauh lebih cepat. Setelan ini hanya dikenal
+  // model generasi 3.x; model lama memakai setelan berbeda dan akan menolak
+  // kalau dikirimi ini, jadi payload-nya disesuaikan per model.
+  function payloadFor(model) {
+    const generationConfig = { responseMimeType: "application/json" };
+    if (/^gemini-3/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
+    return JSON.stringify({ contents: [{ parts }], generationConfig });
+  }
 
   // Coba tiap model sampai ada yang berhasil. Model yang sudah dipensiunkan
   // membalas 404, jadi cukup lanjut ke kandidat berikutnya.
@@ -130,7 +192,7 @@ export async function scanReceipt(files, ctx) {
       res = await fetch(`${endpointFor(model)}?key=${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: payload,
+        body: payloadFor(model),
       });
     } catch (err) {
       throw new Error("Gagal terhubung ke layanan AI. Cek koneksi internetmu.");
@@ -155,8 +217,10 @@ export async function scanReceipt(files, ctx) {
     if (res.status === 403) throw new Error("API key-nya ditolak. Pastikan Gemini API sudah aktif untuk key itu.");
 
     lastError = `(${res.status}) ${detail}`.trim();
-    // 404 = model tidak tersedia, coba model berikutnya.
-    if (res.status !== 404) break;
+    // 404 = model tidak tersedia. 400 soal setelan "thinking" = model itu tidak
+    // mendukungnya. Dua-duanya bisa diselamatkan dengan mencoba model berikutnya.
+    const retryable = res.status === 404 || (res.status === 400 && /thinking/i.test(detail));
+    if (!retryable) break;
   }
 
   if (!body) {
