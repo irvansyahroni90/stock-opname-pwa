@@ -2,8 +2,14 @@
 // API key diambil dari environment variable VITE_GEMINI_API_KEY —
 // JANGAN ditulis langsung di file ini.
 
-const MODEL = "gemini-2.0-flash";
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+// Daftar model yang dicoba berurutan. Kalau model teratas sudah dipensiunkan
+// Google (balasan 404), otomatis lanjut ke berikutnya — jadi fitur ini tidak
+// mati begitu Google mengganti versi modelnya.
+const MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+
+function endpointFor(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
 
 export function hasApiKey() {
   return !!import.meta.env.VITE_GEMINI_API_KEY;
@@ -108,34 +114,55 @@ export async function scanReceipt(files, ctx) {
     parts.push({ inline_data: { mime_type: f.type || "image/jpeg", data } });
   }
 
-  let res;
-  try {
-    res = await fetch(`${ENDPOINT}?key=${encodeURIComponent(key)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { temperature: 0, responseMimeType: "application/json" },
-      }),
-    });
-  } catch (err) {
-    throw new Error("Gagal terhubung ke layanan AI. Cek koneksi internetmu.");
-  }
+  const payload = JSON.stringify({
+    contents: [{ parts }],
+    generationConfig: { responseMimeType: "application/json" },
+  });
 
-  if (!res.ok) {
+  // Coba tiap model sampai ada yang berhasil. Model yang sudah dipensiunkan
+  // membalas 404, jadi cukup lanjut ke kandidat berikutnya.
+  let body = null;
+  let lastError = null;
+
+  for (const model of MODELS) {
+    let res;
+    try {
+      res = await fetch(`${endpointFor(model)}?key=${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+    } catch (err) {
+      throw new Error("Gagal terhubung ke layanan AI. Cek koneksi internetmu.");
+    }
+
+    if (res.ok) {
+      body = await res.json();
+      break;
+    }
+
     let detail = "";
     try {
-      const body = await res.json();
-      detail = body?.error?.message || "";
+      const errBody = await res.json();
+      detail = errBody?.error?.message || "";
     } catch (_) {
       /* abaikan */
     }
+
+    // Kesalahan yang tidak akan berubah walau ganti model — hentikan di sini.
     if (res.status === 400 && /API key/i.test(detail)) throw new Error("API key-nya tidak valid. Cek lagi di pengaturan Vercel.");
     if (res.status === 429) throw new Error("Kuota AI hari ini sudah habis. Coba lagi nanti.");
-    throw new Error(`Layanan AI menolak permintaan (${res.status}). ${detail}`.trim());
+    if (res.status === 403) throw new Error("API key-nya ditolak. Pastikan Gemini API sudah aktif untuk key itu.");
+
+    lastError = `(${res.status}) ${detail}`.trim();
+    // 404 = model tidak tersedia, coba model berikutnya.
+    if (res.status !== 404) break;
   }
 
-  const body = await res.json();
+  if (!body) {
+    throw new Error(`Layanan AI menolak permintaan. ${lastError || ""}`.trim());
+  }
+
   const text = body?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
   if (!text) throw new Error("AI tidak mengembalikan hasil. Coba foto ulang lebih terang.");
 
