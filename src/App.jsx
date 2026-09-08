@@ -334,6 +334,14 @@ function AppPicker({ userName, onPick, onLogout }) {
       iconBg: COLORS.iconAgendaBg,
       iconFg: COLORS.iconAgendaFg,
     },
+    {
+      key: "agenda",
+      title: "Agenda Rumah",
+      subtitle: "Tugas dan jadwal rumah tangga",
+      icon: CalendarCheck2,
+      iconBg: COLORS.iconBuyBg,
+      iconFg: COLORS.iconBuyFg,
+    },
   ];
 
   return (
@@ -552,7 +560,7 @@ export default function App() {
 
   // Swipe kiri/kanan untuk pindah antar tab Beranda-Stok-Beli-Agenda,
   // dengan halaman sebelah ikut kegeser mengikuti jari (gaya carousel).
-  const TAB_ORDER = ["dashboard", "stock", "tobuy", "agenda"];
+  const TAB_ORDER = ["dashboard", "stock", "tobuy"];
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const touchStartRef = useRef(null);
@@ -689,7 +697,7 @@ export default function App() {
     setAgendaSearch("");
     setAgendaFilter(task.done ? "done" : urgency === "overdue" ? "overdue" : urgency === "soon" ? "soon" : "all");
     setHighlightTarget({ type: "agenda", id: task.id });
-    setView("agenda");
+    setActiveApp("agenda");
   };
 
   const [showHistory, setShowHistory] = useState(false);
@@ -1449,6 +1457,29 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
+      {activeApp === "agenda" ? (
+        <div className="fixed left-0 right-0" style={{ top: 0, bottom: 0 }}>
+          <AgendaPage
+            tasks={tasks}
+            dueThreshold={dueThreshold}
+            search={agendaSearch}
+            setSearch={setAgendaSearch}
+            filter={agendaFilter}
+            setFilter={setAgendaFilter}
+            onBack={() => setActiveApp(null)}
+            onAddTask={() => setTaskModal({ mode: "add" })}
+            onEditTask={(task) => setTaskModal({ mode: "edit", task })}
+            onDeleteTask={(task) => setConfirmDelete({ type: "task", id: task.id, label: task.title })}
+            onToggleDone={handleToggleTaskDone}
+            onOpenThreshold={() => setThresholdModal(true)}
+            userName={userName}
+            onOpenUserMenu={() => setShowUserMenu(true)}
+            onRefresh={loadAll}
+            highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
+            onHighlightDone={() => setHighlightTarget(null)}
+          />
+        </div>
+      ) : (
       <div
         ref={trackWrapRef}
         className="fixed left-0 right-0 overflow-hidden"
@@ -1457,7 +1488,7 @@ export default function App() {
         <div
           className="flex h-full"
           style={{
-            width: "400vw",
+            width: "300vw",
             transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
             transition: isDragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           }}
@@ -1489,6 +1520,14 @@ export default function App() {
                     onOpen={openNotif}
                     onClose={() => setShowNotif(false)}
                   />
+                  <button
+                    onClick={() => attemptNavigate(() => setActiveApp(null))}
+                    className="w-10 h-10 rounded-full flex items-center justify-center"
+                    style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+                    title="Ganti aplikasi"
+                  >
+                    <LayoutGrid size={16} color={COLORS.ink} />
+                  </button>
                   <button
                     onClick={() => setShowUserMenu(true)}
                     className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -1581,7 +1620,7 @@ export default function App() {
                 }
                 badge={agendaCounts.overdue + agendaCounts.soon}
                 badgeColor={agendaCounts.overdue > 0 ? COLORS.out : COLORS.low}
-                onOpen={() => setView("agenda")}
+                onOpen={() => setActiveApp("agenda")}
                 rows={agendaPreview.list.map((task) => (
                   <AgendaPreviewRow
                     key={task.id}
@@ -1597,7 +1636,7 @@ export default function App() {
                       count={agendaPreview.total - agendaPreview.list.length}
                       onClick={() => {
                         setAgendaFilter("all");
-                        setView("agenda");
+                        setActiveApp("agenda");
                       }}
                     />
                   )
@@ -1625,6 +1664,7 @@ export default function App() {
             onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
             userName={userName}
             onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
+            onSwitchApp={() => attemptNavigate(() => setActiveApp(null))}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
@@ -1645,43 +1685,24 @@ export default function App() {
             onToggle={handleToggleBought}
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
+            onSwitchApp={() => setActiveApp(null)}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
           />
           </div>
 
-          <div className="h-full" style={{ width: "100vw" }}>
-          <AgendaPage
-            tasks={tasks}
-            dueThreshold={dueThreshold}
-            search={agendaSearch}
-            setSearch={setAgendaSearch}
-            filter={agendaFilter}
-            setFilter={setAgendaFilter}
-            onBack={() => setView("dashboard")}
-            onAddTask={() => setTaskModal({ mode: "add" })}
-            onEditTask={(task) => setTaskModal({ mode: "edit", task })}
-            onDeleteTask={(task) => setConfirmDelete({ type: "task", id: task.id, label: task.title })}
-            onToggleDone={handleToggleTaskDone}
-            onOpenThreshold={() => setThresholdModal(true)}
-            userName={userName}
-            onOpenUserMenu={() => setShowUserMenu(true)}
-            onRefresh={loadAll}
-            highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
-            onHighlightDone={() => setHighlightTarget(null)}
-          />
-          </div>
         </div>
       </div>
+      )}
 
-      {(view === "stock" || view === "tobuy" || view === "agenda") && (
+      {(activeApp === "agenda" || view === "stock" || view === "tobuy") && (
         <button
           onClick={() =>
             attemptNavigate(() => {
-              if (view === "stock") setModal({ mode: "add" });
-              else if (view === "tobuy") setToBuyModal({ mode: "add" });
-              else setTaskModal({ mode: "add" });
+              if (activeApp === "agenda") setTaskModal({ mode: "add" });
+              else if (view === "stock") setModal({ mode: "add" });
+              else setToBuyModal({ mode: "add" });
             })
           }
           className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
@@ -1691,7 +1712,7 @@ export default function App() {
         </button>
       )}
 
-      <BottomNav view={view} setView={(v) => attemptNavigate(() => setView(v))} />
+      {activeApp !== "agenda" && <BottomNav view={view} setView={(v) => attemptNavigate(() => setView(v))} />}
 
       {/* Item add/edit modal */}
       {modal && (
@@ -2145,7 +2166,7 @@ function UserMenuItem({ icon: Icon, label, onClick, last, danger }) {
   );
 }
 
-function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu }) {
+function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu, onSwitchApp }) {
   return (
     <div className="pt-8 pb-5 flex items-start justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -2174,6 +2195,16 @@ function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {rightSlot}
+        {onSwitchApp && (
+          <button
+            onClick={onSwitchApp}
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+            title="Ganti aplikasi"
+          >
+            <LayoutGrid size={16} color={COLORS.ink} />
+          </button>
+        )}
         {onOpenUserMenu && (
           <button
             onClick={onOpenUserMenu}
@@ -2308,7 +2339,6 @@ function BottomNav({ view, setView }) {
     { key: "dashboard", label: "Beranda", icon: Home },
     { key: "stock", label: "Stok", icon: Package },
     { key: "tobuy", label: "Beli", icon: ShoppingCart },
-    { key: "agenda", label: "Agenda", icon: CalendarCheck2 },
   ];
   return (
     <div
@@ -2410,7 +2440,7 @@ function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
 
 /* ---------------- Stock page ---------------- */
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, userName, onOpenUserMenu, onSwitchApp, onRefresh, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -2464,6 +2494,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
           onBack={onBack}
           userName={userName}
           onOpenUserMenu={onOpenUserMenu}
+          onSwitchApp={onSwitchApp}
         />
 
         <div className="grid grid-cols-3 gap-2 mb-3">
@@ -2834,7 +2865,7 @@ function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
 
 /* ---------------- Akan Dibeli page ---------------- */
 
-function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
+function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onSwitchApp, onRefresh, highlightId, onHighlightDone }) {
   const pendingCount = toBuy.filter((e) => !e.bought).length;
   const boughtCount = toBuy.filter((e) => e.bought).length;
 
@@ -2867,6 +2898,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
           onBack={onBack}
           userName={userName}
           onOpenUserMenu={onOpenUserMenu}
+          onSwitchApp={onSwitchApp}
         />
 
         <div className="grid grid-cols-2 gap-2 mb-3">
@@ -3144,7 +3176,7 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 /* ---------------- Agenda Rumah page ---------------- */
 
-function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onRefresh, highlightId, onHighlightDone }) {
+function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, onRefresh, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
   const active = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
@@ -3205,6 +3237,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           onBack={onBack}
           userName={userName}
           onOpenUserMenu={onOpenUserMenu}
+          onSwitchApp={onSwitchApp}
           rightSlot={
             <button
               onClick={onOpenThreshold}
