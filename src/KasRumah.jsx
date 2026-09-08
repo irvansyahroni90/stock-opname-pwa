@@ -2305,6 +2305,9 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
 function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, saving, onClose, onSubmit, onMarkBought, onSaveAliases }) {
   const [step, setStep] = useState("pick"); // pick | loading | review
   const [files, setFiles] = useState([]);
+  const [progress, setProgress] = useState("");
+  const [elapsed, setElapsed] = useState(0);
+  const abortRef = useRef(null);
   const [error, setError] = useState("");
   const [parsed, setParsed] = useState(null);
   const [walletId, setWalletId] = useState(wallets[0]?.id || "");
@@ -2320,12 +2323,20 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
   const runScan = async (picked) => {
     setStep("loading");
     setError("");
+    setProgress("Menyiapkan foto...");
+    setElapsed(0);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
-      const result = await scanReceipt(picked, {
-        categories: categories.filter((c) => c.kind === "expense"),
-        toBuyNames: pendingToBuy.map((e) => e.itemName),
-        aliases: aliases || {},
-      });
+      const result = await scanReceipt(
+        picked,
+        {
+          categories: categories.filter((c) => c.kind === "expense"),
+          toBuyNames: pendingToBuy.map((e) => e.itemName),
+          aliases: aliases || {},
+        },
+        { signal: ctrl.signal, onProgress: setProgress }
+      );
       setParsed(result);
       if (result.date) setDate(toLocalInput(result.date));
       if (result.store) setNote(result.store);
@@ -2342,14 +2353,30 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
       setMatches(initial);
       setStep("review");
     } catch (err) {
-      if (err.message === "NO_API_KEY") {
+      if (err.message === "DIBATALKAN") {
+        setError("");
+      } else if (err.message === "NO_API_KEY") {
         setError("NO_API_KEY");
       } else {
         setError(err.message || "Gagal membaca struk.");
       }
       setStep("pick");
+    } finally {
+      abortRef.current = null;
     }
   };
+
+  const cancelScan = () => {
+    if (abortRef.current) abortRef.current.abort();
+    setStep("pick");
+  };
+
+  // Penghitung detik supaya terlihat prosesnya masih berjalan.
+  useEffect(() => {
+    if (step !== "loading") return;
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [step]);
 
   const handlePick = (e) => {
     const picked = Array.from(e.target.files || []);
@@ -2450,8 +2477,8 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
                 Fitur scan belum aktif
               </div>
               <p className="text-xs leading-relaxed" style={{ color: COLORS.ink }}>
-                API key Gemini belum dipasang. Buka Google AI Studio untuk ambil key gratis, lalu tambahkan sebagai
-                <span className="font-semibold"> VITE_GEMINI_API_KEY</span> di pengaturan Vercel.
+                API key belum dipasang. Ambil key gratis di Groq (atau Google AI Studio), lalu tambahkan sebagai
+                <span className="font-semibold"> VITE_GROQ_API_KEY</span> di pengaturan Vercel.
               </p>
             </div>
           ) : error ? (
@@ -2481,16 +2508,28 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
       )}
 
       {step === "loading" && (
-        <div className="py-10 text-center">
+        <div className="py-8 text-center">
           <div className="scan-pulse rounded-full mx-auto mb-3 flex items-center justify-center" style={{ width: 52, height: 52, background: COLORS.iconAgendaBg }}>
             <ScanLine size={22} color={COLORS.iconAgendaFg} />
           </div>
           <div className="text-sm font-medium" style={{ color: COLORS.ink }}>
-            Membaca struk...
+            {progress || "Membaca struk..."}
           </div>
           <div className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>
-            {files.length > 1 ? `${files.length} foto` : "Sebentar ya"}
+            {elapsed} detik{files.length > 1 ? ` · ${files.length} foto` : ""}
           </div>
+          {elapsed >= 15 && (
+            <div className="text-xs mt-2 px-4" style={{ color: COLORS.low }}>
+              Agak lama nih, mungkin servernya lagi ramai.
+            </div>
+          )}
+          <button
+            onClick={cancelScan}
+            className="mt-4 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+          >
+            Batalkan
+          </button>
         </div>
       )}
 

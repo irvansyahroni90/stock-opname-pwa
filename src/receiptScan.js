@@ -5,14 +5,126 @@
 // Daftar model yang dicoba berurutan. Kalau model teratas sudah dipensiunkan
 // Google (balasan 404), otomatis lanjut ke berikutnya — jadi fitur ini tidak
 // mati begitu Google mengganti versi modelnya.
-const MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+// Groq dipakai lebih dulu karena jauh lebih cepat; Gemini jadi cadangan
+// otomatis kalau Groq gagal, sibuk, atau key-nya belum dipasang.
+const GROQ_MODELS = ["qwen/qwen3.6-27b", "meta-llama/llama-4-maverick-17b-128e-instruct", "meta-llama/llama-4-scout-17b-16e-instruct"];
+const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
 
-function endpointFor(model) {
+const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+
+// Batas waktu satu percobaan. Tanpa ini permintaan bisa menggantung tanpa
+// ujung kalau server penyedia bermasalah.
+const TIMEOUT_MS = 45000;
+
+function geminiEndpoint(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
 export function hasApiKey() {
-  return !!import.meta.env.VITE_GEMINI_API_KEY;
+  return !!(import.meta.env.VITE_GROQ_API_KEY || import.meta.env.VITE_GEMINI_API_KEY);
+}
+
+// Jalankan fetch dengan batas waktu, sekaligus menghormati pembatalan
+// dari pengguna. Mengembalikan Response, atau melempar Error bertanda.
+async function fetchWithTimeout(url, init, signal) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort("timeout"), TIMEOUT_MS);
+  const onUserAbort = () => ctrl.abort("user");
+  signal?.addEventListener("abort", onUserAbort);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (err) {
+    if (signal?.aborted) throw new Error("DIBATALKAN");
+    throw new Error("TIMEOUT");
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onUserAbort);
+  }
+}
+
+// Bentuk badan permintaan sesuai penyedia, lalu ambil teks balasannya.
+// Hasilnya selalu berupa objek dengan bentuk yang sama supaya pemanggilnya
+// tidak perlu tahu penyedia mana yang dipakai.
+async function callProvider({ provider, model, key }, prompt, images, signal) {
+  let url, init;
+
+  if (provider === "groq") {
+    // Groq memakai format yang sama dengan OpenAI: gambar dikirim sebagai
+    // data URL di dalam daftar isi pesan.
+    const content = [{ type: "text", text: prompt }];
+    images.forEach(({ data, mimeType }) => {
+      content.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${data}` } });
+    });
+    url = GROQ_ENDPOINT;
+    init = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+      }),
+    };
+  } else {
+    const parts = [{ text: prompt }];
+    images.forEach(({ data, mimeType }) => {
+      parts.push({ inline_data: { mime_type: mimeType, data } });
+    });
+    const generationConfig = { responseMimeType: "application/json" };
+    // Setelan ini hanya dikenal model generasi 3.x.
+    if (/^gemini-3/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
+    url = `${geminiEndpoint(model)}?key=${encodeURIComponent(key)}`;
+    init = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig }),
+    };
+  }
+
+  let res;
+  try {
+    res = await fetchWithTimeout(url, init, signal);
+  } catch (err) {
+    if (err.message === "DIBATALKAN") throw err;
+    if (err.message === "TIMEOUT") {
+      return { ok: false, busy: true, message: "Kelamaan menunggu balasan." };
+    }
+    return { ok: false, message: "Gagal terhubung. Cek koneksi internetmu." };
+  }
+
+  if (res.ok) {
+    const body = await res.json();
+    const text =
+      provider === "groq"
+        ? body?.choices?.[0]?.message?.content || ""
+        : body?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+    if (!text) return { ok: false, message: "AI tidak mengembalikan hasil." };
+    return { ok: true, text };
+  }
+
+  let detail = "";
+  try {
+    const errBody = await res.json();
+    detail = errBody?.error?.message || "";
+  } catch (_) {
+    /* abaikan */
+  }
+
+  // Kunci bermasalah — ganti model tidak akan menolong, tapi penyedia lain
+  // mungkin bisa, jadi jangan dihentikan total kecuali memang tidak ada lagi.
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, message: `API key ${provider} ditolak. Cek lagi di pengaturan Vercel.` };
+  }
+  if (res.status === 429) {
+    return { ok: false, busy: true, message: `Kuota ${provider} lagi penuh.` };
+  }
+  // 5xx = server penyedia bermasalah/ramai. 404 = model sudah dipensiunkan.
+  if (res.status >= 500 || res.status === 404) {
+    return { ok: false, busy: res.status >= 500, message: `(${res.status}) ${detail}`.trim() };
+  }
+
+  return { ok: false, message: `(${res.status}) ${detail}`.trim() };
 }
 
 // Ubah File jadi base64 (tanpa prefix data:...).
@@ -159,76 +271,55 @@ function toNumber(v) {
  * @param {File[]} files daftar foto struk
  * @param {{categories: Array, toBuyNames: string[], aliases: Object}} ctx
  */
-export async function scanReceipt(files, ctx) {
-  const key = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) throw new Error("NO_API_KEY");
+export async function scanReceipt(files, ctx, options = {}) {
+  const { signal, onProgress } = options;
+  const groqKey = import.meta.env.VITE_GROQ_API_KEY;
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!groqKey && !geminiKey) throw new Error("NO_API_KEY");
   if (!files || !files.length) throw new Error("Belum ada foto yang dipilih.");
 
+  const say = (msg) => onProgress && onProgress(msg);
+
+  say("Menyiapkan foto...");
   // Semua foto dikecilkan bersamaan supaya tidak antre satu per satu.
   const shrunk = await Promise.all(files.map((f) => shrinkImage(f)));
-  const parts = [{ text: buildPrompt(ctx) }];
-  shrunk.forEach(({ data, mimeType }) => {
-    parts.push({ inline_data: { mime_type: mimeType, data } });
-  });
+  if (signal?.aborted) throw new Error("DIBATALKAN");
+  const prompt = buildPrompt(ctx);
 
-  // Membaca struk itu tugas menyalin, bukan menalar — tingkat "berpikir"
-  // dikecilkan supaya balasannya jauh lebih cepat. Setelan ini hanya dikenal
-  // model generasi 3.x; model lama memakai setelan berbeda dan akan menolak
-  // kalau dikirimi ini, jadi payload-nya disesuaikan per model.
-  function payloadFor(model) {
-    const generationConfig = { responseMimeType: "application/json" };
-    if (/^gemini-3/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
-    return JSON.stringify({ contents: [{ parts }], generationConfig });
-  }
+  // Daftar percobaan: Groq dulu (paling cepat), Gemini sebagai cadangan.
+  const attempts = [];
+  if (groqKey) GROQ_MODELS.forEach((m) => attempts.push({ provider: "groq", model: m, key: groqKey }));
+  if (geminiKey) GEMINI_MODELS.forEach((m) => attempts.push({ provider: "gemini", model: m, key: geminiKey }));
 
-  // Coba tiap model sampai ada yang berhasil. Model yang sudah dipensiunkan
-  // membalas 404, jadi cukup lanjut ke kandidat berikutnya.
-  let body = null;
-  let lastError = null;
+  let text = "";
+  let lastError = "";
+  let sawBusy = false;
 
-  for (const model of MODELS) {
-    let res;
-    try {
-      res = await fetch(`${endpointFor(model)}?key=${encodeURIComponent(key)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: payloadFor(model),
-      });
-    } catch (err) {
-      throw new Error("Gagal terhubung ke layanan AI. Cek koneksi internetmu.");
-    }
+  for (let i = 0; i < attempts.length; i++) {
+    const a = attempts[i];
+    if (signal?.aborted) throw new Error("DIBATALKAN");
+    say(i === 0 ? "Membaca struk..." : "Server sibuk, mencoba cadangan...");
 
-    if (res.ok) {
-      body = await res.json();
+    const result = await callProvider(a, prompt, shrunk, signal);
+
+    if (result.ok) {
+      text = result.text;
       break;
     }
 
-    let detail = "";
-    try {
-      const errBody = await res.json();
-      detail = errBody?.error?.message || "";
-    } catch (_) {
-      /* abaikan */
-    }
-
     // Kesalahan yang tidak akan berubah walau ganti model — hentikan di sini.
-    if (res.status === 400 && /API key/i.test(detail)) throw new Error("API key-nya tidak valid. Cek lagi di pengaturan Vercel.");
-    if (res.status === 429) throw new Error("Kuota AI hari ini sudah habis. Coba lagi nanti.");
-    if (res.status === 403) throw new Error("API key-nya ditolak. Pastikan Gemini API sudah aktif untuk key itu.");
+    if (result.fatal) throw new Error(result.message);
 
-    lastError = `(${res.status}) ${detail}`.trim();
-    // 404 = model tidak tersedia. 400 soal setelan "thinking" = model itu tidak
-    // mendukungnya. Dua-duanya bisa diselamatkan dengan mencoba model berikutnya.
-    const retryable = res.status === 404 || (res.status === 400 && /thinking/i.test(detail));
-    if (!retryable) break;
+    if (result.busy) sawBusy = true;
+    lastError = result.message;
   }
 
-  if (!body) {
-    throw new Error(`Layanan AI menolak permintaan. ${lastError || ""}`.trim());
+  if (!text) {
+    if (sawBusy) throw new Error("Server AI-nya lagi ramai. Coba lagi sebentar lagi ya.");
+    throw new Error(lastError || "Gagal membaca struk. Coba lagi.");
   }
 
-  const text = body?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-  if (!text) throw new Error("AI tidak mengembalikan hasil. Coba foto ulang lebih terang.");
+  say("Merapikan hasil...");
 
   let raw;
   try {
