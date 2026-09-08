@@ -19,6 +19,7 @@ import {
   Copy,
   Split,
   ChevronRight,
+  ChevronDown,
   LayoutGrid,
   LogOut,
   User,
@@ -68,7 +69,7 @@ const COLORS = {
   iconAgendaFg: "#3F7D5C",
 };
 
-const TAB_ORDER = ["dashboard", "transactions", "wallets", "analysis"];
+const TAB_ORDER = ["dashboard", "transactions", "wallets"];
 
 // --- Ikon yang bisa dipilih untuk kategori & dompet ----------------------
 const CATEGORY_ICONS = {
@@ -352,7 +353,6 @@ function BottomNav({ view, setView }) {
     { key: "dashboard", label: "Beranda", icon: Home },
     { key: "transactions", label: "Transaksi", icon: Receipt },
     { key: "wallets", label: "Dompet", icon: Wallet },
-    { key: "analysis", label: "Analisis", icon: PieChart },
   ];
   return (
     <div
@@ -382,10 +382,10 @@ function MoneyIllustration() {
   return (
     <svg
       viewBox="0 0 140 120"
-      width="86"
-      height="74"
+      width="112"
+      height="96"
       className="absolute right-0 pointer-events-none select-none"
-      style={{ opacity: 0.95, bottom: 0 }}
+      style={{ opacity: 0.95, top: 58 }}
     >
       <ellipse cx="70" cy="106" rx="46" ry="5" fill="#E4E0D4" />
       <rect x="46" y="34" width="42" height="28" rx="3" fill="#C9DFCF" />
@@ -681,7 +681,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         <div
           className="flex h-full"
           style={{
-            width: "400vw",
+            width: "300vw",
             transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
             transition: isDragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           }}
@@ -695,6 +695,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               userName={userName}
               totals={totals}
               recent={sortedTx.slice(0, 3)}
+              transactions={transactions}
               catById={catById}
               walById={walById}
               onOpenMenu={() => setShowMenu(true)}
@@ -739,16 +740,6 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
             />
           </div>
 
-          <div className="h-full" style={{ width: "100vw" }}>
-            <AnalysisPage
-              transactions={transactions}
-              catById={catById}
-              walById={walById}
-              onBack={() => setView("dashboard")}
-              onOpenMenu={() => setShowMenu(true)}
-              onSwitchApp={onBackToPicker}
-            />
-          </div>
         </div>
       </div>
 
@@ -763,15 +754,13 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         </button>
       )}
 
-      {view !== "analysis" && (
-        <button
+      <button
           onClick={fabAction}
           className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
           style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
         >
           <Plus size={26} />
         </button>
-      )}
 
       <BottomNav view={view} setView={setView} />
 
@@ -887,7 +876,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 }
 
 // --- Beranda ------------------------------------------------------------
-function DashboardPage({ userName, totals, recent, catById, walById, onOpenMenu, onSeeAll, onBackToPicker }) {
+function DashboardPage({ userName, totals, recent, transactions, catById, walById, onOpenMenu, onSeeAll, onBackToPicker }) {
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -1000,6 +989,8 @@ function DashboardPage({ userName, totals, recent, catById, walById, onOpenMenu,
             </div>
           )}
         </div>
+
+        <AnalysisSection transactions={transactions} catById={catById} walById={walById} />
       </div>
     </div>
   );
@@ -1483,13 +1474,125 @@ function TrendChart({ months }) {
   );
 }
 
-function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu, onSwitchApp }) {
+// Panel pemilih periode yang muncul dari bawah layar. Pilihan baru diterapkan
+// setelah tombol "Terapkan" ditekan, jadi tidak langsung mengubah tampilan
+// setiap kali disentuh.
+function PeriodSheet({ draftPeriod, setDraftPeriod, draftFrom, setDraftFrom, draftTo, setDraftTo, onApply, onClose }) {
+  const needsDates = draftPeriod === "custom";
+  const invalid = needsDates && (!draftFrom || !draftTo || new Date(draftFrom) > new Date(draftTo));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
+      <div
+        className="w-full sm:max-w-sm rounded-t-2xl overflow-hidden"
+        style={{ background: COLORS.card, maxHeight: "85dvh", paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-center pt-2.5 pb-1">
+          <span className="rounded-full" style={{ width: 36, height: 4, background: COLORS.border }} />
+        </div>
+
+        <div className="text-center pb-2" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
+          Periode
+        </div>
+
+        <div className="overflow-y-auto px-5" style={{ maxHeight: "55dvh" }}>
+          {PERIODS.map((p, i) => {
+            const active = draftPeriod === p.key;
+            return (
+              <button
+                key={p.key}
+                onClick={() => setDraftPeriod(p.key)}
+                className="w-full flex items-center justify-between gap-3 py-3.5 text-left"
+                style={{ borderTop: i === 0 ? "none" : `1px solid ${COLORS.border}` }}
+              >
+                <span className="text-sm" style={{ color: COLORS.ink, fontWeight: active ? 600 : 400 }}>
+                  {p.label}
+                </span>
+                <span
+                  className="shrink-0 rounded-full flex items-center justify-center"
+                  style={{
+                    width: 21,
+                    height: 21,
+                    background: active ? COLORS.primary : "transparent",
+                    border: active ? "none" : `1.5px solid ${COLORS.border}`,
+                  }}
+                >
+                  {active && <Check size={13} color="#fff" />}
+                </span>
+              </button>
+            );
+          })}
+
+          {needsDates && (
+            <div className="flex gap-2 pt-1 pb-2">
+              <Field label="Dari" className="flex-1 min-w-0">
+                <input
+                  type="date"
+                  value={draftFrom}
+                  onChange={(e) => setDraftFrom(e.target.value)}
+                  className="w-full px-2 py-2 rounded-lg text-xs"
+                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+                />
+              </Field>
+              <Field label="Sampai" className="flex-1 min-w-0">
+                <input
+                  type="date"
+                  value={draftTo}
+                  onChange={(e) => setDraftTo(e.target.value)}
+                  className="w-full px-2 py-2 rounded-lg text-xs"
+                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+                />
+              </Field>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 pt-3">
+          <button
+            onClick={onApply}
+            disabled={invalid}
+            className="w-full py-3 rounded-xl text-sm font-semibold text-white"
+            style={{ background: COLORS.primary, opacity: invalid ? 0.5 : 1 }}
+          >
+            Terapkan
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalysisSection({ transactions, catById, walById }) {
   const [period, setPeriod] = useState("month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [dimension, setDimension] = useState("category");
   const [txType, setTxType] = useState("expense");
   const [drill, setDrill] = useState(null);
+  // Panel pemilih periode yang muncul dari bawah (pola seperti Stockbit):
+  // pilihan baru baru diterapkan setelah tombol "Terapkan" ditekan.
+  const [periodSheet, setPeriodSheet] = useState(false);
+  const [draftPeriod, setDraftPeriod] = useState("month");
+  const [draftFrom, setDraftFrom] = useState("");
+  const [draftTo, setDraftTo] = useState("");
+
+  const openPeriodSheet = () => {
+    setDraftPeriod(period);
+    setDraftFrom(customFrom);
+    setDraftTo(customTo);
+    setPeriodSheet(true);
+  };
+
+  const applyPeriod = () => {
+    setPeriod(draftPeriod);
+    setCustomFrom(draftFrom);
+    setCustomTo(draftTo);
+    setDrill(null);
+    setPeriodSheet(false);
+  };
+
+  const periodLabel = PERIODS.find((p) => p.key === period)?.label || "Bulan Ini";
 
   const range = useMemo(() => getRange(period, customFrom, customTo), [period, customFrom, customTo]);
   const prev = useMemo(() => previousRange(range), [range]);
@@ -1638,75 +1741,56 @@ function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu, onSw
   }, [drill, scoped, dimension, catById, walById]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar title="Analisis" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} />
-
-        <div className="flex gap-1 p-1 rounded-xl mb-2" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          {[
-            { key: "expense", label: "Pengeluaran", color: COLORS.out },
-            { key: "income", label: "Pemasukan", color: COLORS.safe },
-          ].map((o) => (
-            <button
-              key={o.key}
-              onClick={() => {
-                setTxType(o.key);
-                setDrill(null);
-              }}
-              className="flex-1 py-2 rounded-lg text-sm font-medium"
-              style={{ background: txType === o.key ? o.color : "transparent", color: txType === o.key ? "#fff" : COLORS.inkSoft }}
-            >
-              {o.label}
-            </button>
-          ))}
+    <div className="mt-3">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-2">
+          <PieChart size={16} color={COLORS.primary} />
+          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>Analisis</div>
         </div>
-
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => {
-                setPeriod(p.key);
-                setDrill(null);
-              }}
-              className="px-2.5 py-1.5 rounded-full text-xs font-medium shrink-0"
-              style={{
-                background: period === p.key ? COLORS.primary : COLORS.card,
-                color: period === p.key ? "#fff" : COLORS.inkSoft,
-                border: `1px solid ${period === p.key ? COLORS.primary : COLORS.border}`,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={openPeriodSheet}
+          className="px-2.5 py-1.5 rounded-full flex items-center gap-1 text-xs font-medium"
+          style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, color: COLORS.primary }}
+        >
+          {periodLabel}
+          <ChevronDown size={13} />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <div className="max-w-2xl mx-auto px-4 pb-32">
-          {period === "custom" && (
-            <div className="rounded-2xl p-3 mb-3 flex gap-2" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-              <Field label="Dari" className="flex-1 min-w-0">
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="w-full px-2 py-2 rounded-lg text-xs"
-                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-                />
-              </Field>
-              <Field label="Sampai" className="flex-1 min-w-0">
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="w-full px-2 py-2 rounded-lg text-xs"
-                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-                />
-              </Field>
-            </div>
-          )}
+      <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        {[
+          { key: "expense", label: "Pengeluaran", color: COLORS.out },
+          { key: "income", label: "Pemasukan", color: COLORS.safe },
+        ].map((o) => (
+          <button
+            key={o.key}
+            onClick={() => {
+              setTxType(o.key);
+              setDrill(null);
+            }}
+            className="flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ background: txType === o.key ? o.color : "transparent", color: txType === o.key ? "#fff" : COLORS.inkSoft }}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
 
+      {periodSheet && (
+        <PeriodSheet
+          draftPeriod={draftPeriod}
+          setDraftPeriod={setDraftPeriod}
+          draftFrom={draftFrom}
+          setDraftFrom={setDraftFrom}
+          draftTo={draftTo}
+          setDraftTo={setDraftTo}
+          onApply={applyPeriod}
+          onClose={() => setPeriodSheet(false)}
+        />
+      )}
+
+      <div>
+        <div>
           <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.primary }}>
             <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
               {txType === "expense" ? "Total pengeluaran" : "Total pemasukan"} · {fmtRangeLabel(range)}
@@ -1865,31 +1949,6 @@ function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu, onSw
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ComingSoonPage({ title, icon: Icon, message, onBack, onOpenMenu, onSwitchApp }) {
-  return (
-    <div className="h-full flex flex-col">
-      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar title={title} onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} />
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-4 pb-32">
-          <div className="rounded-2xl p-8 text-center" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
-            <span className="rounded-full flex items-center justify-center mx-auto mb-3" style={{ width: 44, height: 44, background: COLORS.iconAgendaBg }}>
-              <Icon size={20} color={COLORS.iconAgendaFg} />
-            </span>
-            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }} className="mb-1">
-              Segera hadir
-            </div>
-            <p className="text-xs" style={{ color: COLORS.iconAgendaFg }}>
-              {message}
-            </p>
-          </div>
         </div>
       </div>
     </div>
