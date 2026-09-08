@@ -308,7 +308,7 @@ function SearchBox({ value, onChange, placeholder }) {
   );
 }
 
-function TopBar({ title, onBack, rightSlot, onOpenMenu }) {
+function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp }) {
   return (
     <div className="flex items-center justify-between gap-2 pt-4 pb-4">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -325,6 +325,16 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {rightSlot}
+        {onSwitchApp && (
+          <button
+            onClick={onSwitchApp}
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+            title="Ganti aplikasi"
+          >
+            <LayoutGrid size={16} color={COLORS.ink} />
+          </button>
+        )}
         <button
           onClick={onOpenMenu}
           className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -704,6 +714,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               setFilter={setTxFilter}
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
+              onSwitchApp={onBackToPicker}
               onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
               onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
               onDuplicate={(tx) =>
@@ -721,6 +732,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               transactions={transactions}
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
+              onSwitchApp={onBackToPicker}
               onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
               onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
               onTransfer={() => setTransferModal(true)}
@@ -734,6 +746,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               walById={walById}
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
+              onSwitchApp={onBackToPicker}
             />
           </div>
         </div>
@@ -993,7 +1006,7 @@ function DashboardPage({ userName, totals, recent, catById, walById, onOpenMenu,
 }
 
 // --- Halaman transaksi --------------------------------------------------
-function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onEdit, onDelete, onDuplicate }) {
+function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, onEdit, onDelete, onDuplicate }) {
   const counts = useMemo(() => {
     let income = 0,
       expense = 0,
@@ -1043,7 +1056,7 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar title="Transaksi" onBack={onBack} onOpenMenu={onOpenMenu} />
+        <TopBar title="Transaksi" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} />
 
         <div className="grid grid-cols-4 gap-1.5 mb-3">
           <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
@@ -1199,7 +1212,7 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, onEdit, onDel
 }
 
 // --- Halaman dompet -----------------------------------------------------
-function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onEdit, onDelete, onTransfer }) {
+function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, onEdit, onDelete, onTransfer }) {
   const total = useMemo(
     () => wallets.reduce((sum, w) => sum + walletBalance(w, transactions), 0),
     [wallets, transactions]
@@ -1212,6 +1225,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onEdit, onDele
           title="Dompet"
           onBack={onBack}
           onOpenMenu={onOpenMenu}
+          onSwitchApp={onSwitchApp}
           rightSlot={
             <button
               onClick={onTransfer}
@@ -1469,7 +1483,7 @@ function TrendChart({ months }) {
   );
 }
 
-function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu }) {
+function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu, onSwitchApp }) {
   const [period, setPeriod] = useState("month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -1626,7 +1640,7 @@ function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu }) {
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar title="Analisis" onBack={onBack} onOpenMenu={onOpenMenu} />
+        <TopBar title="Analisis" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} />
 
         <div className="flex gap-1 p-1 rounded-xl mb-2" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
           {[
@@ -1857,11 +1871,11 @@ function AnalysisPage({ transactions, catById, walById, onBack, onOpenMenu }) {
   );
 }
 
-function ComingSoonPage({ title, icon: Icon, message, onBack, onOpenMenu }) {
+function ComingSoonPage({ title, icon: Icon, message, onBack, onOpenMenu, onSwitchApp }) {
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar title={title} onBack={onBack} onOpenMenu={onOpenMenu} />
+        <TopBar title={title} onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} />
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 pb-32">

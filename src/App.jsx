@@ -1474,6 +1474,7 @@ export default function App() {
             onOpenThreshold={() => setThresholdModal(true)}
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
+            onSwitchApp={() => setActiveApp(null)}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
