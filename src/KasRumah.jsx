@@ -402,7 +402,7 @@ function MoneyIllustration() {
 }
 
 // --- App utama ----------------------------------------------------------
-export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp }) {
+export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, initialHighlightId, onInitialHighlightDone }) {
   const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
 
@@ -423,6 +423,16 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   const [scanModal, setScanModal] = useState(false);
   // Transaksi yang sedang disorot setelah dibuka dari beranda/notifikasi.
   const [highlightId, setHighlightId] = useState(null);
+
+  // Dibuka dari notifikasi halaman awal: langsung ke tab Transaksi lalu
+  // sorot transaksi yang dimaksud.
+  useEffect(() => {
+    if (!initialHighlightId) return;
+    setView("transactions");
+    setHighlightId(initialHighlightId);
+    onInitialHighlightDone && onInitialHighlightDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialHighlightId]);
   const [toBuy, setToBuy] = useState([]);
   const [aliases, setAliases] = useState({});
   const [saving, setSaving] = useState(false);

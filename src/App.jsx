@@ -17,6 +17,9 @@ import {
   ChevronUp,
   ChevronRight,
   ArrowLeft,
+  ArrowLeftRight,
+  ArrowUpRight,
+  ArrowDownLeft,
   ListTodo,
   SlidersHorizontal,
   User,
@@ -173,9 +176,16 @@ const ACTIVITY_ICON = {
   tobuyBought: { icon: Check, bg: COLORS.safeBg, fg: COLORS.safe },
   agendaAdd: { icon: CalendarCheck2, bg: COLORS.iconAgendaBg, fg: COLORS.iconAgendaFg },
   agendaDone: { icon: CheckCircle2, bg: COLORS.safeBg, fg: COLORS.safe },
+  kasIncome: { icon: ArrowDownLeft, bg: COLORS.safeBg, fg: COLORS.safe },
+  kasExpense: { icon: ArrowUpRight, bg: COLORS.outBg, fg: COLORS.out },
+  kasTransfer: { icon: ArrowLeftRight, bg: COLORS.iconBuyBg, fg: COLORS.iconBuyFg },
 };
 
-function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
+function fmtRupiahShort(n) {
+  return "Rp " + Math.round(Number(n) || 0).toLocaleString("id-ID");
+}
+
+function buildActivityFeed(history, toBuy, tasks, { days, kasTx, kasCats } = {}) {
   const items = [];
 
   for (const h of history || []) {
@@ -194,7 +204,7 @@ function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
       kind = "stockUpdate";
       text = `${h.user || "Seseorang"} mengubah ${h.itemName} jadi ${h.newQty} ${h.unit || ""}`.trim();
     }
-    items.push({ id: `h-${h.id}`, kind, text, timestamp: h.timestamp });
+    items.push({ id: `h-${h.id}`, kind, text, timestamp: h.timestamp, ref: { type: "stock", id: h.itemId || h.id } });
   }
 
   for (const e of toBuy || []) {
@@ -202,7 +212,7 @@ function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
       const text = e.addedBy
         ? `${e.addedBy} menambahkan ${e.itemName} ke Akan Dibeli`
         : `${e.itemName} otomatis masuk Akan Dibeli (stok menipis)`;
-      items.push({ id: `tb-add-${e.id}`, kind: "tobuyAdd", text, timestamp: e.addedAt });
+      items.push({ id: `tb-add-${e.id}`, kind: "tobuyAdd", text, timestamp: e.addedAt, ref: { type: "tobuy", id: e.id } });
     }
     if (e.bought && e.boughtAt) {
       items.push({
@@ -210,6 +220,7 @@ function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
         kind: "tobuyBought",
         text: `${e.boughtBy || "Seseorang"} membeli ${e.itemName}`,
         timestamp: e.boughtAt,
+        ref: { type: "tobuy", id: e.id },
       });
     }
   }
@@ -221,6 +232,7 @@ function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
         kind: "agendaAdd",
         text: `${t.createdBy || "Seseorang"} menambahkan tugas "${t.title}"`,
         timestamp: t.createdAt,
+        ref: { type: "agenda", id: t.id },
       });
     }
     if (t.done && t.doneAt) {
@@ -229,8 +241,29 @@ function buildActivityFeed(history, toBuy, tasks, { days } = {}) {
         kind: "agendaDone",
         text: `${t.doneBy || "Seseorang"} menyelesaikan tugas "${t.title}"`,
         timestamp: t.doneAt,
+        ref: { type: "agenda", id: t.id },
       });
     }
+  }
+
+  // Kejadian dari Kas Rumah (dibaca saja — datanya milik aplikasi itu).
+  for (const t of kasTx || []) {
+    if (!t.date) continue;
+    const who = t.createdBy || "Seseorang";
+    const nominal = fmtRupiahShort(t.amount);
+    let kind, text;
+    if (t.type === "income") {
+      kind = "kasIncome";
+      text = `${who} mencatat pemasukan ${nominal}`;
+    } else if (t.type === "transfer") {
+      kind = "kasTransfer";
+      text = `${who} transfer ${nominal} antar dompet`;
+    } else {
+      kind = "kasExpense";
+      const cat = (kasCats || {})[t.categoryId]?.name;
+      text = `${who} mencatat pengeluaran ${nominal}${cat ? ` (${cat})` : ""}`;
+    }
+    items.push({ id: `kas-${t.id}`, kind, text, timestamp: t.date, ref: { type: "kas", id: t.id } });
   }
 
   let filtered = items;
@@ -767,12 +800,18 @@ export default function App() {
 
   // Target "loncat & sorot" dari preview Beranda ke item spesifik di halaman penuh
   const [highlightTarget, setHighlightTarget] = useState(null); // { type: 'stock'|'tobuy'|'agenda', id }
+  // Data Kas Rumah untuk notifikasi gabungan (baca saja).
+  const [kasTx, setKasTx] = useState([]);
+  const [kasCats, setKasCats] = useState([]);
+  // Transaksi Kas yang harus disorot begitu aplikasi Kas Rumah dibuka.
+  const [kasHighlightId, setKasHighlightId] = useState(null);
 
   const goToStockItem = (item) => {
     const status = statusOf(item);
     setStockSearch("");
     setStockFilter(status === "safe" ? "all" : status);
     setHighlightTarget({ type: "stock", id: item.id });
+    setActiveApp("stok");
     setView("stock");
   };
 
@@ -780,6 +819,7 @@ export default function App() {
     setTobuySearch("");
     setTobuyFilter(entry.bought ? "bought" : "pending");
     setHighlightTarget({ type: "tobuy", id: entry.id });
+    setActiveApp("stok");
     setView("tobuy");
   };
 
@@ -791,15 +831,50 @@ export default function App() {
     setActiveApp("agenda");
   };
 
+  // Klik satu baris notifikasi: buka aplikasi asalnya, lalu sorot itemnya.
+  const handleActivitySelect = (a) => {
+    setShowNotif(false);
+    const ref = a && a.ref;
+    if (!ref) return;
+    if (ref.type === "stock") {
+      const item = items.find((i) => i.id === ref.id);
+      if (item) goToStockItem(item);
+      else setActiveApp("stok");
+    } else if (ref.type === "tobuy") {
+      const entry = toBuy.find((e) => e.id === ref.id);
+      if (entry) goToToBuyEntry(entry);
+      else setActiveApp("stok");
+    } else if (ref.type === "agenda") {
+      const task = tasks.find((t) => t.id === ref.id);
+      if (task) goToTask(task);
+      else setActiveApp("agenda");
+    } else if (ref.type === "kas") {
+      setKasHighlightId(ref.id);
+      setActiveApp("kas");
+    }
+  };
+
   const [showHistory, setShowHistory] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Aktivitas terbaru untuk lonceng notifikasi: dibatasi 3 hari terakhir
   // (murni turunan dari data yang sudah ada — lihat buildActivityFeed di atas).
-  const activityFeed = useMemo(() => buildActivityFeed(history, toBuy, tasks, { days: 3 }), [history, toBuy, tasks]);
+  const kasCatMap = useMemo(() => {
+    const m = {};
+    (kasCats || []).forEach((c) => (m[c.id] = c));
+    return m;
+  }, [kasCats]);
+
+  const activityFeed = useMemo(
+    () => buildActivityFeed(history, toBuy, tasks, { days: 3, kasTx, kasCats: kasCatMap }),
+    [history, toBuy, tasks, kasTx, kasCatMap]
+  );
   // Riwayat penuh (halaman "Riwayat" di menu): semua perubahan, semua fitur,
   // tanpa batas hari — sumbernya sama persis dengan feed notifikasi.
-  const fullActivityFeed = useMemo(() => buildActivityFeed(history, toBuy, tasks), [history, toBuy, tasks]);
+  const fullActivityFeed = useMemo(
+    () => buildActivityFeed(history, toBuy, tasks, { kasTx, kasCats: kasCatMap }),
+    [history, toBuy, tasks, kasTx, kasCatMap]
+  );
   const [showNotif, setShowNotif] = useState(false);
   const [notifSeenAt, setNotifSeenAt] = useState(() => localStorage.getItem("stock-notif-seen") || "");
   const unreadCount = useMemo(
@@ -974,6 +1049,10 @@ export default function App() {
         setTasks(Array.isArray(data) ? data : []);
         markLoaded();
       }),
+      // Data Kas Rumah — dibaca saja, dipakai untuk notifikasi gabungan
+      // di halaman awal. Penulisannya tetap milik aplikasi Kas Rumah.
+      storageSubscribe("kas-transactions", (data) => setKasTx(Array.isArray(data) ? data : [])),
+      storageSubscribe("kas-categories", (data) => setKasCats(Array.isArray(data) ? data : [])),
       storageSubscribe("agenda-due-threshold", (data) => {
         setDueThreshold(typeof data === "number" && data > 0 ? data : 3);
         markLoaded();
@@ -1516,11 +1595,36 @@ export default function App() {
 
   // Sudah login & sudah punya nama — pilih mau buka aplikasi yang mana.
   if (!activeApp) {
-    return <AppPicker userName={userName} onPick={setActiveApp} onLogout={logout} />;
+    return (
+      <AppPicker
+        userName={userName}
+        onPick={setActiveApp}
+        onLogout={logout}
+        notifSlot={
+          <NotifBell
+            count={unreadCount}
+            activity={activityFeed}
+            open={showNotif}
+            onOpen={openNotif}
+            onClose={() => setShowNotif(false)}
+            onSelect={handleActivitySelect}
+          />
+        }
+      />
+    );
   }
 
   if (activeApp === "kas") {
-    return <KasRumahApp userName={userName} onBackToPicker={() => setActiveApp(null)} onSwitchApp={() => setActiveApp(null)} onLogout={logout} />;
+    return (
+      <KasRumahApp
+        userName={userName}
+        onBackToPicker={() => setActiveApp(null)}
+        onSwitchApp={() => setActiveApp(null)}
+        onLogout={logout}
+        initialHighlightId={kasHighlightId}
+        onInitialHighlightDone={() => setKasHighlightId(null)}
+      />
+    );
   }
 
   return (
@@ -1611,6 +1715,7 @@ export default function App() {
                     open={showNotif}
                     onOpen={openNotif}
                     onClose={() => setShowNotif(false)}
+                    onSelect={handleActivitySelect}
                   />
                   <button
                     onClick={() => attemptNavigate(() => setActiveApp(null))}
@@ -1969,7 +2074,7 @@ export default function App() {
   );
 }
 
-function NotifBell({ count, activity, open, onOpen, onClose }) {
+function NotifBell({ count, activity, open, onOpen, onClose, onSelect }) {
   const wrapRef = useRef(null);
   const headerRef = useRef(null);
   const [listMaxHeight, setListMaxHeight] = useState(272);
@@ -2144,18 +2249,23 @@ function NotifBell({ count, activity, open, onOpen, onClose }) {
                         const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
                         const Icon = meta.icon;
                         return (
-                          <div key={a.id} className="flex items-start gap-2.5 px-4 py-2.5">
+                          <button
+                            key={a.id}
+                            onClick={() => onSelect && onSelect(a)}
+                            className="w-full flex items-start gap-2.5 px-4 py-2.5 text-left"
+                          >
                             <span
                               className="shrink-0 rounded-full flex items-center justify-center"
                               style={{ width: 30, height: 30, background: meta.bg }}
                             >
                               <Icon size={14} color={meta.fg} />
                             </span>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
                               <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
                             </div>
-                          </div>
+                            <ChevronRight size={14} color={COLORS.inkSoft} className="shrink-0 mt-1" />
+                          </button>
                         );
                       })}
                     </div>
