@@ -421,6 +421,8 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
   const [scanModal, setScanModal] = useState(false);
+  // Transaksi yang sedang disorot setelah dibuka dari beranda/notifikasi.
+  const [highlightId, setHighlightId] = useState(null);
   const [toBuy, setToBuy] = useState([]);
   const [aliases, setAliases] = useState({});
   const [saving, setSaving] = useState(false);
@@ -675,6 +677,12 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         ::placeholder { color: #A6A296; }
         @keyframes scanPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.12); opacity: 0.75; } }
         .scan-pulse { animation: scanPulse 1.1s ease-in-out infinite; }
+        @keyframes highlightBlinkTwice {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(63,125,92,0); }
+          15%, 45% { box-shadow: 0 0 0 3px rgba(63,125,92,0.55); }
+          30%, 60% { box-shadow: 0 0 0 0 rgba(63,125,92,0); }
+        }
+        .highlight-blink { animation: highlightBlinkTwice 1.1s ease-in-out; }
       `}</style>
 
       <div className="h-full overflow-hidden">
@@ -694,12 +702,16 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
             <DashboardPage
               userName={userName}
               totals={totals}
-              recent={sortedTx.slice(0, 3)}
+              recent={sortedTx.slice(0, 4)}
               transactions={transactions}
               catById={catById}
               walById={walById}
               onOpenMenu={() => setShowMenu(true)}
               onSeeAll={() => setView("transactions")}
+              onOpenTx={(tx) => {
+                setView("transactions");
+                setHighlightId(tx.id);
+              }}
               onBackToPicker={onBackToPicker}
             />
           </div>
@@ -718,6 +730,8 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onSwitchApp={onBackToPicker}
               onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
               onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
+              highlightId={highlightId}
+              onHighlightDone={() => setHighlightId(null)}
               onDuplicate={(tx) =>
                 setTxModal({
                   mode: "duplicate",
@@ -876,7 +890,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 }
 
 // --- Beranda ------------------------------------------------------------
-function DashboardPage({ userName, totals, recent, transactions, catById, walById, onOpenMenu, onSeeAll, onBackToPicker }) {
+function DashboardPage({ userName, totals, recent, transactions, catById, walById, onOpenMenu, onSeeAll, onOpenTx, onBackToPicker }) {
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -973,7 +987,12 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
           {recent.length > 0 && (
             <div className="flex flex-col gap-1.5 mt-3.5 pl-14">
               {recent.map((t) => (
-                <div key={t.id} className="rounded-lg px-3 py-2 flex items-center justify-between gap-2" style={{ background: COLORS.bg }}>
+                <button
+                  key={t.id}
+                  onClick={() => onOpenTx && onOpenTx(t)}
+                  className="w-full rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-left"
+                  style={{ background: COLORS.bg }}
+                >
                   <span className="text-xs truncate" style={{ color: COLORS.ink }}>
                     {t.note || (t.type === "transfer" ? "Transfer" : catById[t.categoryId]?.name || "Tanpa kategori")}
                   </span>
@@ -984,7 +1003,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                     {t.type === "income" ? "+" : t.type === "expense" ? "-" : ""}
                     {fmtShortRupiah(t.amount)}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -997,7 +1016,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
 }
 
 // --- Halaman transaksi --------------------------------------------------
-function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, onEdit, onDelete, onDuplicate }) {
+function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, onEdit, onDelete, onDuplicate, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let income = 0,
       expense = 0,
@@ -1044,6 +1063,15 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
     return out;
   }, [filtered]);
 
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = document.getElementById(`kas-tx-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId]);
+
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
@@ -1089,6 +1117,7 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
                       wallet={walById[t.walletId]}
                       toWallet={walById[t.toWalletId]}
                       catById={catById}
+                      highlighted={t.id === highlightId}
                       onEdit={() => onEdit(t)}
                       onDelete={() => onDelete(t)}
                       onDuplicate={() => onDuplicate(t)}
@@ -1104,7 +1133,7 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
   );
 }
 
-function TransactionRow({ tx, category, wallet, toWallet, catById, onEdit, onDelete, onDuplicate }) {
+function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, onEdit, onDelete, onDuplicate }) {
   const isIncome = tx.type === "income";
   const isTransfer = tx.type === "transfer";
   const hasSplit = !!(tx.splits && tx.splits.length);
@@ -1114,7 +1143,11 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, onEdit, onDel
   const amountColor = isTransfer ? COLORS.inkSoft : isIncome ? COLORS.safe : COLORS.out;
 
   return (
-    <div className="rounded-2xl p-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+    <div
+      id={`kas-tx-${tx.id}`}
+      className={`rounded-2xl p-3 ${highlighted ? "highlight-blink" : ""}`}
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+    >
       <div className="flex items-start gap-2.5">
         <span className="shrink-0 rounded-full flex items-center justify-center" style={{ width: 36, height: 36, background: `${color}1F` }}>
           <Icon size={16} color={color} />
