@@ -887,6 +887,20 @@ export default function App() {
     setNotifSeenAt(now);
     localStorage.setItem("stock-notif-seen", now);
   };
+
+  // Lonceng yang sama dipakai di semua halaman supaya notifikasi selalu
+  // terjangkau, bukan cuma dari halaman awal.
+  const notifBell = (
+    <NotifBell
+      count={unreadCount}
+      activity={activityFeed}
+      open={showNotif}
+      onOpen={openNotif}
+      onClose={() => setShowNotif(false)}
+      onSelect={handleActivitySelect}
+    />
+  );
+
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', item? }
   const [toBuyModal, setToBuyModal] = useState(null); // { mode: 'add'|'edit', entry? }
   const [taskModal, setTaskModal] = useState(null); // { mode: 'add'|'edit', task? }
@@ -1600,16 +1614,7 @@ export default function App() {
         userName={userName}
         onPick={setActiveApp}
         onLogout={logout}
-        notifSlot={
-          <NotifBell
-            count={unreadCount}
-            activity={activityFeed}
-            open={showNotif}
-            onOpen={openNotif}
-            onClose={() => setShowNotif(false)}
-            onSelect={handleActivitySelect}
-          />
-        }
+        notifSlot={notifBell}
       />
     );
   }
@@ -1621,6 +1626,7 @@ export default function App() {
         onBackToPicker={() => setActiveApp(null)}
         onSwitchApp={() => setActiveApp(null)}
         onLogout={logout}
+        notifSlot={notifBell}
         initialHighlightId={kasHighlightId}
         onInitialHighlightDone={() => setKasHighlightId(null)}
       />
@@ -1670,6 +1676,7 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onSwitchApp={() => setActiveApp(null)}
+            notifSlot={notifBell}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
@@ -1709,14 +1716,7 @@ export default function App() {
                   </h1>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <NotifBell
-                    count={unreadCount}
-                    activity={activityFeed}
-                    open={showNotif}
-                    onOpen={openNotif}
-                    onClose={() => setShowNotif(false)}
-                    onSelect={handleActivitySelect}
-                  />
+                  {notifBell}
                   <button
                     onClick={() => attemptNavigate(() => setActiveApp(null))}
                     className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -1862,6 +1862,7 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
             onSwitchApp={() => attemptNavigate(() => setActiveApp(null))}
+            notifSlot={notifBell}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
@@ -1883,6 +1884,7 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onSwitchApp={() => setActiveApp(null)}
+            notifSlot={notifBell}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
@@ -1982,6 +1984,8 @@ export default function App() {
           onBackup={handleBackupDownload}
           onRestore={triggerRestorePicker}
           onSwitchApp={() => setActiveApp(null)}
+          onOpenThreshold={() => setThresholdModal(true)}
+          dueThreshold={dueThreshold}
           onLogout={logout}
         />
       )}
@@ -2284,7 +2288,7 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect }) {
   );
 }
 
-function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onSwitchApp, onLogout }) {
+function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onSwitchApp, onOpenThreshold, dueThreshold, onLogout }) {
   const [entered, setEntered] = useState(false);
 
   useEffect(() => {
@@ -2340,6 +2344,13 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
 
         <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
           <UserMenuItem icon={User} label="Ganti Nama" onClick={() => runAndClose(onChangeName)} />
+          {onOpenThreshold && (
+            <UserMenuItem
+              icon={SlidersHorizontal}
+              label={`Atur Pengingat (H-${dueThreshold})`}
+              onClick={() => runAndClose(onOpenThreshold)}
+            />
+          )}
           <UserMenuItem icon={History} label="Riwayat" onClick={() => runAndClose(onOpenHistory)} />
           <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
           <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
@@ -2368,7 +2379,7 @@ function UserMenuItem({ icon: Icon, label, onClick, last, danger }) {
   );
 }
 
-function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu, onSwitchApp }) {
+function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu, onSwitchApp, notifSlot }) {
   return (
     <div className="pt-8 pb-5 flex items-start justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -2397,6 +2408,7 @@ function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {rightSlot}
+        {notifSlot}
         {onSwitchApp && (
           <button
             onClick={onSwitchApp}
@@ -2642,7 +2654,7 @@ function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
 
 /* ---------------- Stock page ---------------- */
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, userName, onOpenUserMenu, onSwitchApp, onRefresh, highlightId, onHighlightDone }) {
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -2697,6 +2709,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
           userName={userName}
           onOpenUserMenu={onOpenUserMenu}
           onSwitchApp={onSwitchApp}
+          notifSlot={notifSlot}
         />
 
         <div className="grid grid-cols-3 gap-2 mb-3">
@@ -3067,7 +3080,7 @@ function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
 
 /* ---------------- Akan Dibeli page ---------------- */
 
-function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onSwitchApp, onRefresh, highlightId, onHighlightDone }) {
+function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
   const pendingCount = toBuy.filter((e) => !e.bought).length;
   const boughtCount = toBuy.filter((e) => e.bought).length;
 
@@ -3101,6 +3114,7 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
           userName={userName}
           onOpenUserMenu={onOpenUserMenu}
           onSwitchApp={onSwitchApp}
+          notifSlot={notifSlot}
         />
 
         <div className="grid grid-cols-2 gap-2 mb-3">
@@ -3378,7 +3392,7 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 /* ---------------- Agenda Rumah page ---------------- */
 
-function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, onRefresh, highlightId, onHighlightDone }) {
+function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
   const active = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
@@ -3440,16 +3454,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           userName={userName}
           onOpenUserMenu={onOpenUserMenu}
           onSwitchApp={onSwitchApp}
-          rightSlot={
-            <button
-              onClick={onOpenThreshold}
-              className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
-              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
-              title="Atur pengingat"
-            >
-              <SlidersHorizontal size={13} /> H-{dueThreshold}
-            </button>
-          }
+          notifSlot={notifSlot}
         />
 
         <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>

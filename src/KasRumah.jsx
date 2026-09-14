@@ -309,7 +309,7 @@ function SearchBox({ value, onChange, placeholder }) {
   );
 }
 
-function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp }) {
+function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }) {
   return (
     <div className="flex items-center justify-between gap-2 pt-4 pb-4">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -326,6 +326,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {rightSlot}
+        {notifSlot}
         {onSwitchApp && (
           <button
             onClick={onSwitchApp}
@@ -402,7 +403,7 @@ function MoneyIllustration() {
 }
 
 // --- App utama ----------------------------------------------------------
-export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, initialHighlightId, onInitialHighlightDone }) {
+export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, initialHighlightId, onInitialHighlightDone }) {
   const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
 
@@ -718,6 +719,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               walById={walById}
               onOpenMenu={() => setShowMenu(true)}
               onSeeAll={() => setView("transactions")}
+              notifSlot={notifSlot}
               onOpenTx={(tx) => {
                 setView("transactions");
                 setHighlightId(tx.id);
@@ -738,6 +740,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
               onSwitchApp={onBackToPicker}
+              notifSlot={notifSlot}
               onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
               onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
               highlightId={highlightId}
@@ -758,6 +761,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
               onSwitchApp={onBackToPicker}
+              notifSlot={notifSlot}
               onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
               onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
               onTransfer={() => setTransferModal(true)}
@@ -900,7 +904,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 }
 
 // --- Beranda ------------------------------------------------------------
-function DashboardPage({ userName, totals, recent, transactions, catById, walById, onOpenMenu, onSeeAll, onOpenTx, onBackToPicker }) {
+function DashboardPage({ userName, totals, recent, transactions, catById, walById, onOpenMenu, onSeeAll, onOpenTx, onBackToPicker, notifSlot }) {
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -928,6 +932,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
               </h1>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {notifSlot}
               <button
                 onClick={onBackToPicker}
                 className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -1026,7 +1031,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
 }
 
 // --- Halaman transaksi --------------------------------------------------
-function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, onEdit, onDelete, onDuplicate, highlightId, onHighlightDone }) {
+function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete, onDuplicate, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let income = 0,
       expense = 0,
@@ -1085,7 +1090,7 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar title="Transaksi" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} />
+        <TopBar title="Transaksi" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
 
         <div className="grid grid-cols-4 gap-1.5 mb-3">
           <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
@@ -1246,7 +1251,7 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
 }
 
 // --- Halaman dompet -----------------------------------------------------
-function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, onEdit, onDelete, onTransfer }) {
+function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete, onTransfer }) {
   const total = useMemo(
     () => wallets.reduce((sum, w) => sum + walletBalance(w, transactions), 0),
     [wallets, transactions]
@@ -1260,6 +1265,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, o
           onBack={onBack}
           onOpenMenu={onOpenMenu}
           onSwitchApp={onSwitchApp}
+          notifSlot={notifSlot}
           rightSlot={
             <button
               onClick={onTransfer}
