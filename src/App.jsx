@@ -3520,6 +3520,35 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   );
 }
 
+// Hitung kemunculan tugas berulang ke depan, hanya untuk ditampilkan di
+// kalender. Data di database tetap satu jadwal saja — yang berikutnya baru
+// benar-benar dibuat setelah jadwal terdekat dicentang selesai. Jadi ini
+// murni bayangan/pengingat, bukan tugas sungguhan.
+const RECUR_HORIZON_MONTHS = 24;
+
+function projectedOccurrences(task) {
+  if (!task.recurrence) return [];
+  const { every, unit } = task.recurrence;
+  if (!every || every < 1) return [];
+
+  const limit = new Date();
+  limit.setMonth(limit.getMonth() + RECUR_HORIZON_MONTHS);
+
+  const out = [];
+  let plan = task.planDate || "";
+  let deadline = task.deadline || "";
+  // Batas aman supaya tidak pernah berputar tanpa henti.
+  for (let i = 0; i < 200; i++) {
+    plan = plan ? advanceDate(plan, every, unit) : "";
+    deadline = deadline ? advanceDate(deadline, every, unit) : "";
+    const patokan = plan || deadline;
+    if (!patokan) break;
+    if (new Date(patokan + "T00:00:00") > limit) break;
+    out.push({ planDate: plan, deadline, occurrence: i + 1 });
+  }
+  return out;
+}
+
 function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteTask }) {
   const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -3534,15 +3563,18 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
 
   const dateMap = useMemo(() => {
     const map = {};
+    const touch = (key) => {
+      if (!map[key]) map[key] = { plan: [], deadline: [], planAhead: [], deadlineAhead: [] };
+      return map[key];
+    };
     active.forEach((t) => {
-      if (t.planDate) {
-        if (!map[t.planDate]) map[t.planDate] = { plan: [], deadline: [] };
-        map[t.planDate].plan.push(t);
-      }
-      if (t.deadline) {
-        if (!map[t.deadline]) map[t.deadline] = { plan: [], deadline: [] };
-        map[t.deadline].deadline.push(t);
-      }
+      if (t.planDate) touch(t.planDate).plan.push(t);
+      if (t.deadline) touch(t.deadline).deadline.push(t);
+      // Jadwal berulang berikutnya — tampil lebih redup sebagai pengingat.
+      projectedOccurrences(t).forEach((o) => {
+        if (o.planDate) touch(o.planDate).planAhead.push({ ...t, ...o, projected: true });
+        if (o.deadline) touch(o.deadline).deadlineAhead.push({ ...t, ...o, projected: true });
+      });
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3569,6 +3601,20 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
   const selectedTasks = active
     .filter((t) => t.planDate === selectedDate || t.deadline === selectedDate)
     .sort((a, b) => a.title.localeCompare(b.title, "id"));
+
+  // Jadwal berulang yang belum aktif pada tanggal ini — ditampilkan terpisah
+  // di bawah, tanpa tombol aksi.
+  const selectedProjected = useMemo(() => {
+    const info = dateMap[selectedDate];
+    if (!info) return [];
+    const seen = new Set();
+    return [...(info.planAhead || []), ...(info.deadlineAhead || [])].filter((t) => {
+      const key = `${t.id}-${t.occurrence}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [dateMap, selectedDate]);
 
   return (
     <div>
@@ -3632,6 +3678,19 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
                   {deadlineColor && (
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#fff" : deadlineColor }} />
                   )}
+                  {/* Jadwal berulang yang belum aktif: titik berlubang */}
+                  {info.plan.length === 0 && (info.planAhead || []).length > 0 && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ border: `1.5px solid ${isSelected ? "#fff" : COLORS.safe}`, background: "transparent" }}
+                    />
+                  )}
+                  {!deadlineColor && (info.deadlineAhead || []).length > 0 && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ border: `1.5px solid ${isSelected ? "#fff" : COLORS.low}`, background: "transparent" }}
+                    />
+                  )}
                 </span>
               )}
             </button>
@@ -3646,12 +3705,15 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
         <span className="flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: COLORS.low }} /> Deadline
         </span>
+        <span className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ border: `1.5px solid ${COLORS.inkSoft}` }} /> Berulang
+        </span>
       </div>
 
       <div className="text-xs font-medium mb-2" style={{ color: COLORS.inkSoft }}>
         {fmtDate(selectedDate)}
       </div>
-      {selectedTasks.length === 0 ? (
+      {selectedTasks.length === 0 && selectedProjected.length === 0 ? (
         <div
           className="py-8 text-center rounded-2xl"
           style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.inkSoft }}
@@ -3670,8 +3732,59 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
               onDelete={() => onDeleteTask(t)}
             />
           ))}
+
+          {selectedProjected.length > 0 && (
+            <>
+              <div className="text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>
+                Jadwal berulang berikutnya
+              </div>
+              {selectedProjected.map((t) => (
+                <ProjectedTaskRow key={`${t.id}-${t.occurrence}`} task={t} />
+              ))}
+            </>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Baris jadwal berulang yang belum aktif. Sengaja tanpa tombol centang,
+// edit, atau hapus — jadwal ini baru benar-benar ada setelah jadwal
+// sebelumnya diselesaikan, jadi di sini fungsinya cuma mengingatkan.
+function ProjectedTaskRow({ task }) {
+  return (
+    <div
+      className="rounded-2xl p-3"
+      style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, opacity: 0.75 }}
+    >
+      <div className="flex items-start gap-2.5">
+        <span
+          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+          style={{ border: `1.5px dashed ${COLORS.border}` }}
+        >
+          <Repeat size={10} color={COLORS.inkSoft} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold truncate" style={{ color: COLORS.inkSoft, fontSize: 13 }}>
+            {task.title}
+          </div>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <span
+              className="px-1.5 py-0.5 rounded-full font-medium"
+              style={{ background: COLORS.bg, color: COLORS.inkSoft, fontSize: 11 }}
+            >
+              Berulang
+            </span>
+            {task.planDate && (
+              <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>Rencana: {fmtDate(task.planDate)}</span>
+            )}
+          </div>
+          <div className="text-[11px] mt-1.5" style={{ color: COLORS.inkSoft }}>
+            Aktif setelah jadwal sebelumnya dicentang selesai.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
