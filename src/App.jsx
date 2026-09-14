@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 import KasRumahApp from "./KasRumah";
+import { SharedStyles } from "./SharedStyles";
 
 const COLORS = {
   bg: "#F1EEE3",
@@ -452,9 +453,8 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
         overflow: "hidden",
       }}
     >
+      <SharedStyles />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
-        * { box-sizing: border-box; }
         @keyframes pickerRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         .picker-card { animation: pickerRise 450ms cubic-bezier(0.22,1,0.36,1) both; transition: transform 140ms ease, box-shadow 140ms ease; }
         .picker-card:active { transform: scale(0.975); box-shadow: 0 1px 6px rgba(43,42,37,0.08) !important; }
@@ -1635,25 +1635,13 @@ export default function App() {
 
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Inter', sans-serif" }}>
+      <SharedStyles />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
-        * { box-sizing: border-box; }
         html, body {
           overflow: hidden;
           overscroll-behavior: none;
         }
         input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
-        @keyframes notifPop { 0% { opacity: 0; transform: scale(0.92) translateY(-6px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
-        @keyframes notifBadgePop { 0% { transform: scale(0.5); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
-        @keyframes highlightBlinkTwice {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(107,143,113,0); }
-          15%, 45% { box-shadow: 0 0 0 3px rgba(107,143,113,0.55); }
-          30%, 60% { box-shadow: 0 0 0 0 rgba(107,143,113,0); }
-        }
-        .highlight-blink { animation: highlightBlinkTwice 1.1s ease-in-out; }
-        @keyframes confirmSlideIn { 0% { opacity: 0; transform: translateX(14px) scale(0.85); } 100% { opacity: 1; transform: translateX(0) scale(1); } }
-        .confirm-slide-in { animation: confirmSlideIn 220ms cubic-bezier(0.22, 1, 0.36, 1); }
-        ::placeholder { color: #A6A296; }
       `}</style>
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />

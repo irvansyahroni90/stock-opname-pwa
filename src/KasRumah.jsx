@@ -48,6 +48,7 @@ import {
   Coins,
 } from "lucide-react";
 import { storageSet, storageSubscribe } from "./firebase";
+import { SharedStyles } from "./SharedStyles";
 import { scanReceipt, guessWallet, findDuplicate } from "./receiptScan";
 
 const COLORS = {
@@ -682,19 +683,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 
   return (
     <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Inter', sans-serif", overflow: "hidden" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
-        * { box-sizing: border-box; }
-        ::placeholder { color: #A6A296; }
-        @keyframes scanPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.12); opacity: 0.75; } }
-        .scan-pulse { animation: scanPulse 1.1s ease-in-out infinite; }
-        @keyframes highlightBlinkTwice {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(63,125,92,0); }
-          15%, 45% { box-shadow: 0 0 0 3px rgba(63,125,92,0.55); }
-          30%, 60% { box-shadow: 0 0 0 0 rgba(63,125,92,0); }
-        }
-        .highlight-blink { animation: highlightBlinkTwice 1.1s ease-in-out; }
-      `}</style>
+      <SharedStyles />
 
       <div className="h-full overflow-hidden">
         <div
