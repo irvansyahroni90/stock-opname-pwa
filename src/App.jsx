@@ -9,6 +9,8 @@ import {
   Minus,
   RotateCcw,
   Package,
+  ShoppingBasket,
+  PiggyBank,
   AlertTriangle,
   ClipboardList,
   ShoppingCart,
@@ -46,27 +48,32 @@ import KasRumahApp from "./KasRumah";
 import { SharedStyles } from "./SharedStyles";
 
 const COLORS = {
-  bg: "#F1EEE3",
+  bg: "#EDEAE1",
   card: "#FFFFFF",
-  ink: "#2B2A25",
+  ink: "#2B2B26",
   inkSoft: "#6B685F",
-  primary: "#2F4A3C",
-  primaryLight: "#6B8F71",
-  accent: "#C98A3E",
-  safe: "#3F7D5C",
-  safeBg: "#E7F0EA",
-  low: "#C98A3E",
-  lowBg: "#FBF0DD",
-  out: "#B5432E",
-  outBg: "#FBE7E1",
-  border: "#E4DFCF",
+  primary: "#1F3D2B",
+  primaryLight: "#427054",
+  accent: "#E08A3C",
+  safe: "#2F7A4E",
+  safeBg: "#E4EFE2",
+  low: "#E08A3C",
+  lowBg: "#FDEBD8",
+  out: "#D9483B",
+  outBg: "#FBE3E0",
+  border: "#E1DDD0",
+  // Latar lembut untuk baris di dalam kartu
+  soft: "#F6F4EC",
   // Warna latar ikon bulat gaya baru (Beranda)
-  iconStockBg: "#FCEBD8",
-  iconStockFg: "#C98A3E",
-  iconBuyBg: "#FCEBD8",
-  iconBuyFg: "#C98A3E",
-  iconAgendaBg: "#E7F0EA",
-  iconAgendaFg: "#3F7D5C",
+  iconStockBg: "#FDEBD8",
+  iconStockFg: "#E08A3C",
+  iconStockText: "#96631C",
+  iconBuyBg: "#E4EFE2",
+  iconBuyFg: "#2F7A4E",
+  iconBuyText: "#427054",
+  iconAgendaBg: "#E9E7F5",
+  iconAgendaFg: "#6B5FB5",
+  iconAgendaText: "#4B4478",
 };
 
 const UNIT_SUGGESTIONS = ["pcs", "kg", "gram", "liter", "ml", "botol", "pack", "sachet"];
@@ -449,7 +456,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
         background: `linear-gradient(#F6F3EA 0%, ${COLORS.bg} 45%, #EDE9DC 100%)`,
         minHeight: "100vh",
         color: COLORS.ink,
-        fontFamily: "'Inter', sans-serif",
+        fontFamily: "'Outfit', sans-serif",
         overflow: "hidden",
       }}
     >
@@ -470,7 +477,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
                 {greeting}
                 {userName ? `, ${userName}` : ""} <span>👋</span>
               </div>
-              <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
+              <h1 style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
                 <span style={{ color: COLORS.primary }}>Frinirvan</span>
                 <br />
                 <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
@@ -517,7 +524,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
                   <Icon size={23} color={c.iconFg} />
                 </div>
                 <div className="relative flex-1 min-w-0">
-                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>{c.title}</div>
+                  <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>{c.title}</div>
                   <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
                     {c.subtitle}
                   </div>
@@ -558,11 +565,11 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div
-      style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }}
+      style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'Outfit', sans-serif" }}
       className="flex items-center justify-center px-4"
     >
+      <SharedStyles />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
         html, body {
           overflow: hidden;
           overscroll-behavior: none;
@@ -579,7 +586,7 @@ function LoginScreen({ onLogin }) {
             className="mb-3"
             style={{ width: 96, height: "auto" }}
           />
-          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 22, lineHeight: 1.15, textAlign: "center" }}>
+          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 22, lineHeight: 1.15, textAlign: "center" }}>
             <span style={{ color: COLORS.primary }}>Frinirvan</span>{" "}
             <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
           </div>
@@ -900,6 +907,20 @@ export default function App() {
       onSelect={handleActivitySelect}
     />
   );
+
+  // Versi untuk dipasang di atas kartu hijau beranda.
+  const notifBellOnDark = (
+    <NotifBell
+      count={unreadCount}
+      activity={activityFeed}
+      open={showNotif}
+      onOpen={openNotif}
+      onClose={() => setShowNotif(false)}
+      onSelect={handleActivitySelect}
+      onDark
+    />
+  );
+
 
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', item? }
   const [toBuyModal, setToBuyModal] = useState(null); // { mode: 'add'|'edit', entry? }
@@ -1582,9 +1603,9 @@ export default function App() {
   // Belum isi nama — tanya dulu sebelum masuk ke pemilihan aplikasi.
   if (askName) {
     return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif" }}>
         <Overlay onClose={() => userName && setAskName(false)}>
-          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
+          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
             Siapa kamu?
           </div>
           <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
@@ -1634,7 +1655,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif" }}>
       <SharedStyles />
       <style>{`
         html, body {
@@ -1690,45 +1711,113 @@ export default function App() {
         >
           <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-              <div className="relative pt-8 pb-5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
-                      {greeting}
-                      {userName ? `, ${userName}` : ""} <span>👋</span>
+              <div className="pt-3">
+                {/* Kartu sambutan hijau — judul, sapaan, tombol, dan tanggal
+                    dikumpulkan jadi satu blok supaya bagian atas layar punya
+                    jangkar visual yang kuat. */}
+                <div
+                  className="relative overflow-hidden"
+                  style={{ background: COLORS.primary, borderRadius: 34, padding: "26px 24px 28px" }}
+                >
+                  <span
+                    className="absolute rounded-full"
+                    style={{ right: -40, top: -46, width: 180, height: 180, background: "rgba(224,138,60,0.22)" }}
+                  />
+                  <span
+                    className="absolute rounded-full"
+                    style={{ right: 34, bottom: -46, width: 110, height: 110, background: "rgba(255,255,255,0.07)" }}
+                  />
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium" style={{ color: "#A9C4B2" }}>
+                        {greeting}
+                        {userName ? `, ${userName}` : ""} <span>👋</span>
+                      </span>
+                      <h1
+                        style={{
+                          fontFamily: "'Baloo 2', cursive",
+                          fontWeight: 700,
+                          fontSize: 44,
+                          lineHeight: 1.02,
+                          letterSpacing: "-0.5px",
+                          color: "#fff",
+                          marginTop: 4,
+                        }}
+                      >
+                        Stok
+                        <br />
+                        Rumah
+                      </h1>
                     </div>
-                    <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
-                    <span style={{ color: COLORS.primary }}>Stok</span>
-                    <br />
-                    <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Rumah</span>
-                  </h1>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {view === "dashboard" ? notifBellOnDark : null}
+                      <button
+                        onClick={() => attemptNavigate(() => setActiveApp(null))}
+                        className="w-10 h-10 rounded-full flex items-center justify-center"
+                        style={{ background: "rgba(255,255,255,0.14)" }}
+                        title="Ganti aplikasi"
+                      >
+                        <LayoutGrid size={19} color="#fff" />
+                      </button>
+                      <button
+                        onClick={() => setShowUserMenu(true)}
+                        className="w-10 h-10 rounded-full flex items-center justify-center"
+                        style={{ background: "rgba(255,255,255,0.14)" }}
+                        title="Menu"
+                      >
+                        <Menu size={19} color="#fff" />
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    className="relative inline-flex items-center gap-2 capitalize"
+                    style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "#E8EFE9" }}
+                  >
+                    <Calendar size={15} color="#E8EFE9" />
+                    {todayLabel}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {view === "dashboard" ? notifBell : null}
-                  <button
-                    onClick={() => attemptNavigate(() => setActiveApp(null))}
-                    className="w-10 h-10 rounded-full flex items-center justify-center"
-                    style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-                    title="Ganti aplikasi"
-                  >
-                    <LayoutGrid size={16} color={COLORS.ink} />
-                  </button>
-                  <button
-                    onClick={() => setShowUserMenu(true)}
-                    className="w-10 h-10 rounded-full flex items-center justify-center"
-                    style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-                    title="Menu"
-                  >
-                    <Menu size={16} color={COLORS.ink} />
-                  </button>
+
+                {/* Tiga ringkasan angka — sekaligus pintasan ke daftar yang sesuai */}
+                <div className="flex gap-2" style={{ marginTop: 22 }}>
+                  <HomeStat
+                    icon={PiggyBank}
+                    value={stockCounts.total - stockPreview.total}
+                    label="stok aman"
+                    bg={COLORS.iconAgendaBg}
+                    fg={COLORS.iconAgendaFg}
+                    textColor={COLORS.iconAgendaText}
+                    onClick={() => {
+                      setStockFilter("safe");
+                      setView("stock");
+                    }}
+                  />
+                  <HomeStat
+                    icon={Package}
+                    value={stockPreview.total}
+                    label="perlu dicek"
+                    bg={COLORS.iconStockBg}
+                    fg={COLORS.iconStockFg}
+                    textColor={COLORS.iconStockText}
+                    onClick={() => {
+                      setStockFilter(stockCounts.out > 0 ? "out" : "low");
+                      setView("stock");
+                    }}
+                  />
+                  <HomeStat
+                    icon={ShoppingBasket}
+                    value={toBuyCounts.pending}
+                    label="akan dibeli"
+                    bg={COLORS.iconBuyBg}
+                    fg={COLORS.iconBuyFg}
+                    textColor={COLORS.iconBuyText}
+                    onClick={() => {
+                      setTobuyFilter("pending");
+                      setView("tobuy");
+                    }}
+                  />
                 </div>
               </div>
-              <div className="text-sm mt-3 flex items-center gap-1.5 capitalize" style={{ color: COLORS.inkSoft }}>
-                <Calendar size={14} color={COLORS.inkSoft} />
-                {todayLabel}
-              </div>
-              <HomeIllustration />
-            </div>
 
             <div className="flex flex-col gap-3">
               <SectionCard
@@ -1917,7 +2006,7 @@ export default function App() {
         <Overlay onClose={() => setConfirmDelete(null)}>
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
               Hapus {confirmDelete.type === "item" ? "item" : confirmDelete.type === "tobuy" ? "item beli" : "tugas"}?
             </div>
           </div>
@@ -1945,7 +2034,7 @@ export default function App() {
         <Overlay onClose={handleBlockedNoticeOk}>
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} color={COLORS.low} />
-            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
               Perubahan belum disetujui
             </div>
           </div>
@@ -2018,7 +2107,7 @@ export default function App() {
         <Overlay onClose={() => setPendingRestore(null)}>
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
               Pulihkan dari backup?
             </div>
           </div>
@@ -2050,7 +2139,7 @@ export default function App() {
         <Overlay onClose={() => setRestoreError("")}>
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
               Gagal memulihkan
             </div>
           </div>
@@ -2066,7 +2155,7 @@ export default function App() {
   );
 }
 
-function NotifBell({ count, activity, open, onOpen, onClose, onSelect }) {
+function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark }) {
   const wrapRef = useRef(null);
   const headerRef = useRef(null);
   const [listMaxHeight, setListMaxHeight] = useState(272);
@@ -2137,10 +2226,14 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect }) {
       <button
         onClick={() => (open ? onClose() : onOpen())}
         className="relative w-10 h-10 rounded-full flex items-center justify-center"
-        style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+        style={
+          onDark
+            ? { background: "rgba(255,255,255,0.14)" }
+            : { background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }
+        }
         title="Notifikasi"
       >
-        <Bell size={16} color={COLORS.ink} />
+        <Bell size={onDark ? 19 : 16} color={onDark ? "#fff" : COLORS.ink} />
         {count > 0 && (
           <span
             key={count}
@@ -2197,7 +2290,7 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect }) {
                 <Bell size={14} color={COLORS.iconAgendaFg} />
               </span>
               <div className="min-w-0">
-                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15, color: COLORS.ink, lineHeight: 1.2 }}>
+                <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 15, color: COLORS.ink, lineHeight: 1.2 }}>
                   Aktivitas Terbaru
                 </div>
                 <div className="text-[11px] mt-0.5" style={{ color: COLORS.inkSoft }}>3 hari terakhir</div>
@@ -2321,7 +2414,7 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
               {userName ? userName.charAt(0).toUpperCase() : "?"}
             </span>
             <div>
-              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
+              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
               <div className="text-xs" style={{ color: COLORS.inkSoft }}>{userEmail || "Frinirvan Tracker"}</div>
             </div>
           </div>
@@ -2386,7 +2479,7 @@ function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot
           </div>
         )}
         <div className="min-w-0">
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: onBack ? 26 : 30, lineHeight: 1.15 }}>{title}</h1>
+          <h1 style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: onBack ? 26 : 30, lineHeight: 1.15 }}>{title}</h1>
           {subtitle && (
             <div className="text-sm mt-0.5" style={{ color: COLORS.inkSoft }}>
               {subtitle}
@@ -2438,7 +2531,7 @@ function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badge
           <Icon size={20} color={iconFg} />
         </div>
         <div className="flex-1 min-w-0">
-          <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{title}</div>
+          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{title}</div>
           <div className="text-xs mt-0.5" style={{ color: iconFg }}>
             {subtitle}
           </div>
@@ -2469,7 +2562,7 @@ function StockPreviewRow({ item, onClick }) {
   const status = statusOf(item);
   const meta = STATUS_META[status];
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left" style={{ background: COLORS.bg }}>
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left" style={{ background: COLORS.soft }}>
       <span className="flex-1 min-w-0 truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
         {item.name}
       </span>
@@ -2485,7 +2578,7 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
   if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
   if (entry.place) detailParts.push(entry.place);
   return (
-    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.bg }}>
+    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.soft }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -2514,7 +2607,7 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
   const urgency = taskUrgency(task, threshold);
   const meta = URGENCY_META[urgency];
   return (
-    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.bg }}>
+    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.soft }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -2566,37 +2659,22 @@ function BottomNav({ view, setView }) {
   );
 }
 
-function HomeIllustration() {
+// Kotak ringkasan angka di beranda — sekaligus pintasan ke daftar terkait.
+function HomeStat({ icon: Icon, value, label, bg, fg, textColor, onClick }) {
   return (
-    <svg
-      viewBox="0 0 140 120"
-      width="112"
-      height="96"
-      className="absolute right-0 pointer-events-none select-none"
-      style={{ opacity: 0.95, top: 58 }}
+    <button
+      onClick={onClick}
+      className="flex-1 min-w-0 flex flex-col gap-0.5 text-left"
+      style={{ background: bg, borderRadius: 18, padding: "12px 12px 11px" }}
     >
-      {/* soft floor shadow */}
-      <ellipse cx="70" cy="108" rx="60" ry="7" fill={COLORS.border} opacity="0.5" />
-      {/* hanging lamp */}
-      <line x1="112" y1="6" x2="112" y2="28" stroke={COLORS.inkSoft} strokeWidth="1.5" />
-      <path d="M100 28 h24 l-4 12 h-16 z" fill={COLORS.accent} opacity="0.85" />
-      {/* small side table */}
-      <rect x="96" y="72" width="26" height="4" rx="1.5" fill={COLORS.accent} />
-      <line x1="100" y1="76" x2="100" y2="96" stroke={COLORS.accent} strokeWidth="2.5" />
-      <line x1="118" y1="76" x2="118" y2="96" stroke={COLORS.accent} strokeWidth="2.5" />
-      {/* plant on table */}
-      <rect x="102" y="58" width="12" height="12" rx="2" fill={COLORS.primaryLight} opacity="0.35" />
-      <path d="M108 58 C104 50 104 44 108 38 C112 44 112 50 108 58 Z" fill={COLORS.primary} />
-      <path d="M108 58 C102 52 100 46 103 40 C108 44 109 52 108 58 Z" fill={COLORS.primaryLight} />
-      <path d="M108 58 C114 52 116 46 113 40 C108 44 107 52 108 58 Z" fill={COLORS.primaryLight} />
-      {/* armchair */}
-      <rect x="8" y="60" width="80" height="34" rx="14" fill={COLORS.primaryLight} opacity="0.28" />
-      <rect x="14" y="50" width="68" height="30" rx="12" fill={COLORS.primaryLight} opacity="0.55" />
-      <rect x="26" y="40" width="44" height="20" rx="10" fill={COLORS.primaryLight} opacity="0.75" />
-      <rect x="30" y="44" width="20" height="12" rx="5" fill={COLORS.card} opacity="0.85" />
-      <line x1="14" y1="90" x2="14" y2="98" stroke={COLORS.inkSoft} strokeWidth="3" strokeLinecap="round" />
-      <line x1="82" y1="90" x2="82" y2="98" stroke={COLORS.inkSoft} strokeWidth="3" strokeLinecap="round" />
-    </svg>
+      <Icon size={22} color={fg} />
+      <span style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 20, color: COLORS.primary, lineHeight: 1.1 }}>
+        {value}
+      </span>
+      <span className="truncate" style={{ fontSize: 11, color: textColor }}>
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -2922,7 +3000,7 @@ function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center justify-between mb-4">
-        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
+        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
           {mode === "add" ? "Tambah item" : "Edit item"}
         </div>
         <button onClick={onClose}>
@@ -3249,7 +3327,7 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center justify-between mb-4">
-        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
+        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
           {mode === "add" ? "Tambah manual" : "Edit item beli"}
         </div>
         <button onClick={onClose}>
@@ -3619,7 +3697,7 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
         >
           <ChevronLeft size={16} color={COLORS.ink} />
         </button>
-        <div className="capitalize" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
+        <div className="capitalize" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
           {monthLabel}
         </div>
         <button
@@ -3898,7 +3976,7 @@ function TaskFormModal({ mode, task, onClose, onSubmit }) {
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center justify-between mb-4">
-        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
+        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
           {mode === "add" ? "Tambah tugas" : "Edit tugas"}
         </div>
         <button onClick={onClose}>
@@ -4049,7 +4127,7 @@ function ThresholdModal({ current, onClose, onSubmit }) {
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
+      <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
         Atur pengingat
       </div>
       <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
@@ -4124,7 +4202,7 @@ function HistoryPanel({ activity, onClose }) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <ClipboardList size={18} color={COLORS.primary} />
-            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Riwayat</div>
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Riwayat</div>
           </div>
           <button onClick={onClose}>
             <X size={18} color={COLORS.inkSoft} />
