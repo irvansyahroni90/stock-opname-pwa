@@ -1704,7 +1704,7 @@ export default function App() {
                   </h1>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {notifBell}
+                  {view === "dashboard" ? notifBell : null}
                   <button
                     onClick={() => attemptNavigate(() => setActiveApp(null))}
                     className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -1850,7 +1850,7 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
             onSwitchApp={() => attemptNavigate(() => setActiveApp(null))}
-            notifSlot={notifBell}
+            notifSlot={view === "stock" ? notifBell : null}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
@@ -1872,7 +1872,7 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onSwitchApp={() => setActiveApp(null)}
-            notifSlot={notifBell}
+            notifSlot={view === "tobuy" ? notifBell : null}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}

@@ -708,7 +708,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               walById={walById}
               onOpenMenu={() => setShowMenu(true)}
               onSeeAll={() => setView("transactions")}
-              notifSlot={notifSlot}
+              notifSlot={view === "dashboard" ? notifSlot : null}
               onOpenTx={(tx) => {
                 setView("transactions");
                 setHighlightId(tx.id);
@@ -729,7 +729,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
               onSwitchApp={onBackToPicker}
-              notifSlot={notifSlot}
+              notifSlot={view === "transactions" ? notifSlot : null}
               onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
               onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
               highlightId={highlightId}
@@ -750,10 +750,9 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onBack={() => setView("dashboard")}
               onOpenMenu={() => setShowMenu(true)}
               onSwitchApp={onBackToPicker}
-              notifSlot={notifSlot}
+              notifSlot={view === "wallets" ? notifSlot : null}
               onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
               onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
-              onTransfer={() => setTransferModal(true)}
             />
           </div>
 
@@ -884,6 +883,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
           userName={userName}
           onClose={() => setShowMenu(false)}
           onOpenCategories={() => setCategoryPanel(true)}
+          onTransfer={view === "wallets" ? () => setTransferModal(true) : null}
           onSwitchApp={onSwitchApp || onBackToPicker}
           onLogout={onLogout}
         />
@@ -1240,7 +1240,7 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
 }
 
 // --- Halaman dompet -----------------------------------------------------
-function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete, onTransfer }) {
+function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete }) {
   const total = useMemo(
     () => wallets.reduce((sum, w) => sum + walletBalance(w, transactions), 0),
     [wallets, transactions]
@@ -1255,16 +1255,6 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
           onOpenMenu={onOpenMenu}
           onSwitchApp={onSwitchApp}
           notifSlot={notifSlot}
-          rightSlot={
-            <button
-              onClick={onTransfer}
-              className="px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium"
-              style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)", color: COLORS.ink }}
-              title="Transfer antar dompet"
-            >
-              <ArrowLeftRight size={13} /> Transfer
-            </button>
-          }
         />
         <div className="rounded-2xl p-3.5" style={{ background: COLORS.primary }}>
           <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
@@ -3248,7 +3238,7 @@ function CategoryModal({ mode, category, initialKind, saving, onClose, onSubmit 
 }
 
 // --- Menu ---------------------------------------------------------------
-function MenuPanel({ userName, onClose, onOpenCategories, onSwitchApp, onLogout }) {
+function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchApp, onLogout }) {
   const runAndClose = (fn) => {
     onClose();
     if (fn) setTimeout(fn, 60);
@@ -3294,7 +3284,10 @@ function MenuPanel({ userName, onClose, onOpenCategories, onSwitchApp, onLogout 
         </div>
 
         <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Item icon={Tag} label="Kelola Kategori" onClick={() => runAndClose(onOpenCategories)} last />
+          <Item icon={Tag} label="Kelola Kategori" onClick={() => runAndClose(onOpenCategories)} last={!onTransfer} />
+          {onTransfer && (
+            <Item icon={ArrowLeftRight} label="Transfer Antar Dompet" onClick={() => runAndClose(onTransfer)} last />
+          )}
         </div>
 
         <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
