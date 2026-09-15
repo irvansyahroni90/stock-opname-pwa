@@ -1721,11 +1721,11 @@ export default function App() {
                 >
                   <span
                     className="absolute rounded-full"
-                    style={{ right: -40, top: -46, width: 180, height: 180, background: "rgba(224,138,60,0.22)" }}
+                    style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(224,138,60,0.20)" }}
                   />
                   <span
                     className="absolute rounded-full"
-                    style={{ right: 34, bottom: -46, width: 110, height: 110, background: "rgba(255,255,255,0.07)" }}
+                    style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.07)" }}
                   />
                   <div className="relative flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -1972,23 +1972,31 @@ export default function App() {
       </div>
       )}
 
-      {(activeApp === "agenda" || view === "stock" || view === "tobuy") && (
+      {/* Agenda berdiri sendiri tanpa navigasi bawah, jadi tombol tambahnya
+          tetap melayang di pojok. */}
+      {activeApp === "agenda" && (
         <button
-          onClick={() =>
-            attemptNavigate(() => {
-              if (activeApp === "agenda") setTaskModal({ mode: "add" });
-              else if (view === "stock") setModal({ mode: "add" });
-              else setToBuyModal({ mode: "add" });
-            })
-          }
+          onClick={() => attemptNavigate(() => setTaskModal({ mode: "add" }))}
           className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-          style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
+          style={{ width: 56, height: 56, background: COLORS.accent, color: "#fff", bottom: "calc(24px + env(safe-area-inset-bottom))" }}
         >
           <Plus size={26} />
         </button>
       )}
 
-      {activeApp !== "agenda" && <BottomNav view={view} setView={(v) => attemptNavigate(() => setView(v))} />}
+      {activeApp !== "agenda" && (
+        <BottomNav
+          view={view}
+          setView={(v) => attemptNavigate(() => setView(v))}
+          showAdd={view === "stock" || view === "tobuy"}
+          onAdd={() =>
+            attemptNavigate(() => {
+              if (view === "stock") setModal({ mode: "add" });
+              else setToBuyModal({ mode: "add" });
+            })
+          }
+        />
+      )}
 
       {/* Item add/edit modal */}
       {modal && (
@@ -2517,28 +2525,36 @@ function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot
 
 function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badgeColor, onOpen, rows, moreButton }) {
   return (
-    <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
+    <div
+      className="relative w-full"
+      style={{ background: COLORS.card, borderRadius: 26, padding: 18, boxShadow: "0 4px 14px rgba(31,61,43,0.06)" }}
+    >
       {badge > 0 && (
         <span
-          className="absolute top-3.5 right-3.5 min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
-          style={{ background: badgeColor }}
+          className="absolute flex items-center justify-center font-semibold text-white"
+          style={{ top: 18, right: 18, minWidth: 24, height: 24, padding: "0 7px", borderRadius: 12, background: badgeColor, fontSize: 12 }}
         >
           {badge}
         </span>
       )}
-      <button onClick={onOpen} className="w-full flex items-center gap-3 text-left pr-8">
-        <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: iconBg }}>
-          <Icon size={20} color={iconFg} />
+      <button onClick={onOpen} className="w-full flex items-center gap-3 text-left pr-9">
+        <div
+          className="flex items-center justify-center shrink-0"
+          style={{ width: 44, height: 44, borderRadius: 15, background: iconBg }}
+        >
+          <Icon size={24} color={iconFg} />
         </div>
         <div className="flex-1 min-w-0">
-          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{title}</div>
-          <div className="text-xs mt-0.5" style={{ color: iconFg }}>
-            {subtitle}
+          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 18, color: COLORS.primary, lineHeight: 1.2 }}>
+            {title}
           </div>
+          <div style={{ fontSize: 12.5, color: iconFg, marginTop: 1 }}>{subtitle}</div>
         </div>
       </button>
       {rows && React.Children.count(rows) > 0 && (
-        <div className="flex flex-col gap-1.5 mt-3.5 pl-14">{rows}</div>
+        <div className="flex flex-col gap-2" style={{ marginTop: 14 }}>
+          {rows}
+        </div>
       )}
       {moreButton}
     </div>
@@ -2549,8 +2565,8 @@ function SeeAllButton({ count, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-center gap-1 mt-4 text-sm font-semibold"
-      style={{ color: COLORS.primary }}
+      className="w-full flex items-center justify-center gap-1 text-sm font-semibold"
+      style={{ marginTop: 12, color: COLORS.primary }}
     >
       +{count} lainnya
       <ChevronRight size={14} color={COLORS.primary} />
@@ -2562,7 +2578,7 @@ function StockPreviewRow({ item, onClick }) {
   const status = statusOf(item);
   const meta = STATUS_META[status];
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left" style={{ background: COLORS.soft }}>
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 text-left" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
       <span className="flex-1 min-w-0 truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
         {item.name}
       </span>
@@ -2578,7 +2594,7 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
   if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
   if (entry.place) detailParts.push(entry.place);
   return (
-    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.soft }}>
+    <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -2607,7 +2623,7 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
   const urgency = taskUrgency(task, threshold);
   const meta = URGENCY_META[urgency];
   return (
-    <div className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-1.5" style={{ background: COLORS.soft }}>
+    <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -2629,7 +2645,10 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
   );
 }
 
-function BottomNav({ view, setView }) {
+// Navigasi bawah berbentuk kapsul hijau melayang. Tab yang sedang aktif
+// ditandai kapsul putih berisi ikon dan namanya, sisanya cuma ikon.
+// Tombol tambah menyatu di ujung kanan, bukan melayang terpisah.
+function BottomNav({ view, setView, onAdd, showAdd }) {
   const tabs = [
     { key: "dashboard", label: "Beranda", icon: Home },
     { key: "stock", label: "Stok", icon: Package },
@@ -2637,23 +2656,53 @@ function BottomNav({ view, setView }) {
   ];
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40"
-      style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
+      className="fixed left-0 right-0 z-40 flex justify-center px-4 pointer-events-none"
+      style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
     >
-      <div className="max-w-2xl mx-auto flex items-stretch justify-around px-1.5 py-2">
+      <div
+        className="flex items-center gap-1.5 pointer-events-auto"
+        style={{ background: COLORS.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(31,61,43,0.28)" }}
+      >
         {tabs.map((t) => {
           const active = view === t.key;
           const Icon = t.icon;
+          if (active) {
+            return (
+              <div
+                key={t.key}
+                className="flex items-center gap-2"
+                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: COLORS.primary }}
+              >
+                <Icon size={20} />
+                <span className="font-semibold" style={{ fontSize: 13 }}>
+                  {t.label}
+                </span>
+              </div>
+            );
+          }
           return (
-            <button key={t.key} onClick={() => setView(t.key)} className="flex-1 flex flex-col items-center gap-1 py-1">
-              <Icon size={19} color={active ? COLORS.primary : COLORS.inkSoft} />
-              <span className="text-[10.5px] font-medium" style={{ color: active ? COLORS.primary : COLORS.inkSoft }}>
-                {t.label}
-              </span>
-              <span className="w-1 h-1 rounded-full" style={{ background: active ? COLORS.primary : "transparent" }} />
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className="flex items-center justify-center"
+              style={{ width: 44, height: 42 }}
+              title={t.label}
+            >
+              <Icon size={20} color="rgba(255,255,255,0.8)" />
             </button>
           );
         })}
+
+        {showAdd && (
+          <button
+            onClick={onAdd}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 42, height: 42, borderRadius: 999, background: COLORS.accent, color: "#fff" }}
+            title="Tambah"
+          >
+            <Plus size={22} />
+          </button>
+        )}
       </div>
     </div>
   );

@@ -360,7 +360,8 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
   );
 }
 
-function BottomNav({ view, setView }) {
+// Navigasi bawah berbentuk kapsul hijau melayang, seragam dengan Stok Rumah.
+function BottomNav({ view, setView, onAdd, showAdd }) {
   const tabs = [
     { key: "dashboard", label: "Beranda", icon: Home },
     { key: "transactions", label: "Transaksi", icon: Receipt },
@@ -368,23 +369,53 @@ function BottomNav({ view, setView }) {
   ];
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40"
-      style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
+      className="fixed left-0 right-0 z-40 flex justify-center px-4 pointer-events-none"
+      style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
     >
-      <div className="max-w-2xl mx-auto flex items-stretch justify-around px-1.5 py-2">
+      <div
+        className="flex items-center gap-1.5 pointer-events-auto"
+        style={{ background: COLORS.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(31,61,43,0.28)" }}
+      >
         {tabs.map((t) => {
           const active = view === t.key;
           const Icon = t.icon;
+          if (active) {
+            return (
+              <div
+                key={t.key}
+                className="flex items-center gap-2"
+                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: COLORS.primary }}
+              >
+                <Icon size={20} />
+                <span className="font-semibold" style={{ fontSize: 13 }}>
+                  {t.label}
+                </span>
+              </div>
+            );
+          }
           return (
-            <button key={t.key} onClick={() => setView(t.key)} className="flex-1 flex flex-col items-center gap-1 py-1">
-              <Icon size={19} color={active ? COLORS.primary : COLORS.inkSoft} />
-              <span className="text-[10.5px] font-medium" style={{ color: active ? COLORS.primary : COLORS.inkSoft }}>
-                {t.label}
-              </span>
-              <span className="w-1 h-1 rounded-full" style={{ background: active ? COLORS.primary : "transparent" }} />
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className="flex items-center justify-center"
+              style={{ width: 44, height: 42 }}
+              title={t.label}
+            >
+              <Icon size={20} color="rgba(255,255,255,0.8)" />
             </button>
           );
         })}
+
+        {showAdd && (
+          <button
+            onClick={onAdd}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 42, height: 42, borderRadius: 999, background: COLORS.accent, color: "#fff" }}
+            title="Tambah"
+          >
+            <Plus size={22} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -769,26 +800,19 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         </div>
       </div>
 
+      {/* Tombol scan tetap melayang, ditaruh di atas kapsul navigasi. */}
       {(view === "dashboard" || view === "transactions") && (
         <button
           onClick={() => setScanModal(true)}
           className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-          style={{ width: 46, height: 46, background: COLORS.card, color: COLORS.primary, border: `1.5px solid ${COLORS.border}`, bottom: "calc(176px + env(safe-area-inset-bottom))" }}
+          style={{ width: 46, height: 46, background: COLORS.card, color: COLORS.primary, border: `1.5px solid ${COLORS.border}`, bottom: "calc(90px + env(safe-area-inset-bottom))" }}
           title="Scan struk"
         >
           <ScanLine size={20} />
         </button>
       )}
 
-      <button
-          onClick={fabAction}
-          className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-          style={{ width: 56, height: 56, background: COLORS.primary, color: "#fff", bottom: "calc(112px + env(safe-area-inset-bottom))" }}
-        >
-          <Plus size={26} />
-        </button>
-
-      <BottomNav view={view} setView={setView} />
+      <BottomNav view={view} setView={setView} showAdd onAdd={fabAction} />
 
       {txModal && (
         <TransactionModal
