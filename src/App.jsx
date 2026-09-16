@@ -68,6 +68,11 @@ const COLORS = {
   border: "#E1DDD0",
   // Latar lembut untuk baris di dalam kartu
   soft: "#F6F4EC",
+  // Navy — dipakai Stok Rumah: kartu sambutan, kapsul navigasi, dan
+  // kartu filter yang sedang aktif.
+  navy: "#26314D",
+  navySoft: "#E5E8F3",
+  navyText: "#3E4A6B",
   // Warna latar ikon bulat gaya baru (Beranda)
   iconStockBg: "#FDEBD8",
   iconStockFg: "#E08A3C",
@@ -1730,7 +1735,7 @@ export default function App() {
                     jangkar visual yang kuat. */}
                 <div
                   className="relative"
-                  style={{ background: COLORS.primary, borderRadius: 34, padding: "26px 24px 28px" }}
+                  style={{ background: COLORS.navy, borderRadius: 34, padding: "26px 24px 28px" }}
                 >
                   {/* Hiasan lingkaran dibungkus lapisan sendiri yang memotong
                       luapannya. Tombol di bawah ini berada DI LUAR lapisan itu,
@@ -1742,16 +1747,16 @@ export default function App() {
                   >
                     <span
                       className="absolute rounded-full"
-                      style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(224,138,60,0.20)" }}
+                      style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(255,255,255,0.07)" }}
                     />
                     <span
                       className="absolute rounded-full"
-                      style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.07)" }}
+                      style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.05)" }}
                     />
                   </span>
                   <div className="relative flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <span className="text-sm font-medium" style={{ color: "#A9C4B2" }}>
+                      <span className="text-sm font-medium" style={{ color: "#A8B2CC" }}>
                         {greeting}
                         {userName ? `, ${userName}` : ""} <span>👋</span>
                       </span>
@@ -1793,9 +1798,9 @@ export default function App() {
                   </div>
                   <div
                     className="relative inline-flex items-center gap-2 capitalize"
-                    style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "#E8EFE9" }}
+                    style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "#E6EAF3" }}
                   >
-                    <Calendar size={15} color="#E8EFE9" />
+                    <Calendar size={15} color="#E6EAF3" />
                     {todayLabel}
                   </div>
                 </div>
@@ -1809,9 +1814,9 @@ export default function App() {
                     icon={ThumbsUp}
                     value={stockCounts.total - stockPreview.total}
                     label="stok aman"
-                    bg={COLORS.iconAgendaBg}
-                    fg={COLORS.iconAgendaFg}
-                    textColor={COLORS.iconAgendaText}
+                    bg={COLORS.navySoft}
+                    fg={COLORS.navy}
+                    textColor={COLORS.navyText}
                     onClick={() => {
                       setStockFilter("safe");
                       setView("stock");
@@ -2686,7 +2691,7 @@ function BottomNav({ view, setView, onAdd, showAdd }) {
     >
       <div
         className="flex items-center gap-1.5 pointer-events-auto"
-        style={{ background: COLORS.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(31,61,43,0.28)" }}
+        style={{ background: COLORS.navy, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(38,49,77,0.30)" }}
       >
         {tabs.map((t) => {
           const active = view === t.key;
@@ -2696,7 +2701,7 @@ function BottomNav({ view, setView, onAdd, showAdd }) {
               <div
                 key={t.key}
                 className="flex items-center gap-2"
-                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: COLORS.primary }}
+                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: COLORS.navy }}
               >
                 <Icon size={20} />
                 <span className="font-semibold" style={{ fontSize: 13 }}>
@@ -2751,7 +2756,7 @@ function HomeStat({ icon: Icon, value, label, bg, fg, textColor, onClick }) {
           fontFamily: "'Baloo 2', cursive",
           fontWeight: 700,
           fontSize: 20,
-          color: COLORS.primary,
+          color: textColor,
           lineHeight: "24px",
           marginTop: 3,
         }}
@@ -2771,6 +2776,38 @@ function Chip({ label, tone }) {
     <span className="text-[11px] font-semibold px-2 py-1 rounded-full" style={{ background: meta.bg, color: meta.fg }}>
       {label}
     </span>
+  );
+}
+
+// Kartu filter di halaman Stok — angka besar berwarna sesuai maknanya,
+// label abu-abu di bawahnya. Yang sedang dipilih jadi navy penuh.
+function FilterTile({ label, value, color, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="min-w-0 text-left"
+      style={{
+        background: active ? COLORS.navy : COLORS.card,
+        borderRadius: 18,
+        padding: "13px 12px 12px",
+        boxShadow: active ? "0 4px 12px rgba(38,49,77,0.22)" : "0 2px 8px rgba(38,49,77,0.05)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "'Baloo 2', cursive",
+          fontWeight: 700,
+          fontSize: 24,
+          lineHeight: "26px",
+          color: active ? "#fff" : color,
+        }}
+      >
+        {value}
+      </div>
+      <div className="truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : COLORS.inkSoft }}>
+        {label}
+      </div>
+    </button>
   );
 }
 
@@ -2865,21 +2902,26 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
           notifSlot={notifSlot}
         />
 
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <SummaryCard icon={Package} label="Total" value={counts.total} color={COLORS.primary} active={filter === "all"} onClick={() => guardedSetFilter("all")} />
-          <SummaryCard icon={Clock} label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
-          <SummaryCard icon={CheckCircle2} label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
+        {/* Empat kartu filter: angka besar berwarna sesuai maknanya, label
+            abu-abu di bawahnya. Yang aktif jadi navy penuh. */}
+        <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+          <FilterTile label="Semua" value={counts.total} color={COLORS.navy} active={filter === "all"} onClick={() => guardedSetFilter("all")} />
+          <FilterTile label="Aman" value={counts.total - counts.low - counts.out} color={COLORS.safe} active={filter === "safe"} onClick={() => guardedSetFilter("safe")} />
+          <FilterTile label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
+          <FilterTile label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
         </div>
 
-
-        <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Search size={16} color={COLORS.inkSoft} />
+        <div
+          className="flex items-center gap-2.5"
+          style={{ background: COLORS.card, borderRadius: 999, padding: "12px 18px", boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}
+        >
+          <Search size={18} color={COLORS.inkSoft} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari item stok..."
-            className="flex-1 py-1.5 bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
+            className="flex-1 bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 14, outline: "none", border: "none" }}
           />
         </div>
       </div>
