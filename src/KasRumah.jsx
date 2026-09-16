@@ -421,29 +421,6 @@ function BottomNav({ view, setView, onAdd, showAdd }) {
   );
 }
 
-function MoneyIllustration() {
-  return (
-    <svg
-      viewBox="0 0 140 120"
-      width="112"
-      height="96"
-      className="absolute right-0 pointer-events-none select-none"
-      style={{ opacity: 0.95, top: 58 }}
-    >
-      <ellipse cx="70" cy="106" rx="46" ry="5" fill="#E4E0D4" />
-      <rect x="46" y="34" width="42" height="28" rx="3" fill="#C9DFCF" />
-      <rect x="54" y="27" width="42" height="28" rx="3" fill="#FBF0DD" />
-      <circle cx="75" cy="41" r="6" fill="#C98A3E" opacity="0.6" />
-      <rect x="24" y="50" width="92" height="52" rx="9" fill="#2F4A3C" />
-      <rect x="24" y="64" width="92" height="38" rx="9" fill="#3C5C4B" />
-      <rect x="80" y="70" width="28" height="14" rx="7" fill="#C98A3E" />
-      <circle cx="94" cy="77" r="4" fill="#FBF0DD" />
-      <circle cx="118" cy="30" r="8" fill="#C98A3E" opacity="0.4" />
-      <circle cx="30" cy="26" r="5" fill="#C9DFCF" />
-    </svg>
-  );
-}
-
 // --- App utama ----------------------------------------------------------
 export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, initialHighlightId, onInitialHighlightDone }) {
   const [view, setView] = useState("dashboard");
@@ -941,47 +918,80 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
   return (
     <div className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
       <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        <div className="relative pt-8 pb-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
-                {greeting}
-                {userName ? `, ${userName}` : ""} <span>👋</span>
+        <div className="pt-3">
+          {/* Kartu sambutan — latar ungu muda mengikuti warna Kas Rumah di
+              halaman awal, dengan tulisan ungu tua supaya tetap terbaca. */}
+          <div
+            className="relative"
+            style={{ background: COLORS.iconAgendaBg, borderRadius: 34, padding: "26px 24px 28px" }}
+          >
+            <span
+              className="absolute inset-0 overflow-hidden pointer-events-none"
+              style={{ borderRadius: 34 }}
+              aria-hidden="true"
+            >
+              <span
+                className="absolute rounded-full"
+                style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(107,95,181,0.16)" }}
+              />
+              <span
+                className="absolute rounded-full"
+                style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(107,95,181,0.09)" }}
+              />
+            </span>
+            <div className="relative flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-sm font-medium" style={{ color: COLORS.iconAgendaText }}>
+                  {greeting}
+                  {userName ? `, ${userName}` : ""} <span>👋</span>
+                </span>
+                <h1
+                  style={{
+                    fontFamily: "'Baloo 2', cursive",
+                    fontWeight: 700,
+                    fontSize: 44,
+                    lineHeight: 1.02,
+                    letterSpacing: "-0.5px",
+                    color: COLORS.iconAgendaFg,
+                    marginTop: 4,
+                  }}
+                >
+                  Kas
+                  <br />
+                  Rumah
+                </h1>
               </div>
-              <h1 style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
-                <span style={{ color: COLORS.primary }}>Kas</span>
-                <br />
-                <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Rumah</span>
-              </h1>
+              <div className="flex items-center gap-2 shrink-0">
+                {notifSlot}
+                <button
+                  onClick={onBackToPicker}
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                  title="Ganti aplikasi"
+                >
+                  <LayoutGrid size={19} color={COLORS.iconAgendaFg} />
+                </button>
+                <button
+                  onClick={onOpenMenu}
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                  title="Menu"
+                >
+                  <Menu size={19} color={COLORS.iconAgendaFg} />
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {notifSlot}
-              <button
-                onClick={onBackToPicker}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-                title="Ganti aplikasi"
-              >
-                <LayoutGrid size={16} color={COLORS.ink} />
-              </button>
-              <button
-                onClick={onOpenMenu}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
-                title="Menu"
-              >
-                <Menu size={16} color={COLORS.ink} />
-              </button>
+            <div
+              className="relative inline-flex items-center gap-2 capitalize"
+              style={{ marginTop: 20, background: COLORS.card, borderRadius: 22, padding: "8px 14px", fontSize: 13, color: COLORS.iconAgendaText }}
+            >
+              <Calendar size={15} color={COLORS.iconAgendaFg} />
+              {todayLabel}
             </div>
           </div>
-          <div className="text-sm mt-3 flex items-center gap-1.5 capitalize" style={{ color: COLORS.inkSoft }}>
-            <Calendar size={14} color={COLORS.inkSoft} />
-            {todayLabel}
-          </div>
-          <MoneyIllustration />
         </div>
 
-        <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.primary }}>
+        <div className="rounded-2xl p-4" style={{ background: COLORS.primary, marginTop: 16 }}>
           <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
             Saldo semua dompet
           </div>
@@ -1008,7 +1018,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
           </div>
         </div>
 
-        <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}` }}>
+        <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}`, marginTop: 12 }}>
           <button onClick={onSeeAll} className="w-full flex items-center gap-3 text-left">
             <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: COLORS.iconAgendaBg }}>
               <Receipt size={20} color={COLORS.iconAgendaFg} />

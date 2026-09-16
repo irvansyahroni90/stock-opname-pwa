@@ -1729,17 +1729,26 @@ export default function App() {
                     dikumpulkan jadi satu blok supaya bagian atas layar punya
                     jangkar visual yang kuat. */}
                 <div
-                  className="relative overflow-hidden"
+                  className="relative"
                   style={{ background: COLORS.primary, borderRadius: 34, padding: "26px 24px 28px" }}
                 >
+                  {/* Hiasan lingkaran dibungkus lapisan sendiri yang memotong
+                      luapannya. Tombol di bawah ini berada DI LUAR lapisan itu,
+                      supaya panel notifikasi bebas menjulur keluar kartu. */}
                   <span
-                    className="absolute rounded-full"
-                    style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(224,138,60,0.20)" }}
-                  />
-                  <span
-                    className="absolute rounded-full"
-                    style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.07)" }}
-                  />
+                    className="absolute inset-0 overflow-hidden pointer-events-none"
+                    style={{ borderRadius: 34 }}
+                    aria-hidden="true"
+                  >
+                    <span
+                      className="absolute rounded-full"
+                      style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(224,138,60,0.20)" }}
+                    />
+                    <span
+                      className="absolute rounded-full"
+                      style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.07)" }}
+                    />
+                  </span>
                   <div className="relative flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <span className="text-sm font-medium" style={{ color: "#A9C4B2" }}>
@@ -3592,14 +3601,67 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar
-          title="Agenda Rumah"
-          onBack={onBack}
-          userName={userName}
-          onOpenUserMenu={onOpenUserMenu}
-          onSwitchApp={onSwitchApp}
-          notifSlot={notifSlot}
-        />
+        {/* Kartu sambutan — latar hijau muda mengikuti warna Agenda Rumah di
+            halaman awal, dengan tulisan hijau tua supaya tetap terbaca. */}
+        <div
+          className="relative"
+          style={{ background: COLORS.iconBuyBg, borderRadius: 30, padding: "20px 20px 22px", marginTop: 12, marginBottom: 14 }}
+        >
+          <span
+            className="absolute inset-0 overflow-hidden pointer-events-none"
+            style={{ borderRadius: 30 }}
+            aria-hidden="true"
+          >
+            <span
+              className="absolute rounded-full"
+              style={{ right: -46, top: -54, width: 200, height: 200, background: "rgba(47,122,78,0.13)" }}
+            />
+            <span
+              className="absolute rounded-full"
+              style={{ right: 24, bottom: -58, width: 145, height: 145, background: "rgba(47,122,78,0.07)" }}
+            />
+          </span>
+          <div className="relative flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: COLORS.iconBuyText }}>
+                <ArrowLeft size={15} /> Kembali
+              </button>
+              <h1
+                style={{
+                  fontFamily: "'Baloo 2', cursive",
+                  fontWeight: 700,
+                  fontSize: 34,
+                  lineHeight: 1.05,
+                  color: COLORS.primary,
+                  marginTop: 6,
+                }}
+              >
+                Agenda
+                <br />
+                Rumah
+              </h1>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {notifSlot}
+              <button
+                onClick={onSwitchApp}
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                title="Ganti aplikasi"
+              >
+                <LayoutGrid size={18} color={COLORS.iconBuyFg} />
+              </button>
+              <button
+                onClick={onOpenUserMenu}
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                title="Menu"
+              >
+                <Menu size={18} color={COLORS.iconBuyFg} />
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
           <button
