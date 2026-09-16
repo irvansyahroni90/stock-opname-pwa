@@ -1794,7 +1794,7 @@ export default function App() {
                 {/* Tiga ringkasan angka — sekaligus pintasan ke daftar yang sesuai */}
                 <div
                   className="grid gap-2"
-                  style={{ marginTop: 22, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
+                  style={{ marginTop: 16, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
                 >
                   <HomeStat
                     icon={ThumbsUp}
@@ -1835,7 +1835,7 @@ export default function App() {
                 </div>
               </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3" style={{ marginTop: 16 }}>
               <SectionCard
                 icon={Package}
                 iconBg={COLORS.iconStockBg}
