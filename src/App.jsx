@@ -400,13 +400,13 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
       title: "Stok Rumah",
       subtitle: "Stok barang dan daftar belanja",
       icon: Package,
-      cardBg: COLORS.primary,
+      cardBg: COLORS.navy,
       iconBg: COLORS.accent,
       iconFg: "#fff",
       titleColor: "#fff",
-      subColor: "rgba(255,255,255,0.72)",
+      subColor: "rgba(255,255,255,0.70)",
       glyphs: [Package, Milk, Trash2, LayoutGrid],
-      glyphTint: "rgba(224,138,60,0.30)",
+      glyphTint: "rgba(224,138,60,0.28)",
       glyphSolid: "rgba(255,255,255,0.10)",
       glyphColor: "rgba(255,255,255,0.72)",
       blobColor: "rgba(255,255,255,0.05)",
@@ -3312,19 +3312,23 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
           notifSlot={notifSlot}
         />
 
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <SummaryCard icon={ShoppingCart} label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
-          <SummaryCard icon={CheckCircle2} label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
+        {/* Format kartu filter dibuat sama persis dengan halaman Stok. */}
+        <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          <FilterTile label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
+          <FilterTile label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
         </div>
 
-        <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Search size={16} color={COLORS.inkSoft} />
+        <div
+          className="flex items-center gap-2.5"
+          style={{ background: COLORS.card, borderRadius: 999, padding: "12px 18px", boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}
+        >
+          <Search size={18} color={COLORS.inkSoft} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari di daftar ini..."
-            className="flex-1 py-1.5 bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
+            className="flex-1 bg-transparent"
+            style={{ color: COLORS.ink, fontSize: 14, outline: "none", border: "none" }}
           />
         </div>
       </div>
