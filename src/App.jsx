@@ -9,6 +9,10 @@ import {
   Minus,
   RotateCcw,
   Package,
+  BarChart3,
+  Receipt,
+  Banknote,
+  Milk,
   ShoppingBasket,
   ThumbsUp,
   AlertTriangle,
@@ -349,78 +353,41 @@ function loginErrorMessage(err) {
 
 // Latar halaman pilih aplikasi: matahari berlapis di kanan atas, bukit lembut
 // dan rumah kecil di kaki layar. Semuanya opasitas rendah supaya teks tetap
-// terbaca — hiasan yang menemani, bukan yang menghalangi.
-function PickerBackdrop({ night }) {
-  const glow = night ? "#6B8F71" : COLORS.iconStockFg;
+// Ilustrasi samar di sudut kanan bawah tiap kartu — penanda visual supaya
+// Empat ikon kecil 2x2 di sudut kartu — murni hiasan yang menggambarkan isi
+// aplikasinya, bukan tombol.
+function CardGlyphs({ icons, tint, solid, glyphColor }) {
   return (
-    <svg
-      viewBox="0 0 380 640"
-      preserveAspectRatio="none"
-      className="absolute inset-0 w-full h-full pointer-events-none select-none"
+    <div
+      className="absolute grid gap-2 pointer-events-none select-none"
+      style={{ right: 16, top: 16, gridTemplateColumns: "repeat(2, 1fr)" }}
       aria-hidden="true"
     >
-      <circle cx="338" cy="44" r="28" fill={glow} opacity="0.28" />
-      <circle cx="338" cy="44" r="50" fill={glow} opacity="0.10" />
-      <circle cx="338" cy="44" r="74" fill={glow} opacity="0.055" />
-      <path d="M0 546 Q 110 498 210 536 T 380 518 L380 640 L0 640 Z" fill={COLORS.primaryLight} opacity="0.13" />
-      <path d="M0 596 Q 130 560 250 590 T 380 580 L380 640 L0 640 Z" fill={COLORS.primary} opacity="0.10" />
-      <g opacity="0.15">
-        <path d="M148 582 L166 566 L184 582 Z" fill={COLORS.primary} />
-        <rect x="154" y="582" width="24" height="18" fill={COLORS.primary} />
-      </g>
-      <circle cx="36" cy="188" r="3.5" fill={COLORS.primaryLight} opacity="0.28" />
-      <circle cx="358" cy="252" r="5" fill={COLORS.iconStockFg} opacity="0.18" />
-    </svg>
-  );
-}
-
-// Ilustrasi samar di sudut kanan bawah tiap kartu — penanda visual supaya
-// tiap aplikasi punya wajahnya sendiri tanpa perlu dibaca.
-function CardWatermark({ kind, color }) {
-  const common = {
-    viewBox: "0 0 120 120",
-    className: "absolute pointer-events-none select-none",
-    "aria-hidden": "true",
-  };
-  if (kind === "stok") {
-    return (
-      <svg {...common} width="122" height="122" style={{ right: -16, bottom: -26, opacity: 0.11 }}>
-        <rect x="26" y="44" width="68" height="52" rx="6" fill={color} />
-        <path d="M26 44 L60 22 L94 44 Z" fill={color} />
-        <rect x="48" y="64" width="24" height="32" rx="3" fill="#fff" />
-      </svg>
-    );
-  }
-  if (kind === "kas") {
-    return (
-      <svg {...common} width="122" height="122" style={{ right: -14, bottom: -24, opacity: 0.11 }}>
-        <rect x="20" y="52" width="80" height="46" rx="9" fill={color} />
-        <rect x="40" y="34" width="40" height="26" rx="3" fill={color} />
-        <circle cx="82" cy="76" r="8" fill="#fff" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common} width="122" height="122" style={{ right: -16, bottom: -28, opacity: 0.1 }}>
-      <rect x="24" y="32" width="72" height="66" rx="8" fill={color} />
-      <rect x="24" y="32" width="72" height="16" rx="8" fill={color} opacity="0.75" />
-      <circle cx="46" cy="68" r="5" fill="#fff" />
-      <circle cx="64" cy="68" r="5" fill="#fff" />
-      <circle cx="46" cy="84" r="5" fill="#fff" />
-    </svg>
+      {icons.map((Ic, i) => (
+        <span
+          key={i}
+          className="flex items-center justify-center"
+          // Dua kotak diberi latar pekat, dua sisanya terang — persis pola
+          // selang-seling pada desain.
+          style={{ width: 46, height: 46, borderRadius: 14, background: i === 0 || i === 3 ? tint : solid }}
+        >
+          <Ic size={20} color={glyphColor} />
+        </span>
+      ))}
+    </div>
   );
 }
 
 function AppPicker({ userName, onPick, onLogout, notifSlot }) {
-  const hour = new Date().getHours();
-  const greeting = useMemo(() => {
-    if (hour < 10) return "Selamat pagi";
-    if (hour < 15) return "Selamat siang";
-    if (hour < 18) return "Selamat sore";
-    return "Selamat malam";
-  }, [hour]);
-
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 10) return "Selamat pagi";
+    if (h < 15) return "Selamat siang";
+    if (h < 18) return "Selamat sore";
+    return "Selamat malam";
+  }, []);
 
   const cards = [
     {
@@ -428,108 +395,154 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
       title: "Stok Rumah",
       subtitle: "Stok barang dan daftar belanja",
       icon: Package,
-      iconBg: COLORS.iconStockBg,
-      iconFg: COLORS.iconStockFg,
+      cardBg: COLORS.primary,
+      iconBg: COLORS.accent,
+      iconFg: "#fff",
+      titleColor: "#fff",
+      subColor: "rgba(255,255,255,0.72)",
+      glyphs: [Package, Milk, Trash2, LayoutGrid],
+      glyphTint: "rgba(224,138,60,0.30)",
+      glyphSolid: "rgba(255,255,255,0.10)",
+      glyphColor: "rgba(255,255,255,0.72)",
+      blobColor: "rgba(255,255,255,0.05)",
     },
     {
       key: "kas",
       title: "Kas Rumah",
       subtitle: "Pemasukan dan pengeluaran",
       icon: Wallet,
-      iconBg: COLORS.iconAgendaBg,
+      cardBg: COLORS.iconAgendaBg,
+      iconBg: "#fff",
       iconFg: COLORS.iconAgendaFg,
+      titleColor: COLORS.iconAgendaFg,
+      subColor: COLORS.iconAgendaText,
+      glyphs: [Banknote, Wallet, Receipt, BarChart3],
+      glyphTint: "rgba(107,95,181,0.20)",
+      glyphSolid: "#fff",
+      glyphColor: COLORS.iconAgendaFg,
+      blobColor: "rgba(107,95,181,0.09)",
     },
     {
       key: "agenda",
       title: "Agenda Rumah",
       subtitle: "Tugas dan jadwal rumah tangga",
       icon: CalendarCheck2,
-      iconBg: COLORS.iconBuyBg,
+      cardBg: COLORS.iconBuyBg,
+      iconBg: "#fff",
       iconFg: COLORS.iconBuyFg,
+      titleColor: COLORS.primary,
+      subColor: COLORS.iconBuyText,
+      glyphs: [Clock, CheckCircle2, Pencil, Calendar],
+      glyphTint: "rgba(47,122,78,0.16)",
+      glyphSolid: "#fff",
+      glyphColor: COLORS.iconBuyFg,
+      blobColor: "rgba(47,122,78,0.08)",
     },
   ];
 
   return (
     <div
-      className="relative"
-      style={{
-        background: `linear-gradient(#F6F3EA 0%, ${COLORS.bg} 45%, #EDE9DC 100%)`,
-        minHeight: "100vh",
-        color: COLORS.ink,
-        fontFamily: "'Outfit', sans-serif",
-        overflow: "hidden",
-      }}
+      className="flex flex-col"
+      style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif", overflow: "hidden" }}
     >
       <SharedStyles />
       <style>{`
         @keyframes pickerRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        .picker-card { animation: pickerRise 450ms cubic-bezier(0.22,1,0.36,1) both; transition: transform 140ms ease, box-shadow 140ms ease; }
-        .picker-card:active { transform: scale(0.975); box-shadow: 0 1px 6px rgba(43,42,37,0.08) !important; }
+        .picker-card { animation: pickerRise 450ms cubic-bezier(0.22,1,0.36,1) both; transition: transform 140ms ease; }
+        .picker-card:active { transform: scale(0.982); }
       `}</style>
 
-      <PickerBackdrop night={hour >= 18 || hour < 6} />
-
-      <div className="relative max-w-2xl mx-auto px-4 pb-10" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        <div className="pt-8">
-          <div className="flex items-start justify-between gap-2">
+      <div
+        className="max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0 px-5"
+        style={{ paddingTop: "calc(env(safe-area-inset-top) + 14px)", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
+      >
+        <div className="shrink-0">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm flex items-center gap-1.5" style={{ color: COLORS.inkSoft }}>
+              <div className="text-sm" style={{ color: COLORS.inkSoft }}>
                 {greeting}
-                {userName ? `, ${userName}` : ""} <span>👋</span>
+                {userName ? `, ${userName}` : ""}
               </div>
-              <h1 style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 30, lineHeight: 1.15 }}>
-                <span style={{ color: COLORS.primary }}>Frinirvan</span>
-                <br />
-                <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>Tracker</span>
+              <h1
+                style={{
+                  fontFamily: "'Baloo 2', cursive",
+                  fontWeight: 700,
+                  fontSize: 38,
+                  lineHeight: 1.05,
+                  color: COLORS.primary,
+                  marginTop: 2,
+                }}
+              >
+                Frinirvan
               </h1>
+              <div className="flex items-center gap-3" style={{ marginTop: 1 }}>
+                <span
+                  style={{
+                    fontFamily: "'Baloo 2', cursive",
+                    fontWeight: 600,
+                    fontSize: 15,
+                    letterSpacing: "5px",
+                    color: COLORS.accent,
+                  }}
+                >
+                  TRACKER
+                </span>
+                <span style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${COLORS.accent}66, transparent)` }} />
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0" style={{ marginTop: 4 }}>
               {notifSlot}
               <button
                 onClick={onLogout}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: COLORS.card, boxShadow: "0 2px 10px rgba(43,42,37,0.09)" }}
+                className="w-11 h-11 rounded-full flex items-center justify-center"
+                style={{ background: COLORS.card, boxShadow: "0 2px 10px rgba(43,42,37,0.08)" }}
                 title="Keluar"
               >
-                <LogOut size={16} color={COLORS.ink} />
+                <LogOut size={18} color={COLORS.primary} />
               </button>
             </div>
           </div>
 
-          <div className="text-sm mt-3 mb-6 flex items-center gap-1.5 capitalize" style={{ color: COLORS.inkSoft }}>
-            <Calendar size={14} color={COLORS.inkSoft} />
+          <div
+            className="inline-flex items-center gap-2 capitalize"
+            style={{ marginTop: 16, background: COLORS.card, borderRadius: 999, padding: "10px 18px", fontSize: 14, color: COLORS.ink, boxShadow: "0 2px 10px rgba(43,42,37,0.05)" }}
+          >
+            <Calendar size={16} color={COLORS.iconBuyFg} />
             {todayLabel}
           </div>
         </div>
 
-        <div className="flex flex-col gap-3">
+        {/* Ketiga kartu berbagi sisa tinggi layar secara merata, jadi selalu
+            muat tanpa perlu digulir — berapa pun tinggi layar HP-nya. */}
+        <div className="flex flex-col gap-3 flex-1 min-h-0" style={{ marginTop: 18 }}>
           {cards.map((c, i) => {
             const Icon = c.icon;
             return (
               <button
                 key={c.key}
                 onClick={() => onPick(c.key)}
-                className="picker-card relative w-full rounded-2xl p-4 flex items-center gap-3.5 text-left overflow-hidden"
-                style={{ background: COLORS.card, boxShadow: "0 4px 18px rgba(43,42,37,0.08)", animationDelay: `${50 + i * 70}ms` }}
+                className="picker-card relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end"
+                style={{ background: c.cardBg, borderRadius: 26, padding: 18, animationDelay: `${50 + i * 70}ms` }}
               >
                 <span
-                  className="absolute left-0"
-                  style={{ top: 16, bottom: 16, width: 3, borderRadius: "0 3px 3px 0", background: c.iconFg }}
+                  className="absolute rounded-full pointer-events-none"
+                  style={{ right: -30, bottom: -70, width: 190, height: 190, background: c.blobColor }}
                 />
-                <CardWatermark kind={c.key} color={c.iconFg} />
-                <div
-                  className="relative flex items-center justify-center shrink-0"
-                  style={{ width: 50, height: 50, borderRadius: "16px 16px 16px 5px", background: c.iconBg }}
+                <span
+                  className="absolute flex items-center justify-center"
+                  style={{ left: 18, top: 18, width: 52, height: 52, borderRadius: 17, background: c.iconBg }}
                 >
-                  <Icon size={23} color={c.iconFg} />
-                </div>
-                <div className="relative flex-1 min-w-0">
-                  <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>{c.title}</div>
-                  <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>
-                    {c.subtitle}
+                  <Icon size={25} color={c.iconFg} />
+                </span>
+                <CardGlyphs icons={c.glyphs} tint={c.glyphTint} solid={c.glyphSolid} glyphColor={c.glyphColor} />
+                <div className="relative">
+                  <div
+                    style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 24, lineHeight: 1.15, color: c.titleColor }}
+                  >
+                    {c.title}
                   </div>
+                  <div style={{ fontSize: 13.5, color: c.subColor, marginTop: 1 }}>{c.subtitle}</div>
                 </div>
-                <ChevronRight size={18} color={COLORS.inkSoft} className="relative shrink-0" />
               </button>
             );
           })}
