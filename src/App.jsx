@@ -10,7 +10,7 @@ import {
   RotateCcw,
   Package,
   ShoppingBasket,
-  PiggyBank,
+  ThumbsUp,
   AlertTriangle,
   ClipboardList,
   ShoppingCart,
@@ -1779,9 +1779,12 @@ export default function App() {
                 </div>
 
                 {/* Tiga ringkasan angka — sekaligus pintasan ke daftar yang sesuai */}
-                <div className="flex gap-2" style={{ marginTop: 22 }}>
+                <div
+                  className="grid gap-2"
+                  style={{ marginTop: 22, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
+                >
                   <HomeStat
-                    icon={PiggyBank}
+                    icon={ThumbsUp}
                     value={stockCounts.total - stockPreview.total}
                     label="stok aman"
                     bg={COLORS.iconAgendaBg}
@@ -1793,7 +1796,7 @@ export default function App() {
                     }}
                   />
                   <HomeStat
-                    icon={Package}
+                    icon={AlertTriangle}
                     value={stockPreview.total}
                     label="perlu dicek"
                     bg={COLORS.iconStockBg}
@@ -2713,14 +2716,27 @@ function HomeStat({ icon: Icon, value, label, bg, fg, textColor, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="flex-1 min-w-0 flex flex-col gap-0.5 text-left"
+      className="w-full min-w-0 flex flex-col text-left"
       style={{ background: bg, borderRadius: 18, padding: "12px 12px 11px" }}
     >
-      <Icon size={22} color={fg} />
-      <span style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 20, color: COLORS.primary, lineHeight: 1.1 }}>
+      {/* Tinggi tiap baris dikunci supaya ketiga kotak selalu sama persis,
+          berapa pun panjang angka atau tulisannya. */}
+      <span className="flex items-center" style={{ height: 24 }}>
+        <Icon size={22} color={fg} />
+      </span>
+      <span
+        style={{
+          fontFamily: "'Baloo 2', cursive",
+          fontWeight: 700,
+          fontSize: 20,
+          color: COLORS.primary,
+          lineHeight: "24px",
+          marginTop: 3,
+        }}
+      >
         {value}
       </span>
-      <span className="truncate" style={{ fontSize: 11, color: textColor }}>
+      <span className="truncate" style={{ fontSize: 11, color: textColor, lineHeight: "16px", marginTop: 1 }}>
         {label}
       </span>
     </button>
