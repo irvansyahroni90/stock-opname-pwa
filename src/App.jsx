@@ -85,6 +85,27 @@ const COLORS = {
   iconAgendaText: "#4B4478",
 };
 
+// Palet khusus Agenda Rumah — teal pekat dengan aksen oranye.
+const AG = {
+  bg: "#EDE9E0",
+  card: "#FFFFFF",
+  primary: "#17403D",
+  primaryDeep: "#0F2F2D",
+  accent: "#E0912E",
+  accentBg: "#FBEBD6",
+  ink: "#1A2B2A",
+  inkSoft: "#8A908C",
+  label: "#A2A8A4",
+  border: "#E6E2D8",
+  soft: "#F2F0E8",
+  safe: "#2E7D51",
+  safeBg: "#E4F0E6",
+  low: "#E0912E",
+  lowBg: "#FBEBD6",
+  out: "#D9483B",
+  outBg: "#FBE3E0",
+};
+
 const UNIT_SUGGESTIONS = ["pcs", "kg", "gram", "liter", "ml", "botol", "pack", "sachet"];
 
 const LEVEL_OPTIONS = [
@@ -432,16 +453,16 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
       title: "Agenda Rumah",
       subtitle: "Tugas dan jadwal rumah tangga",
       icon: CalendarCheck2,
-      cardBg: COLORS.iconBuyBg,
-      iconBg: "#fff",
-      iconFg: COLORS.iconBuyFg,
-      titleColor: COLORS.primary,
-      subColor: COLORS.iconBuyText,
+      cardBg: AG.primary,
+      iconBg: AG.accent,
+      iconFg: "#fff",
+      titleColor: "#fff",
+      subColor: "rgba(255,255,255,0.68)",
       glyphs: [Clock, CheckCircle2, Pencil, Calendar],
-      glyphTint: "rgba(47,122,78,0.16)",
-      glyphSolid: "#fff",
-      glyphColor: COLORS.iconBuyFg,
-      blobColor: "rgba(47,122,78,0.08)",
+      glyphTint: "rgba(255,255,255,0.10)",
+      glyphSolid: "rgba(255,255,255,0.10)",
+      glyphColor: "rgba(255,255,255,0.80)",
+      blobColor: "rgba(255,255,255,0.05)",
     },
   ];
 
@@ -2008,7 +2029,7 @@ export default function App() {
         <button
           onClick={() => attemptNavigate(() => setTaskModal({ mode: "add" }))}
           className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-          style={{ width: 56, height: 56, background: COLORS.accent, color: "#fff", bottom: "calc(24px + env(safe-area-inset-bottom))" }}
+          style={{ width: 56, height: 56, background: AG.accent, color: "#fff", bottom: "calc(24px + env(safe-area-inset-bottom))" }}
         >
           <Plus size={26} />
         </button>
@@ -3591,6 +3612,43 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 /* ---------------- Agenda Rumah page ---------------- */
 
+// Kartu filter Agenda — ada chip ikon kecil di atas angkanya.
+function AgendaTile({ icon: Icon, label, value, color, chipBg, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="min-w-0 text-left"
+      style={{
+        background: active ? AG.primary : AG.card,
+        borderRadius: 18,
+        padding: "11px 11px 12px",
+      }}
+    >
+      <span
+        className="flex items-center justify-center"
+        style={{ width: 28, height: 28, borderRadius: 9, background: active ? "rgba(255,255,255,0.14)" : chipBg }}
+      >
+        <Icon size={15} color={active ? "#fff" : color} />
+      </span>
+      <div
+        style={{
+          fontFamily: "'Baloo 2', cursive",
+          fontWeight: 700,
+          fontSize: 23,
+          lineHeight: "26px",
+          marginTop: 7,
+          color: active ? "#fff" : AG.ink,
+        }}
+      >
+        {value}
+      </div>
+      <div className="truncate" style={{ fontSize: 12, color: active ? "rgba(255,255,255,0.72)" : AG.inkSoft }}>
+        {label}
+      </div>
+    </button>
+  );
+}
+
 function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
   const active = tasks.filter((t) => !t.done);
@@ -3645,104 +3703,116 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   }, [highlightId]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        {/* Kartu sambutan — latar hijau muda mengikuti warna Agenda Rumah di
-            halaman awal, dengan tulisan hijau tua supaya tetap terbaca. */}
+    <div className="h-full flex flex-col" style={{ background: AG.bg }}>
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: AG.bg }}>
+        {/* Kartu sambutan teal */}
         <div
           className="relative"
-          style={{ background: COLORS.iconBuyBg, borderRadius: 30, padding: "20px 20px 22px", marginTop: 12, marginBottom: 14 }}
+          style={{ background: AG.primary, borderRadius: 26, padding: "18px 20px 22px", marginTop: 12, marginBottom: 14 }}
         >
           <span
             className="absolute inset-0 overflow-hidden pointer-events-none"
-            style={{ borderRadius: 30 }}
+            style={{ borderRadius: 26 }}
             aria-hidden="true"
           >
             <span
               className="absolute rounded-full"
-              style={{ right: -46, top: -54, width: 200, height: 200, background: "rgba(47,122,78,0.13)" }}
+              style={{ right: -60, top: -80, width: 240, height: 240, background: "rgba(255,255,255,0.045)" }}
             />
             <span
               className="absolute rounded-full"
-              style={{ right: 24, bottom: -58, width: 145, height: 145, background: "rgba(47,122,78,0.07)" }}
+              style={{ right: 20, bottom: -30, width: 130, height: 130, border: "1px solid rgba(255,255,255,0.10)" }}
             />
           </span>
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: COLORS.iconBuyText }}>
-                <ArrowLeft size={15} /> Kembali
+              <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
+                <ChevronLeft size={17} /> Kembali
               </button>
               <h1
                 style={{
                   fontFamily: "'Baloo 2', cursive",
                   fontWeight: 700,
-                  fontSize: 34,
-                  lineHeight: 1.05,
-                  color: COLORS.primary,
-                  marginTop: 6,
+                  fontSize: 36,
+                  lineHeight: 1.04,
+                  color: "#fff",
+                  marginTop: 4,
                 }}
               >
                 Agenda
                 <br />
                 Rumah
               </h1>
+              <div className="flex items-center gap-1.5 capitalize" style={{ marginTop: 10, fontSize: 13.5, color: "rgba(255,255,255,0.68)" }}>
+                <Clock size={15} />
+                {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {notifSlot}
               <button
                 onClick={onSwitchApp}
                 className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                style={{ background: "rgba(255,255,255,0.13)" }}
                 title="Ganti aplikasi"
               >
-                <LayoutGrid size={18} color={COLORS.iconBuyFg} />
+                <LayoutGrid size={18} color="#fff" />
               </button>
               <button
                 onClick={onOpenUserMenu}
                 className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                style={{ background: "#fff" }}
                 title="Menu"
               >
-                <Menu size={18} color={COLORS.iconBuyFg} />
+                <Menu size={18} color={AG.primary} />
               </button>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <button
-            onClick={() => setSubView("list")}
-            className="flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ background: subView === "list" ? COLORS.primary : "transparent", color: subView === "list" ? "#fff" : COLORS.ink }}
-          >
-            List
-          </button>
-          <button
-            onClick={() => setSubView("calendar")}
-            className="flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ background: subView === "calendar" ? COLORS.primary : "transparent", color: subView === "calendar" ? "#fff" : COLORS.ink }}
-          >
-            Kalender
-          </button>
+        {/* Sakelar List / Kalender */}
+        <div className="flex gap-1 mb-3" style={{ background: AG.card, borderRadius: 999, padding: 5 }}>
+          {[
+            { key: "list", label: "List" },
+            { key: "calendar", label: "Kalender" },
+          ].map((o) => (
+            <button
+              key={o.key}
+              onClick={() => setSubView(o.key)}
+              className="flex-1 font-semibold"
+              style={{
+                background: subView === o.key ? AG.primary : "transparent",
+                color: subView === o.key ? "#fff" : AG.inkSoft,
+                borderRadius: 999,
+                padding: "11px 0",
+                fontSize: 14.5,
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
 
         {subView === "list" && (
           <>
-            <div className="grid grid-cols-4 gap-1.5 mb-3">
-              <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-              <SummaryCard icon={Clock} label="Hampir Deadline" value={counts.soon} color={COLORS.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
-              <SummaryCard icon={AlertTriangle} label="Terlambat" value={counts.overdue} color={COLORS.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
-              <SummaryCard icon={CheckCircle2} label="Selesai" value={counts.done} color={COLORS.safe} active={filter === "done"} onClick={() => setFilter("done")} />
+            <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+              <AgendaTile icon={LayoutGrid} label="Semua" value={counts.all} color={AG.primary} chipBg={AG.soft} active={filter === "all"} onClick={() => setFilter("all")} />
+              <AgendaTile icon={Clock} label="Dekat" value={counts.soon} color={AG.low} chipBg={AG.lowBg} active={filter === "soon"} onClick={() => setFilter("soon")} />
+              <AgendaTile icon={AlertTriangle} label="Terlambat" value={counts.overdue} color={AG.out} chipBg={AG.outBg} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+              <AgendaTile icon={CheckCircle2} label="Selesai" value={counts.done} color={AG.safe} chipBg={AG.safeBg} active={filter === "done"} onClick={() => setFilter("done")} />
             </div>
 
-            <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-              <Search size={16} color={COLORS.inkSoft} />
+            <div
+              className="flex items-center gap-2.5"
+              style={{ background: AG.card, borderRadius: 999, padding: "13px 18px" }}
+            >
+              <Search size={18} color={AG.inkSoft} />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari tugas..."
-                className="flex-1 py-1.5 bg-transparent"
-                style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
+                className="flex-1 bg-transparent"
+                style={{ color: AG.ink, fontSize: 14.5, outline: "none", border: "none" }}
               />
             </div>
           </>
@@ -3754,9 +3824,9 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           {subView === "list" ? (
             <>
               {listToShow.length === 0 ? (
-                <div className="py-10 text-center rounded-2xl mb-3" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
-                  <ListTodo size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
-                  <div style={{ color: COLORS.inkSoft }} className="text-sm">
+                <div className="py-10 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, marginBottom: 12 }}>
+                  <ListTodo size={26} color={AG.inkSoft} style={{ margin: "0 auto 8px" }} />
+                  <div style={{ color: AG.inkSoft }} className="text-sm">
                     {tasks.length === 0 ? "Belum ada tugas." : showingDone ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
                   </div>
                 </div>
@@ -3769,7 +3839,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
               )}
             </>
           ) : (
-            <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} />
+            <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
           )}
         </div>
       </div>
@@ -3806,7 +3876,7 @@ function projectedOccurrences(task) {
   return out;
 }
 
-function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteTask }) {
+function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteTask, onAddTask }) {
   const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
   const [cursor, setCursor] = useState(() => {
@@ -3855,6 +3925,17 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
   const todayStr = toDateStr(new Date());
   const monthLabel = cursor.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
 
+  // Jumlah tugas yang jatuh pada bulan yang sedang dilihat.
+  const monthTaskCount = useMemo(() => {
+    const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+    const seen = new Set();
+    active.forEach((t) => {
+      if ((t.planDate || "").startsWith(prefix) || (t.deadline || "").startsWith(prefix)) seen.add(t.id);
+    });
+    return seen.size;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, year, month]);
+
   const selectedTasks = active
     .filter((t) => t.planDate === selectedDate || t.deadline === selectedDate)
     .sort((a, b) => a.title.localeCompare(b.title, "id"));
@@ -3875,105 +3956,155 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <button
-          onClick={() => setCursor(new Date(year, month - 1, 1))}
-          className="w-8 h-8 rounded-full flex items-center justify-center"
-          style={{ border: `1px solid ${COLORS.border}` }}
-        >
-          <ChevronLeft size={16} color={COLORS.ink} />
-        </button>
-        <div className="capitalize" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
-          {monthLabel}
-        </div>
-        <button
-          onClick={() => setCursor(new Date(year, month + 1, 1))}
-          className="w-8 h-8 rounded-full flex items-center justify-center"
-          style={{ border: `1px solid ${COLORS.border}` }}
-        >
-          <ChevronRight size={16} color={COLORS.ink} />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"].map((d) => (
-          <div key={d} className="text-center text-[10px] font-medium" style={{ color: COLORS.inkSoft }}>
-            {d}
+      {/* Kartu kalender putih */}
+      <div style={{ background: AG.card, borderRadius: 24, padding: 18 }}>
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <button
+            onClick={() => setCursor(new Date(year, month - 1, 1))}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 40, height: 40, borderRadius: 14, background: AG.soft }}
+            title="Bulan sebelumnya"
+          >
+            <ChevronLeft size={19} color={AG.primary} />
+          </button>
+          <div className="text-center min-w-0">
+            <div className="capitalize" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 20, color: AG.ink }}>
+              {monthLabel}
+            </div>
+            <div style={{ fontSize: 12.5, color: AG.inkSoft, marginTop: 1 }}>{monthTaskCount} tugas bulan ini</div>
           </div>
-        ))}
-      </div>
+          <button
+            onClick={() => setCursor(new Date(year, month + 1, 1))}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 40, height: 40, borderRadius: 14, background: AG.primary }}
+            title="Bulan berikutnya"
+          >
+            <ChevronRight size={19} color="#fff" />
+          </button>
+        </div>
 
-      <div className="grid grid-cols-7 gap-1 mb-4">
-        {cells.map((c, i) => {
-          const info = dateMap[c.dateStr];
-          const isToday = c.dateStr === todayStr;
-          const isSelected = c.dateStr === selectedDate;
-          const deadlineColor =
-            info && info.deadline.length > 0
-              ? info.deadline.some((t) => taskUrgency(t, dueThreshold) === "overdue")
-                ? COLORS.out
-                : COLORS.low
-              : null;
-          return (
-            <button
-              key={i}
-              onClick={() => c.inMonth && setSelectedDate(c.dateStr)}
-              disabled={!c.inMonth}
-              className="aspect-square rounded-lg flex flex-col items-center justify-center gap-0.5 text-xs"
-              style={{
-                background: isSelected ? COLORS.primary : "transparent",
-                color: !c.inMonth ? COLORS.border : isSelected ? "#fff" : COLORS.ink,
-                border: isToday && !isSelected ? `1.5px solid ${COLORS.primary}` : "1px solid transparent",
-              }}
+        <div className="grid grid-cols-7 mb-1">
+          {["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"].map((d, i) => (
+            <div
+              key={d}
+              className="text-center uppercase"
+              style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", color: i === 0 || i === 6 ? AG.out : AG.inkSoft }}
             >
-              <span>{c.dayNum}</span>
-              {info && c.inMonth && (
-                <span className="flex gap-0.5">
-                  {info.plan.length > 0 && (
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#fff" : COLORS.safe }} />
-                  )}
-                  {deadlineColor && (
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#fff" : deadlineColor }} />
-                  )}
-                  {/* Jadwal berulang yang belum aktif: titik berlubang */}
-                  {info.plan.length === 0 && (info.planAhead || []).length > 0 && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ border: `1.5px solid ${isSelected ? "#fff" : COLORS.safe}`, background: "transparent" }}
-                    />
-                  )}
-                  {!deadlineColor && (info.deadlineAhead || []).length > 0 && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ border: `1.5px solid ${isSelected ? "#fff" : COLORS.low}`, background: "transparent" }}
-                    />
-                  )}
+              {d}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-y-1">
+          {cells.map((c, i) => {
+            const info = dateMap[c.dateStr];
+            const isToday = c.dateStr === todayStr;
+            const isSelected = c.dateStr === selectedDate;
+            const weekend = i % 7 === 0 || i % 7 === 6;
+            const deadlineColor =
+              info && info.deadline.length > 0
+                ? info.deadline.some((t) => taskUrgency(t, dueThreshold) === "overdue")
+                  ? AG.out
+                  : AG.low
+                : null;
+            // Tanggal berdeadline diberi latar merah muda supaya menonjol
+            // walaupun sedang tidak dipilih.
+            const softBg = !isSelected && c.inMonth && deadlineColor === AG.out ? AG.outBg : "transparent";
+            return (
+              <button
+                key={i}
+                onClick={() => c.inMonth && setSelectedDate(c.dateStr)}
+                disabled={!c.inMonth}
+                className="aspect-square flex flex-col items-center justify-center gap-1"
+                style={{
+                  borderRadius: 14,
+                  background: isSelected ? AG.primary : softBg,
+                  boxShadow: isSelected ? "0 6px 14px -6px rgba(23,64,61,0.6)" : "none",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: isSelected || isToday ? 700 : 500,
+                    color: !c.inMonth
+                      ? "#CFCCC2"
+                      : isSelected
+                      ? "#fff"
+                      : deadlineColor === AG.out
+                      ? AG.out
+                      : weekend
+                      ? AG.out
+                      : AG.ink,
+                  }}
+                >
+                  {c.dayNum}
                 </span>
-              )}
-            </button>
-          );
-        })}
+                {info && c.inMonth && (
+                  <span className="flex gap-1" style={{ height: 6 }}>
+                    {info.plan.length > 0 && (
+                      <span style={{ width: 6, height: 6, borderRadius: 999, background: isSelected ? "#fff" : AG.low }} />
+                    )}
+                    {deadlineColor && (
+                      <span style={{ width: 6, height: 6, borderRadius: 999, background: isSelected ? "#fff" : deadlineColor }} />
+                    )}
+                    {info.plan.length === 0 && (info.planAhead || []).length > 0 && (
+                      <span style={{ width: 6, height: 6, borderRadius: 999, background: isSelected ? "rgba(255,255,255,0.6)" : AG.primary }} />
+                    )}
+                    {!deadlineColor && (info.deadlineAhead || []).length > 0 && (
+                      <span
+                        style={{ width: 6, height: 6, borderRadius: 999, border: `1.5px solid ${isSelected ? "#fff" : AG.low}` }}
+                      />
+                    )}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap gap-2" style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${AG.border}` }}>
+          {[
+            { label: "Rencana", color: AG.low, bg: AG.lowBg },
+            { label: "Deadline", color: AG.out, bg: AG.outBg },
+            { label: "Berulang", color: AG.primary, bg: AG.safeBg },
+          ].map((l) => (
+            <span
+              key={l.label}
+              className="flex items-center gap-1.5 font-medium"
+              style={{ background: l.bg, color: AG.ink, fontSize: 12.5, padding: "7px 13px", borderRadius: 999 }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: l.color }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
       </div>
 
-      <div className="flex items-center gap-3 mb-3 text-xs" style={{ color: COLORS.inkSoft }}>
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: COLORS.safe }} /> Rencana
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: COLORS.low }} /> Deadline
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ border: `1.5px solid ${COLORS.inkSoft}` }} /> Berulang
-        </span>
+      {/* Judul tanggal terpilih */}
+      <div className="flex items-center justify-between gap-2" style={{ marginTop: 20, marginBottom: 12 }}>
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 18, color: AG.ink }}>
+            {new Date(selectedDate + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short", year: "numeric" })}
+          </span>
+          <span className="shrink-0" style={{ fontSize: 12.5, color: AG.inkSoft }}>
+            {selectedTasks.length + selectedProjected.length} tugas
+          </span>
+        </div>
+        {onAddTask && (
+          <button
+            onClick={onAddTask}
+            className="flex items-center gap-1 font-semibold shrink-0"
+            style={{ background: AG.primary, color: "#fff", fontSize: 13, padding: "9px 16px", borderRadius: 999 }}
+          >
+            <Plus size={15} /> Tambah
+          </button>
+        )}
       </div>
 
-      <div className="text-xs font-medium mb-2" style={{ color: COLORS.inkSoft }}>
-        {fmtDate(selectedDate)}
-      </div>
       {selectedTasks.length === 0 && selectedProjected.length === 0 ? (
         <div
-          className="py-8 text-center rounded-2xl"
-          style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.inkSoft }}
+          className="py-8 text-center"
+          style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, color: AG.inkSoft }}
         >
           <span className="text-sm">Gak ada tugas di tanggal ini.</span>
         </div>
@@ -3992,7 +4123,7 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
 
           {selectedProjected.length > 0 && (
             <>
-              <div className="text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>
+              <div style={{ fontSize: 12, color: AG.inkSoft, marginTop: 6 }}>
                 Jadwal berulang berikutnya
               </div>
               {selectedProjected.map((t) => (
@@ -4013,7 +4144,7 @@ function ProjectedTaskRow({ task }) {
   return (
     <div
       className="rounded-2xl p-3"
-      style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, opacity: 0.75 }}
+      style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, opacity: 0.8 }}
     >
       <div className="flex items-start gap-2.5">
         <span
@@ -4049,83 +4180,138 @@ function ProjectedTaskRow({ task }) {
 function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
   const urgency = taskUrgency(task, threshold);
   const meta = URGENCY_META[urgency];
+  // Warna garis tepi kiri menandakan tingkat mendesaknya tugas.
+  const barColor = task.done ? AG.safe : urgency === "overdue" ? AG.out : urgency === "soon" ? AG.low : AG.primary;
+
   return (
     <div
       id={`agenda-item-${task.id}`}
-      className={`rounded-2xl p-3 ${highlighted ? "highlight-blink" : ""}`}
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+      className={`relative overflow-hidden ${highlighted ? "highlight-blink" : ""}`}
+      style={{ background: AG.card, borderRadius: 20, paddingLeft: 6 }}
     >
-      <div className="flex items-start gap-2.5">
-        <button
-          onClick={onToggle}
-          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
-          style={{ background: task.done ? COLORS.safe : "transparent", border: `1.5px solid ${task.done ? COLORS.safe : COLORS.border}` }}
-        >
-          {task.done && <Check size={12} color="#fff" />}
-        </button>
-        <div className="min-w-0 flex-1">
-          <div
-            className="font-semibold truncate"
+      <span className="absolute left-0 top-0 bottom-0" style={{ width: 6, background: barColor }} />
+      <div style={{ padding: "16px 16px 0 12px" }}>
+        <div className="flex items-start gap-3">
+          <button
+            onClick={onToggle}
+            className="flex items-center justify-center shrink-0"
             style={{
-              color: task.done ? COLORS.inkSoft : COLORS.ink,
-              textDecoration: task.done ? "line-through" : "none",
-              fontSize: 13,
+              width: 26,
+              height: 26,
+              borderRadius: 999,
+              marginTop: 1,
+              background: task.done ? AG.safe : "transparent",
+              border: `2px solid ${task.done ? AG.safe : AG.border}`,
             }}
           >
-            {task.title}
-          </div>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            {!task.done && (urgency === "overdue" || urgency === "soon") && (
-              <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg, fontSize: 11 }}>
+            {task.done && <Check size={14} color="#fff" />}
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div
+                className="font-bold min-w-0"
+                style={{
+                  color: task.done ? AG.inkSoft : AG.ink,
+                  textDecoration: task.done ? "line-through" : "none",
+                  fontSize: 16.5,
+                  lineHeight: 1.25,
+                }}
+              >
+                {task.title}
+              </div>
+              {task.recurrence && (
+                <span
+                  className="shrink-0 flex items-center gap-1 font-semibold"
+                  style={{ background: AG.safeBg, color: AG.primary, fontSize: 11.5, padding: "5px 10px", borderRadius: 999 }}
+                >
+                  <Repeat size={11} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
+                </span>
+              )}
+              {!task.recurrence && !task.done && (urgency === "overdue" || urgency === "soon") && (
+                <span
+                  className="shrink-0 flex items-center gap-1 font-semibold"
+                  style={{ background: meta.bg, color: meta.fg, fontSize: 11.5, padding: "5px 10px", borderRadius: 999 }}
+                >
+                  {urgency === "overdue" && <AlertTriangle size={11} />}
+                  {deadlineLabel(task)}
+                </span>
+              )}
+            </div>
+
+            {task.recurrence && !task.done && (urgency === "overdue" || urgency === "soon") && (
+              <span
+                className="inline-flex items-center gap-1 font-semibold"
+                style={{ background: meta.bg, color: meta.fg, fontSize: 11.5, padding: "5px 10px", borderRadius: 999, marginTop: 8 }}
+              >
+                {urgency === "overdue" && <AlertTriangle size={11} />}
                 {deadlineLabel(task)}
               </span>
             )}
-            {task.recurrence && (
-              <span className="flex items-center gap-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-                <Repeat size={10} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
-              </span>
+
+            {/* Tanggal ditampilkan berpasangan: label kecil huruf besar di atas,
+                tanggalnya tebal di bawah — seperti pada rancangan. */}
+            {(task.planDate || task.deadline) && (
+              <div className="flex gap-7" style={{ marginTop: 12 }}>
+                {task.planDate && (
+                  <div>
+                    <div className="uppercase" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: AG.label }}>
+                      Rencana
+                    </div>
+                    <div style={{ fontSize: 14.5, fontWeight: 700, color: AG.ink, marginTop: 2 }}>{fmtDate(task.planDate)}</div>
+                  </div>
+                )}
+                {task.deadline && (
+                  <div>
+                    <div className="uppercase" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: AG.label }}>
+                      Deadline
+                    </div>
+                    <div
+                      style={{ fontSize: 14.5, fontWeight: 700, marginTop: 2, color: !task.done && urgency === "overdue" ? AG.out : AG.ink }}
+                    >
+                      {fmtDate(task.deadline)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {task.notes && (
+              <div className="italic" style={{ color: AG.inkSoft, fontSize: 13, marginTop: 10 }}>
+                {task.notes}
+              </div>
             )}
           </div>
-          {task.planDate && (
-            <div className="mt-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-              Rencana: {fmtDate(task.planDate)}
-            </div>
-          )}
-          {task.deadline && (
-            <div className="mt-0.5" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-              Deadline: {fmtDate(task.deadline)}
-            </div>
-          )}
-          {task.notes && (
-            <div className="mt-1 italic" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-              {task.notes}
-            </div>
-          )}
         </div>
-      </div>
 
-      <div className="flex items-end justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
-        <div className="flex items-start gap-1.5 min-w-0">
-          <Clock size={11} color={task.done ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
-          <div className="leading-tight" style={{ color: task.done ? COLORS.safe : COLORS.inkSoft, fontSize: 11 }}>
+        <div
+          className="flex items-end justify-between gap-2"
+          style={{ marginTop: 14, paddingTop: 12, paddingBottom: 12, borderTop: `1px solid ${AG.border}` }}
+        >
+          <div className="leading-tight min-w-0" style={{ color: AG.inkSoft, fontSize: 12.5 }}>
             <div>{task.done ? "Selesai" : "Dibuat"}</div>
-            <div className="truncate">
+            <div className="truncate" style={{ marginTop: 2 }}>
               {task.done ? `${task.doneBy || "?"} \u00b7 ${fmtDateTime(task.doneAt)}` : `${task.createdBy || "?"} \u00b7 ${fmtDateTime(task.createdAt)}`}
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
-            <Pencil size={12} color={COLORS.ink} />
-          </button>
-          <button
-            onClick={onDelete}
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ border: `1px solid ${COLORS.out}55` }}
-            title="Hapus"
-          >
-            <Trash2 size={12} color={COLORS.out} />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onEdit}
+              className="flex items-center justify-center"
+              style={{ width: 40, height: 34, borderRadius: 12, background: AG.safeBg }}
+              title="Edit"
+            >
+              <Pencil size={15} color={AG.primary} />
+            </button>
+            <button
+              onClick={onDelete}
+              className="flex items-center justify-center"
+              style={{ width: 40, height: 34, borderRadius: 12, background: AG.outBg }}
+              title="Hapus"
+            >
+              <Trash2 size={15} color={AG.out} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
