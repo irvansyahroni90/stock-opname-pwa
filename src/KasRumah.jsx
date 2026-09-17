@@ -964,13 +964,13 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
             </span>
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <span className="text-sm font-medium" style={{ color: "#A8CFB4" }}>
+                <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
                   {greeting}
                   {userName ? `, ${userName}` : ""} <span>👋</span>
                 </span>
                 <h1
                   style={{
-                    fontFamily: "'Poppins', system-ui, sans-serif",
+                    fontFamily: "'Baloo 2', cursive",
                     fontWeight: 700,
                     fontSize: 44,
                     lineHeight: 1.02,
@@ -1006,9 +1006,9 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
             </div>
             <div
               className="relative inline-flex items-center gap-2 capitalize"
-              style={{ marginTop: 18, background: "rgba(255,255,255,0.12)", borderRadius: 99, padding: "11px 18px", fontSize: 13.5, fontWeight: 600, color: "#E6EFE8" }}
+              style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
             >
-              <Calendar size={15} color="#A8CFB4" />
+              <Calendar size={15} color="rgba(255,255,255,0.88)" />
               {todayLabel}
             </div>
           </div>

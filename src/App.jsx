@@ -3711,34 +3711,35 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
         {/* Kartu sambutan teal */}
         <div
           className="relative"
-          style={{ background: AG.primary, borderRadius: 26, padding: "18px 20px 22px", marginTop: 12, marginBottom: 14 }}
+          style={{ background: AG.primary, borderRadius: 34, padding: "26px 24px 28px", marginTop: 12, marginBottom: 14 }}
         >
           <span
             className="absolute inset-0 overflow-hidden pointer-events-none"
-            style={{ borderRadius: 26 }}
+            style={{ borderRadius: 34 }}
             aria-hidden="true"
           >
             <span
               className="absolute rounded-full"
-              style={{ right: -60, top: -80, width: 240, height: 240, background: "rgba(255,255,255,0.045)" }}
+              style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(255,255,255,0.07)" }}
             />
             <span
               className="absolute rounded-full"
-              style={{ right: 20, bottom: -30, width: 130, height: 130, border: "1px solid rgba(255,255,255,0.10)" }}
+              style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.05)" }}
             />
           </span>
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
+              <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
                 {agendaGreeting}
                 {userName ? `, ${userName}` : ""} <span>👋</span>
-              </div>
+              </span>
               <h1
                 style={{
                   fontFamily: "'Baloo 2', cursive",
                   fontWeight: 700,
-                  fontSize: 36,
-                  lineHeight: 1.04,
+                  fontSize: 44,
+                  lineHeight: 1.02,
+                  letterSpacing: "-0.5px",
                   color: "#fff",
                   marginTop: 4,
                 }}
@@ -3747,10 +3748,6 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
                 <br />
                 Rumah
               </h1>
-              <div className="flex items-center gap-1.5 capitalize" style={{ marginTop: 10, fontSize: 13.5, color: "rgba(255,255,255,0.68)" }}>
-                <Clock size={15} />
-                {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-              </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {notifSlot}
@@ -3771,6 +3768,13 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
                 <Menu size={18} color="#fff" />
               </button>
             </div>
+          </div>
+          <div
+            className="relative inline-flex items-center gap-2 capitalize"
+            style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
+          >
+            <Clock size={15} color="rgba(255,255,255,0.88)" />
+            {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </div>
         </div>
 
