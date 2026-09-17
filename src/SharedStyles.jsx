@@ -27,6 +27,10 @@ export function SharedStyles() {
       @keyframes confirmSlideIn { 0% { opacity: 0; transform: translateX(14px) scale(0.85); } 100% { opacity: 1; transform: translateX(0) scale(1); } }
       .confirm-slide-in { animation: confirmSlideIn 220ms cubic-bezier(0.22, 1, 0.36, 1); }
 
+      /* Halaman tujuan muncul berangsur setelah kartu mendarat */
+      @keyframes appEnter { from { opacity: 0; } to { opacity: 1; } }
+      .app-enter { animation: appEnter 320ms ease both; }
+
       /* Denyut saat struk sedang dibaca AI */
       @keyframes scanPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.12); opacity: 0.75; } }
       .scan-pulse { animation: scanPulse 1.1s ease-in-out infinite; }

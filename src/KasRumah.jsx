@@ -717,7 +717,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   };
 
   return (
-    <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Poppins', system-ui, sans-serif", overflow: "hidden" }}>
+    <div className="app-enter" style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Poppins', system-ui, sans-serif", overflow: "hidden" }}>
       <SharedStyles />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');

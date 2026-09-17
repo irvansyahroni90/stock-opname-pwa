@@ -408,11 +408,15 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
 // Kartu yang disentuh di halaman awal "tumbuh" jadi kartu atas di halaman
 // tujuan, lalu mengerut pulang saat kembali. Karena warnanya sama persis,
 // peralihannya terasa seperti satu benda yang bergerak.
-const MORPH_MS = 480;
-const MORPH_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+//
+// Cara kerjanya: kartu digambar langsung pada ukuran & posisi TUJUAN, lalu
+// "dikecilkan balik" ke posisi asal memakai transform. Yang dianimasikan
+// cuma transform — diproses kartu grafis, bukan penghitungan tata letak —
+// sehingga gerakannya mulus dan tidak tersendat di HP.
+const MORPH_MS = 540;
+const MORPH_EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
 
-// Tinggi area aman di atas layar (poni iPhone) diukur sekali lewat elemen
-// bayangan, supaya posisi mendaratnya pas.
+// Tinggi area aman di atas layar (poni iPhone) diukur lewat elemen bayangan.
 function readSafeTop() {
   const probe = document.createElement("div");
   probe.style.cssText = "position:fixed;top:0;left:0;visibility:hidden;padding-top:env(safe-area-inset-top)";
@@ -427,39 +431,65 @@ function heroTargetRect() {
   const vw = window.innerWidth;
   const contentWidth = Math.min(vw, 672);
   const left = (vw - contentWidth) / 2 + 16;
-  return { left, top: readSafeTop() + 12, width: contentWidth - 32, height: 208, radius: 34 };
+  return { left, top: readSafeTop() + 12, width: contentWidth - 32, height: 208 };
+}
+
+// Selisih posisi & skala untuk membawa kotak tujuan agar tampak berada di
+// posisi asal.
+function inverseTransform(from, to) {
+  const sx = from.width / to.width;
+  const sy = from.height / to.height;
+  const dx = from.left - to.left;
+  const dy = from.top - to.top;
+  return `translate3d(${dx}px, ${dy}px, 0) scale(${sx}, ${sy})`;
 }
 
 function MorphOverlay({ morph }) {
-  const [box, setBox] = useState(morph.from);
+  const ref = useRef(null);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    // Mulai dari posisi asal, lalu di bingkai berikutnya pindah ke tujuan
-    // supaya peramban sempat menggambar posisi awalnya dulu.
-    const id = requestAnimationFrame(() => setBox(morph.to));
-    return () => cancelAnimationFrame(id);
+    const el = ref.current;
+    if (!el) return;
+    // Pasang posisi awal, paksa peramban menggambarnya, baru lepas ke posisi
+    // tujuan. Tanpa langkah paksa ini gerakannya kerap dilompati.
+    el.style.transition = "none";
+    el.style.transform = inverseTransform(morph.from, morph.to);
+    el.getBoundingClientRect(); // memaksa perhitungan ulang
+    const id = requestAnimationFrame(() => {
+      el.style.transition = `transform ${MORPH_MS}ms ${MORPH_EASE}`;
+      el.style.transform = "translate3d(0, 0, 0) scale(1, 1)";
+    });
+    const t = setTimeout(() => setDone(true), MORPH_MS);
+    return () => {
+      cancelAnimationFrame(id);
+      clearTimeout(t);
+    };
   }, [morph]);
 
   return (
     <div
+      ref={ref}
       aria-hidden="true"
       className="fixed pointer-events-none"
       style={{
         zIndex: 80,
-        top: box.top,
-        left: box.left,
-        width: box.width,
-        height: box.height,
-        borderRadius: box.radius,
+        top: morph.to.top,
+        left: morph.to.left,
+        width: morph.to.width,
+        height: morph.to.height,
+        borderRadius: 32,
         background: morph.color,
-        opacity: morph.fading ? 0 : 1,
-        transition: `top ${MORPH_MS}ms ${MORPH_EASE}, left ${MORPH_MS}ms ${MORPH_EASE}, width ${MORPH_MS}ms ${MORPH_EASE}, height ${MORPH_MS}ms ${MORPH_EASE}, border-radius ${MORPH_MS}ms ${MORPH_EASE}, opacity 160ms ease`,
+        transformOrigin: "top left",
+        willChange: "transform, opacity",
+        opacity: done && morph.fadeAtEnd ? 0 : 1,
+        transition: done ? `opacity 220ms ease` : undefined,
       }}
     />
   );
 }
 
-function AppPicker({ userName, onPick, onLogout, notifSlot }) {
+function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey }) {
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const greeting = useMemo(() => {
@@ -537,7 +567,10 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
         className="max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0 px-5"
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 14px)", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
       >
-        <div className="shrink-0">
+        <div
+          className="shrink-0"
+          style={{ opacity: pickingKey ? 0 : 1, transition: "opacity 240ms ease" }}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm" style={{ color: COLORS.inkSoft }}>
@@ -603,7 +636,17 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
                 key={c.key}
                 onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg)}
                 className="picker-card relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end"
-                style={{ background: c.cardBg, borderRadius: 26, padding: 18, animationDelay: `${50 + i * 70}ms` }}
+                style={{
+                  background: c.cardBg,
+                  borderRadius: 26,
+                  padding: 18,
+                  animationDelay: `${50 + i * 70}ms`,
+                  // Kartu yang dipilih disembunyikan karena posisinya diambil
+                  // alih lapisan transisi; dua lainnya menyingkir halus.
+                  opacity: pickingKey ? (pickingKey === c.key ? 0 : 0) : 1,
+                  transform: pickingKey && pickingKey !== c.key ? "scale(0.94)" : "none",
+                  transition: pickingKey ? "opacity 260ms ease, transform 260ms cubic-bezier(0.32,0.72,0,1)" : undefined,
+                }}
               >
                 <span
                   className="absolute rounded-full pointer-events-none"
@@ -785,20 +828,29 @@ export default function App() {
   const [morph, setMorph] = useState(null);
   const cardRectRef = useRef({});
 
+  // Kartu mana yang sedang dibuka — dipakai halaman awal untuk menyingkirkan
+  // dua kartu lainnya selama transisi berlangsung.
+  const [pickingKey, setPickingKey] = useState(null);
+
   const openAppWithMorph = (key, rect, color) => {
     if (!rect) {
       setActiveApp(key);
       return;
     }
     cardRectRef.current[key] = { rect, color };
-    const from = { top: rect.top, left: rect.left, width: rect.width, height: rect.height, radius: 26 };
-    setMorph({ from, to: heroTargetRect(), color, fading: false });
-    // Begitu kartu sampai di posisi kartu atas, halaman tujuan dipasang di
-    // bawahnya lalu lapisan transisinya diredupkan.
+    setPickingKey(key);
+    setMorph({
+      from: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+      to: heroTargetRect(),
+      color,
+      fadeAtEnd: true,
+    });
+    // Halaman tujuan dipasang tepat saat kartu mendarat, lalu lapisan
+    // transisinya diredupkan di atasnya.
     setTimeout(() => {
       setActiveApp(key);
-      setMorph((m) => (m ? { ...m, from: m.to, fading: true } : m));
-      setTimeout(() => setMorph(null), 200);
+      setPickingKey(null);
+      setTimeout(() => setMorph(null), 260);
     }, MORPH_MS);
   };
 
@@ -810,16 +862,14 @@ export default function App() {
     }
     const { rect, color } = saved;
     setActiveApp(null);
+    // Arahnya dibalik: dari posisi kartu atas mengerut pulang ke kartunya.
     setMorph({
       from: heroTargetRect(),
-      to: { top: rect.top, left: rect.left, width: rect.width, height: rect.height, radius: 26 },
+      to: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
       color,
-      fading: false,
+      fadeAtEnd: true,
     });
-    setTimeout(() => {
-      setMorph((m) => (m ? { ...m, fading: true } : m));
-      setTimeout(() => setMorph(null), 200);
-    }, MORPH_MS);
+    setTimeout(() => setMorph(null), MORPH_MS + 260);
   };
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
@@ -1772,6 +1822,7 @@ export default function App() {
           onPick={openAppWithMorph}
           onLogout={logout}
           notifSlot={notifBell}
+          pickingKey={pickingKey}
         />
         {morph && <MorphOverlay morph={morph} />}
       </>
@@ -1810,7 +1861,7 @@ export default function App() {
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
       {activeApp === "agenda" ? (
-        <div className="fixed left-0 right-0" style={{ top: 0, bottom: 0 }}>
+        <div className="fixed left-0 right-0 app-enter" style={{ top: 0, bottom: 0 }}>
           <AgendaPage
             tasks={tasks}
             dueThreshold={dueThreshold}
@@ -1836,7 +1887,7 @@ export default function App() {
       ) : (
       <div
         ref={trackWrapRef}
-        className="fixed left-0 right-0 overflow-hidden"
+        className="fixed left-0 right-0 overflow-hidden app-enter"
         style={{ top: 0, bottom: 0, overflow: "clip" }}
       >
         <div
