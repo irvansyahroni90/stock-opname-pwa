@@ -1687,6 +1687,7 @@ export default function App() {
         onSwitchApp={() => setActiveApp(null)}
         onLogout={logout}
         notifSlot={notifBell}
+        notifSlotDark={notifBellOnDark}
         initialHighlightId={kasHighlightId}
         onInitialHighlightDone={() => setKasHighlightId(null)}
       />
@@ -1724,7 +1725,7 @@ export default function App() {
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
             onSwitchApp={() => setActiveApp(null)}
-            notifSlot={notifBell}
+            notifSlot={notifBellOnDark}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
             onHighlightDone={() => setHighlightTarget(null)}
@@ -3651,6 +3652,13 @@ function AgendaTile({ icon: Icon, label, value, color, chipBg, active, onClick }
 
 function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
+  const agendaGreeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 10) return "Selamat pagi";
+    if (h < 15) return "Selamat siang";
+    if (h < 18) return "Selamat sore";
+    return "Selamat malam";
+  }, []);
   const active = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
 
@@ -3729,6 +3737,10 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
               <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
                 <ChevronLeft size={17} /> Kembali
               </button>
+              <div className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)", marginTop: 6 }}>
+                {agendaGreeting}
+                {userName ? `, ${userName}` : ""} <span>👋</span>
+              </div>
               <h1
                 style={{
                   fontFamily: "'Baloo 2', cursive",
@@ -3753,7 +3765,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
               <button
                 onClick={onSwitchApp}
                 className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.13)" }}
+                style={{ background: "rgba(255,255,255,0.14)" }}
                 title="Ganti aplikasi"
               >
                 <LayoutGrid size={18} color="#fff" />
@@ -3761,10 +3773,10 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
               <button
                 onClick={onOpenUserMenu}
                 className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: "#fff" }}
+                style={{ background: "rgba(255,255,255,0.14)" }}
                 title="Menu"
               >
-                <Menu size={18} color={AG.primary} />
+                <Menu size={18} color="#fff" />
               </button>
             </div>
           </div>

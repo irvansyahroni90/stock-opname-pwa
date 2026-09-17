@@ -439,7 +439,7 @@ function BottomNav({ view, setView, onAdd, showAdd }) {
 }
 
 // --- App utama ----------------------------------------------------------
-export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, initialHighlightId, onInitialHighlightDone }) {
+export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, notifSlotDark, initialHighlightId, onInitialHighlightDone }) {
   const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
 
@@ -749,7 +749,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               onSeeAll={() => setView("transactions")}
               onOpenTransfer={() => setTransferModal(true)}
               onSeeWallets={() => setView("wallets")}
-              notifSlot={view === "dashboard" ? notifSlot : null}
+              notifSlot={view === "dashboard" ? notifSlotDark || notifSlot : null}
               onOpenTx={(tx) => {
                 setView("transactions");
                 setHighlightId(tx.id);
@@ -1006,9 +1006,9 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
             </div>
             <div
               className="relative inline-flex items-center gap-2 capitalize"
-              style={{ marginTop: 18, background: "rgba(255,255,255,0.93)", borderRadius: 99, padding: "11px 18px", fontSize: 13.5, fontWeight: 600, color: COLORS.ink }}
+              style={{ marginTop: 18, background: "rgba(255,255,255,0.12)", borderRadius: 99, padding: "11px 18px", fontSize: 13.5, fontWeight: 600, color: "#E6EFE8" }}
             >
-              <Calendar size={15} color={COLORS.primaryLight} />
+              <Calendar size={15} color="#A8CFB4" />
               {todayLabel}
             </div>
           </div>
