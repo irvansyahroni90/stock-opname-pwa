@@ -281,23 +281,33 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
+// Kartu filter — angka besar berwarna sesuai maknanya, label abu-abu di
+// bawahnya. Yang sedang dipilih jadi hijau pekat penuh. Bentuknya dibuat
+// sama persis dengan halaman Stok Rumah supaya seragam.
+function FilterTile({ label, value, color, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="rounded-2xl p-2.5 text-left"
+      className="min-w-0 text-left"
       style={{
-        background: active ? color : COLORS.card,
-        border: `1.5px solid ${active ? color : COLORS.border}`,
+        background: active ? COLORS.primary : COLORS.card,
+        borderRadius: 18,
+        padding: "13px 12px 12px",
+        boxShadow: active ? "0 4px 12px rgba(18,48,30,0.22)" : "0 2px 8px rgba(18,48,30,0.05)",
       }}
     >
-      <div className="w-7 h-7 rounded-full flex items-center justify-center mb-1.5" style={{ background: active ? "rgba(255,255,255,0.22)" : `${color}1F` }}>
-        <Icon size={14} color={active ? "#fff" : color} />
-      </div>
-      <div className="font-bold" style={{ fontSize: 17, color: active ? "#fff" : COLORS.ink, lineHeight: 1.1 }}>
+      <div
+        style={{
+          fontFamily: "'Poppins', system-ui, sans-serif",
+          fontWeight: 700,
+          fontSize: 24,
+          lineHeight: "26px",
+          color: active ? "#fff" : color,
+        }}
+      >
         {value}
       </div>
-      <div className="text-[11px] mt-0.5" style={{ color: active ? "rgba(255,255,255,0.85)" : COLORS.inkSoft }}>
+      <div className="truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : COLORS.inkSoft }}>
         {label}
       </div>
     </button>
@@ -306,18 +316,21 @@ function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
 
 function SearchBox({ value, onChange, placeholder }) {
   return (
-    <div className="flex items-center gap-2 px-3 rounded-xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-      <Search size={16} color={COLORS.inkSoft} />
+    <div
+      className="flex items-center gap-2.5"
+      style={{ background: COLORS.card, borderRadius: 999, padding: "12px 18px", boxShadow: "0 2px 10px rgba(18,48,30,0.05)" }}
+    >
+      <Search size={18} color={COLORS.inkSoft} />
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex-1 py-1.5 bg-transparent"
-        style={{ color: COLORS.ink, fontSize: 13, outline: "none", border: "none" }}
+        className="flex-1 bg-transparent"
+        style={{ color: COLORS.ink, fontSize: 14, outline: "none", border: "none" }}
       />
       {value && (
         <button onClick={() => onChange("")} className="shrink-0">
-          <X size={14} color={COLORS.inkSoft} />
+          <X size={15} color={COLORS.inkSoft} />
         </button>
       )}
     </div>
@@ -335,7 +348,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
         >
           <ArrowLeft size={17} color={COLORS.ink} />
         </button>
-        <h1 className="truncate" style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.primary }}>
+        <h1 className="truncate" style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 700, fontSize: 26, color: COLORS.primary }}>
           {title}
         </h1>
       </div>
@@ -1232,11 +1245,11 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
         <TopBar title="Transaksi" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
 
-        <div className="grid grid-cols-4 gap-1.5 mb-3">
-          <SummaryCard icon={LayoutGrid} label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-          <SummaryCard icon={ArrowDownLeft} label="Masuk" value={counts.income} color={COLORS.safe} active={filter === "income"} onClick={() => setFilter("income")} />
-          <SummaryCard icon={ArrowUpRight} label="Keluar" value={counts.expense} color={COLORS.out} active={filter === "expense"} onClick={() => setFilter("expense")} />
-          <SummaryCard icon={ArrowLeftRight} label="Transfer" value={counts.transfer} color={COLORS.low} active={filter === "transfer"} onClick={() => setFilter("transfer")} />
+        <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+          <FilterTile label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+          <FilterTile label="Masuk" value={counts.income} color={COLORS.safe} active={filter === "income"} onClick={() => setFilter("income")} />
+          <FilterTile label="Keluar" value={counts.expense} color={COLORS.accentDeep} active={filter === "expense"} onClick={() => setFilter("expense")} />
+          <FilterTile label="Transfer" value={counts.transfer} color={COLORS.inkSoft} active={filter === "transfer"} onClick={() => setFilter("transfer")} />
         </div>
 
         <SearchBox value={search} onChange={setSearch} placeholder="Cari transaksi..." />
