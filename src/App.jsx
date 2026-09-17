@@ -413,8 +413,15 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
 // "dikecilkan balik" ke posisi asal memakai transform. Yang dianimasikan
 // cuma transform — diproses kartu grafis, bukan penghitungan tata letak —
 // sehingga gerakannya mulus dan tidak tersendat di HP.
-const MORPH_MS = 540;
-const MORPH_EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
+// Durasi gerak, dan saat halaman tujuan dipasang. Halaman sengaja muncul
+// sedikit sebelum gerakan selesai supaya tidak ada momen layar diam di
+// tengah transisi.
+const MORPH_MS = 420;
+const MORPH_SWAP_MS = 330;
+// Kurva yang jaraknya terbagi merata sepanjang durasi. Kurva sebelumnya
+// terlalu berat di depan: kartunya menempuh hampir seluruh jarak dalam
+// seperempat waktu pertama, sisanya merayap tak terlihat.
+const MORPH_EASE = "cubic-bezier(0.45, 0.05, 0.2, 1)";
 
 // Tinggi area aman di atas layar (poni iPhone) diukur lewat elemen bayangan.
 function readSafeTop() {
@@ -460,7 +467,7 @@ function MorphOverlay({ morph }) {
       el.style.transition = `transform ${MORPH_MS}ms ${MORPH_EASE}`;
       el.style.transform = "translate3d(0, 0, 0) scale(1, 1)";
     });
-    const t = setTimeout(() => setDone(true), MORPH_MS);
+    const t = setTimeout(() => setDone(true), MORPH_SWAP_MS);
     return () => {
       cancelAnimationFrame(id);
       clearTimeout(t);
@@ -858,8 +865,8 @@ export default function App() {
     setTimeout(() => {
       setActiveApp(key);
       setPickingKey(null);
-      setTimeout(() => setMorph(null), 260);
-    }, MORPH_MS);
+      setTimeout(() => setMorph(null), 240);
+    }, MORPH_SWAP_MS);
   };
 
   const closeAppWithMorph = () => {
@@ -877,7 +884,7 @@ export default function App() {
       color,
       fadeAtEnd: true,
     });
-    setTimeout(() => setMorph(null), MORPH_MS + 260);
+    setTimeout(() => setMorph(null), MORPH_SWAP_MS + 240);
   };
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
