@@ -3613,8 +3613,9 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 /* ---------------- Agenda Rumah page ---------------- */
 
-// Kartu filter Agenda — ada chip ikon kecil di atas angkanya.
-function AgendaTile({ icon: Icon, label, value, color, chipBg, active, onClick }) {
+// Kartu filter Agenda — bentuknya sama persis dengan Stok Rumah dan Kas
+// Rumah: angka besar berwarna sesuai maknanya, label abu-abu di bawahnya.
+function AgendaTile({ label, value, color, active, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -3622,28 +3623,22 @@ function AgendaTile({ icon: Icon, label, value, color, chipBg, active, onClick }
       style={{
         background: active ? AG.primary : AG.card,
         borderRadius: 18,
-        padding: "11px 11px 12px",
+        padding: "13px 12px 12px",
+        boxShadow: active ? "0 4px 12px rgba(23,64,61,0.22)" : "0 2px 8px rgba(23,64,61,0.05)",
       }}
     >
-      <span
-        className="flex items-center justify-center"
-        style={{ width: 28, height: 28, borderRadius: 9, background: active ? "rgba(255,255,255,0.14)" : chipBg }}
-      >
-        <Icon size={15} color={active ? "#fff" : color} />
-      </span>
       <div
         style={{
           fontFamily: "'Baloo 2', cursive",
           fontWeight: 700,
-          fontSize: 23,
+          fontSize: 24,
           lineHeight: "26px",
-          marginTop: 7,
-          color: active ? "#fff" : AG.ink,
+          color: active ? "#fff" : color,
         }}
       >
         {value}
       </div>
-      <div className="truncate" style={{ fontSize: 12, color: active ? "rgba(255,255,255,0.72)" : AG.inkSoft }}>
+      <div className="truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : AG.inkSoft }}>
         {label}
       </div>
     </button>
@@ -3734,10 +3729,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           </span>
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
-                <ChevronLeft size={17} /> Kembali
-              </button>
-              <div className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)", marginTop: 6 }}>
+              <div className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
                 {agendaGreeting}
                 {userName ? `, ${userName}` : ""} <span>👋</span>
               </div>
@@ -3808,10 +3800,10 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
         {subView === "list" && (
           <>
             <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-              <AgendaTile icon={LayoutGrid} label="Semua" value={counts.all} color={AG.primary} chipBg={AG.soft} active={filter === "all"} onClick={() => setFilter("all")} />
-              <AgendaTile icon={Clock} label="Dekat" value={counts.soon} color={AG.low} chipBg={AG.lowBg} active={filter === "soon"} onClick={() => setFilter("soon")} />
-              <AgendaTile icon={AlertTriangle} label="Terlambat" value={counts.overdue} color={AG.out} chipBg={AG.outBg} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
-              <AgendaTile icon={CheckCircle2} label="Selesai" value={counts.done} color={AG.safe} chipBg={AG.safeBg} active={filter === "done"} onClick={() => setFilter("done")} />
+              <AgendaTile label="Semua" value={counts.all} color={AG.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+              <AgendaTile label="Dekat" value={counts.soon} color={AG.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
+              <AgendaTile label="Terlambat" value={counts.overdue} color={AG.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+              <AgendaTile label="Selesai" value={counts.done} color={AG.safe} active={filter === "done"} onClick={() => setFilter("done")} />
             </div>
 
             <div
