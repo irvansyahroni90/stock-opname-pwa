@@ -404,6 +404,61 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
   );
 }
 
+// --- Transisi kartu melebar ------------------------------------------
+// Kartu yang disentuh di halaman awal "tumbuh" jadi kartu atas di halaman
+// tujuan, lalu mengerut pulang saat kembali. Karena warnanya sama persis,
+// peralihannya terasa seperti satu benda yang bergerak.
+const MORPH_MS = 480;
+const MORPH_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+// Tinggi area aman di atas layar (poni iPhone) diukur sekali lewat elemen
+// bayangan, supaya posisi mendaratnya pas.
+function readSafeTop() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;top:0;left:0;visibility:hidden;padding-top:env(safe-area-inset-top)";
+  document.body.appendChild(probe);
+  const h = probe.clientHeight || 0;
+  document.body.removeChild(probe);
+  return h;
+}
+
+// Posisi dan ukuran kartu atas di dalam aplikasi — tempat kartu mendarat.
+function heroTargetRect() {
+  const vw = window.innerWidth;
+  const contentWidth = Math.min(vw, 672);
+  const left = (vw - contentWidth) / 2 + 16;
+  return { left, top: readSafeTop() + 12, width: contentWidth - 32, height: 208, radius: 34 };
+}
+
+function MorphOverlay({ morph }) {
+  const [box, setBox] = useState(morph.from);
+
+  useEffect(() => {
+    // Mulai dari posisi asal, lalu di bingkai berikutnya pindah ke tujuan
+    // supaya peramban sempat menggambar posisi awalnya dulu.
+    const id = requestAnimationFrame(() => setBox(morph.to));
+    return () => cancelAnimationFrame(id);
+  }, [morph]);
+
+  return (
+    <div
+      aria-hidden="true"
+      className="fixed pointer-events-none"
+      style={{
+        zIndex: 80,
+        top: box.top,
+        left: box.left,
+        width: box.width,
+        height: box.height,
+        borderRadius: box.radius,
+        background: morph.color,
+        opacity: morph.fading ? 0 : 1,
+        transition: `top ${MORPH_MS}ms ${MORPH_EASE}, left ${MORPH_MS}ms ${MORPH_EASE}, width ${MORPH_MS}ms ${MORPH_EASE}, height ${MORPH_MS}ms ${MORPH_EASE}, border-radius ${MORPH_MS}ms ${MORPH_EASE}, opacity 160ms ease`,
+      }}
+    />
+  );
+}
+
 function AppPicker({ userName, onPick, onLogout, notifSlot }) {
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -546,7 +601,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
             return (
               <button
                 key={c.key}
-                onClick={() => onPick(c.key)}
+                onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg)}
                 className="picker-card relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end"
                 style={{ background: c.cardBg, borderRadius: 26, padding: 18, animationDelay: `${50 + i * 70}ms` }}
               >
@@ -725,6 +780,47 @@ export default function App() {
   // Aplikasi yang sedang dibuka: null = belum pilih (tampilkan kartu pilihan),
   // 'stok' = Stok Rumah, 'kas' = Kas Rumah.
   const [activeApp, setActiveApp] = useState(null);
+  // Transisi kartu melebar: menyimpan posisi kartu terakhir yang disentuh
+  // supaya bisa mengerut pulang ke tempat yang sama.
+  const [morph, setMorph] = useState(null);
+  const cardRectRef = useRef({});
+
+  const openAppWithMorph = (key, rect, color) => {
+    if (!rect) {
+      setActiveApp(key);
+      return;
+    }
+    cardRectRef.current[key] = { rect, color };
+    const from = { top: rect.top, left: rect.left, width: rect.width, height: rect.height, radius: 26 };
+    setMorph({ from, to: heroTargetRect(), color, fading: false });
+    // Begitu kartu sampai di posisi kartu atas, halaman tujuan dipasang di
+    // bawahnya lalu lapisan transisinya diredupkan.
+    setTimeout(() => {
+      setActiveApp(key);
+      setMorph((m) => (m ? { ...m, from: m.to, fading: true } : m));
+      setTimeout(() => setMorph(null), 200);
+    }, MORPH_MS);
+  };
+
+  const closeAppWithMorph = () => {
+    const saved = activeApp ? cardRectRef.current[activeApp] : null;
+    if (!saved) {
+      setActiveApp(null);
+      return;
+    }
+    const { rect, color } = saved;
+    setActiveApp(null);
+    setMorph({
+      from: heroTargetRect(),
+      to: { top: rect.top, left: rect.left, width: rect.width, height: rect.height, radius: 26 },
+      color,
+      fading: false,
+    });
+    setTimeout(() => {
+      setMorph((m) => (m ? { ...m, fading: true } : m));
+      setTimeout(() => setMorph(null), 200);
+    }, MORPH_MS);
+  };
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
 
@@ -1670,27 +1766,33 @@ export default function App() {
   // Sudah login & sudah punya nama — pilih mau buka aplikasi yang mana.
   if (!activeApp) {
     return (
-      <AppPicker
-        userName={userName}
-        onPick={setActiveApp}
-        onLogout={logout}
-        notifSlot={notifBell}
-      />
+      <>
+        <AppPicker
+          userName={userName}
+          onPick={openAppWithMorph}
+          onLogout={logout}
+          notifSlot={notifBell}
+        />
+        {morph && <MorphOverlay morph={morph} />}
+      </>
     );
   }
 
   if (activeApp === "kas") {
     return (
+      <>
       <KasRumahApp
         userName={userName}
-        onBackToPicker={() => setActiveApp(null)}
-        onSwitchApp={() => setActiveApp(null)}
+        onBackToPicker={closeAppWithMorph}
+        onSwitchApp={closeAppWithMorph}
         onLogout={logout}
         notifSlot={notifBell}
         notifSlotDark={notifBellOnDark}
         initialHighlightId={kasHighlightId}
         onInitialHighlightDone={() => setKasHighlightId(null)}
       />
+      {morph && <MorphOverlay morph={morph} />}
+      </>
     );
   }
 
@@ -1724,7 +1826,7 @@ export default function App() {
             onOpenThreshold={() => setThresholdModal(true)}
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
-            onSwitchApp={() => setActiveApp(null)}
+            onSwitchApp={closeAppWithMorph}
             notifSlot={notifBellOnDark}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
@@ -1801,7 +1903,7 @@ export default function App() {
                     <div className="flex items-center gap-2 shrink-0">
                       {view === "dashboard" ? notifBellOnDark : null}
                       <button
-                        onClick={() => attemptNavigate(() => setActiveApp(null))}
+                        onClick={() => attemptNavigate(closeAppWithMorph)}
                         className="w-10 h-10 rounded-full flex items-center justify-center"
                         style={{ background: "rgba(255,255,255,0.14)" }}
                         title="Ganti aplikasi"
@@ -1990,7 +2092,7 @@ export default function App() {
             onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
             userName={userName}
             onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
-            onSwitchApp={() => attemptNavigate(() => setActiveApp(null))}
+            onSwitchApp={() => attemptNavigate(closeAppWithMorph)}
             notifSlot={view === "stock" ? notifBell : null}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
@@ -2012,7 +2114,7 @@ export default function App() {
             onToggle={handleToggleBought}
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
-            onSwitchApp={() => setActiveApp(null)}
+            onSwitchApp={closeAppWithMorph}
             notifSlot={view === "tobuy" ? notifBell : null}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
@@ -2110,6 +2212,8 @@ export default function App() {
       {/* History panel */}
       {showHistory && <HistoryPanel activity={fullActivityFeed} onClose={() => setShowHistory(false)} />}
 
+      {morph && <MorphOverlay morph={morph} />}
+
       {/* User menu drawer */}
       {showUserMenu && (
         <UserMenuPanel
@@ -2120,7 +2224,7 @@ export default function App() {
           onOpenHistory={() => setShowHistory(true)}
           onBackup={handleBackupDownload}
           onRestore={triggerRestorePicker}
-          onSwitchApp={() => setActiveApp(null)}
+          onSwitchApp={closeAppWithMorph}
           onOpenThreshold={() => setThresholdModal(true)}
           dueThreshold={dueThreshold}
           onLogout={logout}
