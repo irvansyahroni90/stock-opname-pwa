@@ -489,7 +489,15 @@ function MorphOverlay({ morph }) {
   );
 }
 
+let pickerIntroPlayed = false;
+
 function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey }) {
+  // Animasi kartu muncul naik hanya diputar sekali per sesi.
+  const skipIntro = pickerIntroPlayed;
+  useEffect(() => {
+    pickerIntroPlayed = true;
+  }, []);
+
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const greeting = useMemo(() => {
@@ -635,12 +643,12 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey }) {
               <button
                 key={c.key}
                 onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg)}
-                className="picker-card relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end"
+                className={`relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end${skipIntro ? "" : " picker-card"}`}
                 style={{
                   background: c.cardBg,
                   borderRadius: 26,
                   padding: 18,
-                  animationDelay: `${50 + i * 70}ms`,
+                  animationDelay: skipIntro ? undefined : `${50 + i * 70}ms`,
                   // Kartu yang dipilih disembunyikan karena posisinya diambil
                   // alih lapisan transisi; dua lainnya menyingkir halus.
                   opacity: pickingKey ? (pickingKey === c.key ? 0 : 0) : 1,

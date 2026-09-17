@@ -439,13 +439,19 @@ function BottomNav({ view, setView, onAdd, showAdd }) {
 }
 
 // --- App utama ----------------------------------------------------------
+// Simpanan data terakhir selama aplikasi masih terbuka. Tanpa ini, Kas Rumah
+// menampilkan layar "Memuat data..." setiap kali dibuka ulang dari halaman
+// awal, yang membuat transisi terlihat berkedip kosong.
+let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null };
+
 export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, notifSlotDark, initialHighlightId, onInitialHighlightDone }) {
   const [view, setView] = useState("dashboard");
-  const [loading, setLoading] = useState(true);
+  // Kalau data sebelumnya masih tersimpan, langsung tampilkan tanpa layar muat.
+  const [loading, setLoading] = useState(() => !(kasCache.wallets && kasCache.categories && kasCache.transactions));
 
-  const [wallets, setWallets] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const [wallets, setWallets] = useState(() => kasCache.wallets || []);
+  const [categories, setCategories] = useState(() => kasCache.categories || []);
+  const [transactions, setTransactions] = useState(() => kasCache.transactions || []);
 
   const [txSearch, setTxSearch] = useState("");
   const [txFilter, setTxFilter] = useState("all"); // all | income | expense | transfer
@@ -470,8 +476,8 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
     onInitialHighlightDone && onInitialHighlightDone();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialHighlightId]);
-  const [toBuy, setToBuy] = useState([]);
-  const [aliases, setAliases] = useState({});
+  const [toBuy, setToBuy] = useState(() => kasCache.toBuy || []);
+  const [aliases, setAliases] = useState(() => kasCache.aliases || {});
   const [saving, setSaving] = useState(false);
 
   // --- Sinkron Firestore ------------------------------------------------
@@ -483,35 +489,47 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
       if (pending <= 0) setLoading(false);
     };
 
+    // Tiap data yang masuk ikut disimpan, supaya kunjungan berikutnya langsung
+    // tampil tanpa layar muat.
     const unsubs = [
       storageSubscribe("kas-wallets", (data) => {
         if (Array.isArray(data)) {
+          kasCache.wallets = data;
           setWallets(data);
         } else if (!seededRef.current) {
           seededRef.current = true;
+          kasCache.wallets = DEFAULT_WALLETS;
           setWallets(DEFAULT_WALLETS);
           storageSet("kas-wallets", DEFAULT_WALLETS);
         }
         markLoaded();
       }),
       storageSubscribe("kas-categories", (data) => {
-        if (Array.isArray(data) && data.length) {
-          setCategories(data);
-        } else {
-          setCategories(DEFAULT_CATEGORIES);
-          if (!Array.isArray(data)) storageSet("kas-categories", DEFAULT_CATEGORIES);
-        }
+        const next = Array.isArray(data) && data.length ? data : DEFAULT_CATEGORIES;
+        kasCache.categories = next;
+        setCategories(next);
+        if (!Array.isArray(data)) storageSet("kas-categories", DEFAULT_CATEGORIES);
         markLoaded();
       }),
       storageSubscribe("kas-transactions", (data) => {
-        setTransactions(Array.isArray(data) ? data : []);
+        const next = Array.isArray(data) ? data : [];
+        kasCache.transactions = next;
+        setTransactions(next);
         markLoaded();
       }),
       // Daftar "Akan Dibeli" dari Stok Rumah — dibaca saja, buat pencocokan
       // hasil scan struk. Tidak pernah ditulis ulang dari sini kecuali saat
       // pengguna menyetujui pencocokan.
-      storageSubscribe("stock-tobuy", (data) => setToBuy(Array.isArray(data) ? data : [])),
-      storageSubscribe("kas-aliases", (data) => setAliases(data && typeof data === "object" ? data : {})),
+      storageSubscribe("stock-tobuy", (data) => {
+        const next = Array.isArray(data) ? data : [];
+        kasCache.toBuy = next;
+        setToBuy(next);
+      }),
+      storageSubscribe("kas-aliases", (data) => {
+        const next = data && typeof data === "object" ? data : {};
+        kasCache.aliases = next;
+        setAliases(next);
+      }),
     ];
     return () => unsubs.forEach((u) => u && u());
   }, []);
