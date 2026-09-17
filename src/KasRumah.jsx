@@ -51,33 +51,37 @@ import { storageSet, storageSubscribe } from "./firebase";
 import { SharedStyles } from "./SharedStyles";
 import { scanReceipt, guessWallet, findDuplicate } from "./receiptScan";
 
+// Palet khusus Kas Rumah — hijau hutan pekat dengan aksen oranye.
 const COLORS = {
-  bg: "#EDEAE1",
+  bg: "#F7F6F0",
   card: "#FFFFFF",
-  ink: "#2B2B26",
-  inkSoft: "#6B685F",
-  primary: "#1F3D2B",
-  primaryLight: "#427054",
-  accent: "#E08A3C",
-  safe: "#2F7A4E",
-  safeBg: "#E4EFE2",
-  low: "#E08A3C",
-  lowBg: "#FDEBD8",
-  out: "#D9483B",
-  outBg: "#FBE3E0",
-  border: "#E1DDD0",
-  // Latar lembut untuk baris di dalam kartu
-  soft: "#F6F4EC",
-  // Warna latar ikon bulat gaya baru (Beranda)
-  iconStockBg: "#FDEBD8",
-  iconStockFg: "#E08A3C",
-  iconStockText: "#96631C",
-  iconBuyBg: "#E4EFE2",
-  iconBuyFg: "#2F7A4E",
-  iconBuyText: "#427054",
-  iconAgendaBg: "#E9E7F5",
-  iconAgendaFg: "#6B5FB5",
-  iconAgendaText: "#4B4478",
+  ink: "#12301E",
+  inkSoft: "#7A867D",
+  primary: "#12301E",
+  primaryDeep: "#0D2417",
+  primaryHover: "#17402A",
+  primaryLight: "#2E7D51",
+  mint: "#6FB68A",
+  accent: "#DC8A2C",
+  accentDeep: "#B9741F",
+  safe: "#2E7D51",
+  safeBg: "#E4F0E6",
+  low: "#DC8A2C",
+  lowBg: "#F7EADC",
+  out: "#C0472F",
+  outBg: "#F8E4DF",
+  border: "#E5E3D8",
+  soft: "#F2F0E7",
+  track: "#EFEDE4",
+  // Latar ikon bulat
+  iconBuyBg: "#F7EADC",
+  iconBuyFg: "#B9741F",
+  iconBuyText: "#B9741F",
+  iconAgendaBg: "#E4F0E6",
+  iconAgendaFg: "#2E7D51",
+  iconAgendaText: "#2E7D51",
+  iconStockBg: "#EAF3EC",
+  iconStockFg: "#2E7D51",
 };
 
 const TAB_ORDER = ["dashboard", "transactions", "wallets"];
@@ -331,7 +335,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
         >
           <ArrowLeft size={17} color={COLORS.ink} />
         </button>
-        <h1 className="truncate" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 22, color: COLORS.primary }}>
+        <h1 className="truncate" style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.primary }}>
           {title}
         </h1>
       </div>
@@ -374,7 +378,7 @@ function BottomNav({ view, setView, onAdd, showAdd }) {
     >
       <div
         className="flex items-center gap-1.5 pointer-events-auto"
-        style={{ background: COLORS.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(31,61,43,0.28)" }}
+        style={{ background: COLORS.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(18,48,30,0.30)" }}
       >
         {tabs.map((t) => {
           const active = view === t.key;
@@ -700,8 +704,11 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   };
 
   return (
-    <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif", overflow: "hidden" }}>
+    <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Poppins', system-ui, sans-serif", overflow: "hidden" }}>
       <SharedStyles />
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+      `}</style>
 
       <div className="h-full overflow-hidden">
         <div
@@ -725,7 +732,10 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
               catById={catById}
               walById={walById}
               onOpenMenu={() => setShowMenu(true)}
+              walletCount={wallets.length}
               onSeeAll={() => setView("transactions")}
+              onOpenTransfer={() => setTransferModal(true)}
+              onSeeWallets={() => setView("wallets")}
               notifSlot={view === "dashboard" ? notifSlot : null}
               onOpenTx={(tx) => {
                 setView("transactions");
@@ -868,7 +878,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         <Overlay onClose={() => setConfirmDelete(null)}>
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>Hapus?</div>
+            <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>Hapus?</div>
           </div>
           <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
             "{confirmDelete.label}" bakal dihapus permanen.
@@ -904,7 +914,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 }
 
 // --- Beranda ------------------------------------------------------------
-function DashboardPage({ userName, totals, recent, transactions, catById, walById, onOpenMenu, onSeeAll, onOpenTx, onBackToPicker, notifSlot }) {
+function DashboardPage({ userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot }) {
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -923,7 +933,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
               halaman awal, dengan tulisan ungu tua supaya tetap terbaca. */}
           <div
             className="relative"
-            style={{ background: COLORS.iconAgendaBg, borderRadius: 34, padding: "26px 24px 28px" }}
+            style={{ background: COLORS.primary, borderRadius: 34, padding: "26px 24px 28px" }}
           >
             <span
               className="absolute inset-0 overflow-hidden pointer-events-none"
@@ -932,27 +942,27 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
             >
               <span
                 className="absolute rounded-full"
-                style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(107,95,181,0.16)" }}
+                style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(255,255,255,0.07)" }}
               />
               <span
                 className="absolute rounded-full"
-                style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(107,95,181,0.09)" }}
+                style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.05)" }}
               />
             </span>
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <span className="text-sm font-medium" style={{ color: COLORS.iconAgendaText }}>
+                <span className="text-sm font-medium" style={{ color: "#A8CFB4" }}>
                   {greeting}
                   {userName ? `, ${userName}` : ""} <span>👋</span>
                 </span>
                 <h1
                   style={{
-                    fontFamily: "'Baloo 2', cursive",
+                    fontFamily: "'Poppins', system-ui, sans-serif",
                     fontWeight: 700,
                     fontSize: 44,
                     lineHeight: 1.02,
                     letterSpacing: "-0.5px",
-                    color: COLORS.iconAgendaFg,
+                    color: "#fff",
                     marginTop: 4,
                   }}
                 >
@@ -966,94 +976,191 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                 <button
                   onClick={onBackToPicker}
                   className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                  style={{ background: "rgba(255,255,255,0.14)" }}
                   title="Ganti aplikasi"
                 >
-                  <LayoutGrid size={19} color={COLORS.iconAgendaFg} />
+                  <LayoutGrid size={19} color="#EAF3EC" />
                 </button>
                 <button
                   onClick={onOpenMenu}
                   className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.08)" }}
+                  style={{ background: "rgba(255,255,255,0.14)" }}
                   title="Menu"
                 >
-                  <Menu size={19} color={COLORS.iconAgendaFg} />
+                  <Menu size={19} color="#EAF3EC" />
                 </button>
               </div>
             </div>
             <div
               className="relative inline-flex items-center gap-2 capitalize"
-              style={{ marginTop: 20, background: COLORS.card, borderRadius: 22, padding: "8px 14px", fontSize: 13, color: COLORS.iconAgendaText }}
+              style={{ marginTop: 18, background: "rgba(255,255,255,0.93)", borderRadius: 99, padding: "11px 18px", fontSize: 13.5, fontWeight: 600, color: COLORS.ink }}
             >
-              <Calendar size={15} color={COLORS.iconAgendaFg} />
+              <Calendar size={15} color={COLORS.primaryLight} />
               {todayLabel}
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl p-4" style={{ background: COLORS.primary, marginTop: 16 }}>
-          <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
-            Saldo semua dompet
+        {/* Kartu saldo — putih dengan dua kotak Masuk/Keluar dan batang yang
+            menunjukkan berapa dari pemasukan bulan ini yang masih tersisa. */}
+        <div
+          style={{
+            background: COLORS.card,
+            borderRadius: 26,
+            padding: "20px 22px",
+            marginTop: 14,
+            border: `1px solid rgba(18,48,30,0.08)`,
+            boxShadow: "0 10px 24px -18px rgba(16,40,26,0.4)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="uppercase"
+              style={{ fontSize: 12.5, fontWeight: 500, color: "#5C6B60", letterSpacing: "0.04em" }}
+            >
+              Saldo semua dompet
+            </span>
+            {totals.income > 0 && (
+              <span
+                style={{ fontSize: 11, fontWeight: 600, color: COLORS.primaryLight, background: COLORS.safeBg, padding: "5px 10px", borderRadius: 99 }}
+              >
+                {totals.expense <= totals.income ? "+" : ""}
+                {Math.round(((totals.income - totals.expense) / totals.income) * 100)}%
+              </span>
+            )}
           </div>
-          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.2 }}>
+
+          <div style={{ fontSize: 33, fontWeight: 700, color: COLORS.ink, marginTop: 8, letterSpacing: "-0.02em" }}>
             {fmtRupiah(totals.balance)}
           </div>
-          <div className="flex gap-4 mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.16)" }}>
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] flex items-center gap-1" style={{ color: "rgba(255,255,255,0.75)" }}>
-                <ArrowDownLeft size={12} /> Masuk
+
+          <div className="flex gap-2.5" style={{ marginTop: 16 }}>
+            <div className="flex-1 min-w-0" style={{ padding: "13px 14px", borderRadius: 18, background: COLORS.safeBg }}>
+              <div className="flex items-center gap-1.5" style={{ fontSize: 12, fontWeight: 600, color: COLORS.primaryLight }}>
+                <ArrowDownLeft size={14} /> Masuk
               </div>
-              <div className="text-sm font-semibold mt-0.5 truncate" style={{ color: "#fff" }}>
+              <div className="truncate" style={{ fontSize: 15.5, fontWeight: 700, color: COLORS.ink, marginTop: 5 }}>
                 {fmtRupiah(totals.income)}
               </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] flex items-center gap-1" style={{ color: "#F0C994" }}>
-                <ArrowUpRight size={12} /> Keluar
+            <div className="flex-1 min-w-0" style={{ padding: "13px 14px", borderRadius: 18, background: COLORS.lowBg }}>
+              <div className="flex items-center gap-1.5" style={{ fontSize: 12, fontWeight: 600, color: COLORS.accentDeep }}>
+                <ArrowUpRight size={14} /> Keluar
               </div>
-              <div className="text-sm font-semibold mt-0.5 truncate" style={{ color: "#fff" }}>
+              <div className="truncate" style={{ fontSize: 15.5, fontWeight: 700, color: COLORS.ink, marginTop: 5 }}>
                 {fmtRupiah(totals.expense)}
               </div>
             </div>
           </div>
+
+          {totals.income > 0 && (
+            <>
+              <div className="flex" style={{ marginTop: 16, height: 8, borderRadius: 99, background: COLORS.track, overflow: "hidden" }}>
+                <span
+                  style={{
+                    width: `${Math.max(0, Math.min(100, ((totals.income - totals.expense) / totals.income) * 100))}%`,
+                    background: `linear-gradient(90deg, ${COLORS.primaryLight}, ${COLORS.mint})`,
+                  }}
+                />
+                <span
+                  style={{
+                    width: `${Math.max(0, Math.min(100, (totals.expense / totals.income) * 100))}%`,
+                    background: COLORS.accent,
+                  }}
+                />
+              </div>
+              <div style={{ marginTop: 9, fontSize: 11.5, color: COLORS.inkSoft }}>
+                {Math.max(0, Math.round(((totals.income - totals.expense) / totals.income) * 100))}% dari pemasukan bulan ini masih tersisa
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="relative w-full rounded-2xl p-4" style={{ background: COLORS.card, border: `1.5px solid ${COLORS.border}`, marginTop: 12 }}>
-          <button onClick={onSeeAll} className="w-full flex items-center gap-3 text-left">
-            <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: COLORS.iconAgendaBg }}>
-              <Receipt size={20} color={COLORS.iconAgendaFg} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Transaksi Terbaru</div>
-              <div className="text-xs mt-0.5" style={{ color: COLORS.iconAgendaFg }}>
-                {totals.monthCount > 0 ? `${totals.monthCount} transaksi bulan ini` : "Belum ada transaksi bulan ini"}
-              </div>
-            </div>
-            <ChevronRight size={18} color={COLORS.inkSoft} className="shrink-0" />
+        {/* Dua pintasan cepat */}
+        <div className="flex gap-2.5" style={{ marginTop: 14 }}>
+          <button
+            onClick={onOpenTransfer}
+            className="flex-1 text-left"
+            style={{ padding: 16, borderRadius: 22, background: COLORS.primary }}
+          >
+            <ArrowLeftRight size={19} color={COLORS.mint} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginTop: 8 }}>Catat transfer</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>Antar dompet</div>
           </button>
+          <button
+            onClick={onSeeWallets}
+            className="flex-1 text-left"
+            style={{ padding: 16, borderRadius: 22, background: COLORS.card, border: `1px solid rgba(18,48,30,0.08)` }}
+          >
+            <Wallet size={19} color={COLORS.accent} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.ink, marginTop: 8 }}>Dompet</div>
+            <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>{walletCount} aktif</div>
+          </button>
+        </div>
 
-          {recent.length > 0 && (
-            <div className="flex flex-col gap-1.5 mt-3.5 pl-14">
-              {recent.map((t) => (
+        {/* Transaksi terbaru */}
+        <div className="flex items-center justify-between" style={{ marginTop: 22 }}>
+          <span style={{ fontSize: 17, fontWeight: 700, color: COLORS.ink }}>Transaksi terbaru</span>
+          <button onClick={onSeeAll} className="flex items-center gap-1" style={{ fontSize: 12, fontWeight: 600, color: COLORS.primaryLight }}>
+            Lihat semua <ChevronRight size={13} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-2" style={{ marginTop: 12 }}>
+          {recent.length === 0 ? (
+            <div
+              className="text-center"
+              style={{ background: COLORS.card, borderRadius: 22, padding: "28px 16px", border: `1px dashed ${COLORS.border}`, color: COLORS.inkSoft, fontSize: 13 }}
+            >
+              Belum ada transaksi bulan ini.
+            </div>
+          ) : (
+            recent.map((t) => {
+              const isIncome = t.type === "income";
+              const isTransfer = t.type === "transfer";
+              const cat = catById[t.categoryId];
+              return (
                 <button
                   key={t.id}
                   onClick={() => onOpenTx && onOpenTx(t)}
-                  className="w-full rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-left"
-                  style={{ background: COLORS.bg }}
+                  className="w-full flex items-center gap-3 text-left"
+                  style={{ background: COLORS.card, borderRadius: 20, padding: "13px 15px", border: `1px solid rgba(18,48,30,0.07)` }}
                 >
-                  <span className="text-xs truncate" style={{ color: COLORS.ink }}>
-                    {t.note || (t.type === "transfer" ? "Transfer" : catById[t.categoryId]?.name || "Tanpa kategori")}
+                  <span
+                    className="shrink-0 flex items-center justify-center"
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 13,
+                      background: isTransfer ? COLORS.soft : isIncome ? COLORS.safeBg : COLORS.lowBg,
+                    }}
+                  >
+                    {isTransfer ? (
+                      <ArrowLeftRight size={17} color={COLORS.inkSoft} />
+                    ) : isIncome ? (
+                      <ArrowDownLeft size={17} color={COLORS.primaryLight} />
+                    ) : (
+                      <ArrowUpRight size={17} color={COLORS.accentDeep} />
+                    )}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate" style={{ fontSize: 13.5, fontWeight: 600, color: COLORS.ink }}>
+                      {t.note || (isTransfer ? "Transfer antar dompet" : cat?.name || "Tanpa kategori")}
+                    </span>
+                    <span className="block truncate" style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 1 }}>
+                      {walById[t.walletId]?.name || "?"} · {dayLabel(t.date)}
+                    </span>
                   </span>
                   <span
-                    className="text-xs font-medium shrink-0"
-                    style={{ color: t.type === "income" ? COLORS.safe : t.type === "expense" ? COLORS.out : COLORS.inkSoft }}
+                    className="shrink-0"
+                    style={{ fontSize: 13.5, fontWeight: 700, color: isIncome ? COLORS.primaryLight : isTransfer ? COLORS.inkSoft : COLORS.accentDeep }}
                   >
-                    {t.type === "income" ? "+" : t.type === "expense" ? "-" : ""}
+                    {isIncome ? "+" : isTransfer ? "" : "-"}
                     {fmtShortRupiah(t.amount)}
                   </span>
                 </button>
-              ))}
-            </div>
+              );
+            })
           )}
         </div>
 
@@ -1304,7 +1411,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
           <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
             Total saldo
           </div>
-          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 23, color: "#fff", lineHeight: 1.2 }}>
+          <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 23, color: "#fff", lineHeight: 1.2 }}>
             {fmtRupiah(total)}
           </div>
         </div>
@@ -1564,7 +1671,7 @@ function PeriodSheet({ draftPeriod, setDraftPeriod, draftFrom, setDraftFrom, dra
           <span className="rounded-full" style={{ width: 36, height: 4, background: COLORS.border }} />
         </div>
 
-        <div className="text-center pb-2" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
+        <div className="text-center pb-2" style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
           Periode
         </div>
 
@@ -1817,7 +1924,7 @@ function AnalysisSection({ transactions, catById, walById }) {
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <div className="flex items-center gap-2">
           <PieChart size={16} color={COLORS.primary} />
-          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>Analisis</div>
+          <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>Analisis</div>
         </div>
         <button
           onClick={openPeriodSheet}
@@ -1867,7 +1974,7 @@ function AnalysisSection({ transactions, catById, walById }) {
             <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
               {txType === "expense" ? "Total pengeluaran" : "Total pemasukan"} · {fmtRangeLabel(range)}
             </div>
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
+            <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
               {fmtRupiah(total)}
             </div>
             {totalPrev > 0 && (
@@ -1890,7 +1997,7 @@ function AnalysisSection({ transactions, catById, walById }) {
               <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
                 <div className="flex items-center gap-2 mb-3">
                   <PieChart size={16} color={COLORS.primary} />
-                  <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Komposisi</div>
+                  <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Komposisi</div>
                 </div>
 
                 <div className="flex gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
@@ -1989,7 +2096,7 @@ function AnalysisSection({ transactions, catById, walById }) {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <BarChart3 size={16} color={COLORS.primary} />
-                    <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Tren 6 Bulan</div>
+                    <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Tren 6 Bulan</div>
                   </div>
                   <div className="flex items-center gap-2.5 text-[10px]" style={{ color: COLORS.inkSoft }}>
                     <span className="flex items-center gap-1">
@@ -2007,7 +2114,7 @@ function AnalysisSection({ transactions, catById, walById }) {
                 <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
                   <div className="flex items-center gap-2 mb-3">
                     <Sparkles size={16} color={COLORS.primary} />
-                    <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Yang Menarik</div>
+                    <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Yang Menarik</div>
                   </div>
                   <div className="flex flex-col gap-2">
                     {insights.map((ins, i) => (
@@ -2121,7 +2228,7 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {mode === "edit" ? "Edit Transaksi" : mode === "duplicate" ? "Duplikat Transaksi" : "Transaksi Baru"}
       </div>
 
@@ -2538,7 +2645,7 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
     <Overlay onClose={onClose}>
       <div className="flex items-center gap-2 mb-3">
         <ScanLine size={18} color={COLORS.primary} />
-        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Scan Struk</div>
+        <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Scan Struk</div>
       </div>
 
       {step === "pick" && (
@@ -2895,7 +3002,7 @@ function TransferModal({ tx, wallets, saving, onClose, onSubmit }) {
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {tx ? "Edit Transfer" : "Transfer Antar Dompet"}
       </div>
 
@@ -3026,7 +3133,7 @@ function WalletModal({ mode, wallet, saving, onClose, onSubmit }) {
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {mode === "edit" ? "Edit Dompet" : "Dompet Baru"}
       </div>
 
@@ -3137,7 +3244,7 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Tag size={18} color={COLORS.primary} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Kategori</div>
+            <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Kategori</div>
           </div>
           <button onClick={onClose}>
             <X size={18} color={COLORS.inkSoft} />
@@ -3211,7 +3318,7 @@ function CategoryModal({ mode, category, initialKind, saving, onClose, onSubmit 
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {mode === "edit" ? "Edit Kategori" : "Kategori Baru"}
       </div>
 
