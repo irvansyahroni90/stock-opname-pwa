@@ -4707,12 +4707,76 @@ function ThresholdModal({ current, onClose, onSubmit }) {
 
 /* ---------------- Shared bits ---------------- */
 
+// Mengikuti tinggi area layar yang BENAR-BENAR terlihat. Saat papan ketik HP
+// muncul, tinggi layar (100dvh) tidak ikut mengecil, jadi jendela formulir
+// tetap setinggi semula dan bagian bawahnya tertutup papan ketik tanpa bisa
+// digulir. Nilai dari visualViewport ikut mengecil, sehingga masalah itu
+// hilang.
+function useVisibleViewport() {
+  const [vp, setVp] = useState(() => ({
+    height: typeof window !== "undefined" ? window.innerHeight : 0,
+    offsetTop: 0,
+  }));
+
+  useEffect(() => {
+    const visual = window.visualViewport;
+    const read = () => {
+      if (visual) setVp({ height: visual.height, offsetTop: visual.offsetTop });
+      else setVp({ height: window.innerHeight, offsetTop: 0 });
+    };
+    read();
+    if (visual) {
+      visual.addEventListener("resize", read);
+      visual.addEventListener("scroll", read);
+      return () => {
+        visual.removeEventListener("resize", read);
+        visual.removeEventListener("scroll", read);
+      };
+    }
+    window.addEventListener("resize", read);
+    return () => window.removeEventListener("resize", read);
+  }, []);
+
+  return vp;
+}
+
 function Overlay({ children, onClose }) {
+  const vp = useVisibleViewport();
+  const sheetRef = useRef(null);
+
+  // Kolom yang sedang diketik digulir ke tengah supaya tidak tertutup papan
+  // ketik, tanpa perlu menggulir sendiri.
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const onFocus = (e) => {
+      const el = e.target;
+      if (!el.matches || !el.matches("input, textarea, select")) return;
+      setTimeout(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 260);
+    };
+    sheet.addEventListener("focusin", onFocus);
+    return () => sheet.removeEventListener("focusin", onFocus);
+  }, []);
+
   return (
-    <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
+    <div
+      className="fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+      style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
+      onClick={onClose}
+    >
       <div
-        className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
-        style={{ background: COLORS.card, maxHeight: "90dvh" }}
+        ref={sheetRef}
+        className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
+        style={{
+          background: COLORS.card,
+          // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
+          // jendela yang menumpang di atas halaman.
+          maxHeight: Math.max(220, vp.height - 24),
+          overscrollBehavior: "contain",
+          WebkitOverflowScrolling: "touch",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
