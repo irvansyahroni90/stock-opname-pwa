@@ -859,6 +859,123 @@ export default function App() {
   // supaya bisa mengerut pulang ke tempat yang sama.
   const cardRectRef = useRef({});
 
+  const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy'
+  const [stockSearch, setStockSearch] = useState("");
+  const [stockFilter, setStockFilter] = useState("all");
+  const [tobuySearch, setTobuySearch] = useState("");
+  const [tobuyFilter, setTobuyFilter] = useState("pending");
+  const [agendaSearch, setAgendaSearch] = useState("");
+  const [agendaFilter, setAgendaFilter] = useState("all");
+  const [highlightTarget, setHighlightTarget] = useState(null); // { type, id }
+
+  const TAB_ORDER = ["dashboard", "stock", "tobuy"];
+
+  // --- Geser kiri/kanan antar tab ---------------------------------------
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchStartRef = useRef(null);
+  const dragModeRef = useRef(null);
+
+  const handleTouchStart = (e) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+    dragModeRef.current = null;
+  };
+
+  const handleTouchMove = (e) => {
+    if (!touchStartRef.current) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStartRef.current.x;
+    const dy = t.clientY - touchStartRef.current.y;
+    if (!dragModeRef.current) {
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        dragModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+        if (dragModeRef.current === "horizontal") setIsDragging(true);
+      }
+      return;
+    }
+    if (dragModeRef.current !== "horizontal") return;
+    const idx = TAB_ORDER.indexOf(view);
+    let clamped = dx;
+    if (idx === 0 && dx > 0) clamped = dx * 0.35;
+    if (idx === TAB_ORDER.length - 1 && dx < 0) clamped = dx * 0.35;
+    setDragX(clamped);
+  };
+
+  const resetDrag = () => {
+    setIsDragging(false);
+    setDragX(0);
+    touchStartRef.current = null;
+    dragModeRef.current = null;
+  };
+
+  const handleTouchEnd = () => {
+    const idx = TAB_ORDER.indexOf(view);
+    const dx = dragX;
+    const SWIPE_THRESHOLD = 60;
+    if (dragModeRef.current === "horizontal") {
+      if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
+        attemptNavigate(() => setView(TAB_ORDER[idx + 1]));
+      } else if (dx > SWIPE_THRESHOLD && idx > 0) {
+        attemptNavigate(() => setView(TAB_ORDER[idx - 1]));
+      }
+    }
+    resetDrag();
+  };
+
+  // --- Perubahan qty/level yang belum dikonfirmasi ------------------------
+  // Cuma boleh ada SATU perubahan yang menggantung di seluruh app. Selama itu
+  // ada, list tidak di-sort ulang dan navigasi ke mana pun diblokir sampai
+  // dikonfirmasi atau dikembalikan ke nilai semula.
+  const [pendingEdit, setPendingEdit] = useState(null);
+  const [blockedNotice, setBlockedNotice] = useState(null);
+
+  const attemptNavigate = (fn) => {
+    if (pendingEdit) {
+      setBlockedNotice(pendingEdit.itemName);
+      return;
+    }
+    fn();
+  };
+
+  const beginOrUpdatePendingQty = (item, delta) => {
+    setPendingEdit((prev) => {
+      const base = prev && prev.itemId === item.id ? prev.draft : item.qty;
+      const draft = Math.max(0, Number((base + delta).toFixed(3)));
+      if (draft === item.qty) return null;
+      return { itemId: item.id, itemName: item.name, kind: "qty", draft, unit: item.unit };
+    });
+  };
+
+  const setPendingLevelEdit = (item, newLevel) => {
+    if (newLevel === item.level) {
+      setPendingEdit(null);
+      return;
+    }
+    setPendingEdit({ itemId: item.id, itemName: item.name, kind: "level", draft: newLevel });
+  };
+
+  const confirmPendingEdit = async () => {
+    if (!pendingEdit) return;
+    const { itemId, kind, draft } = pendingEdit;
+    if (kind === "qty") {
+      const current = items.find((i) => i.id === itemId);
+      if (current) await handleQuickAdjust(itemId, Number((draft - current.qty).toFixed(3)));
+    } else {
+      await handleLevelChange(itemId, draft);
+    }
+    setPendingEdit(null);
+  };
+
+  const handleBlockedNoticeOk = () => {
+    if (!pendingEdit) {
+      setBlockedNotice(null);
+      return;
+    }
+    setBlockedNotice(null);
+    setHighlightTarget({ type: "stock", id: pendingEdit.itemId });
+  };
+
   // Kartu mana yang sedang dibuka — dipakai halaman awal untuk menyingkirkan
   // kartu lainnya, dan untuk menentukan arah kedatangan saat kembali.
   const [pickingKey, setPickingKey] = useState(null);
