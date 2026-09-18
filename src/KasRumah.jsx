@@ -311,13 +311,13 @@ function Overlay({ children, onClose }) {
 
   return (
     <div
-      className="fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+      className="sheet-scrim fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
       style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
       onClick={onClose}
     >
       <div
         ref={sheetRef}
-        className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
+        className="sheet-panel w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
         style={{
           background: COLORS.card,
           // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
@@ -799,7 +799,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   };
 
   return (
-    <div className="app-enter" style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Poppins', system-ui, sans-serif", overflow: "hidden" }}>
+    <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Poppins', system-ui, sans-serif", overflow: "hidden" }}>
       <SharedStyles />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
@@ -3332,7 +3332,7 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
       <div
-        className="w-full sm:max-w-sm h-full overflow-y-auto p-5"
+        className="drawer-panel w-full sm:max-w-sm h-full overflow-y-auto p-5"
         style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -3506,7 +3506,7 @@ function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchAp
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
       <div
-        className="w-full sm:max-w-sm h-full overflow-y-auto p-5"
+        className="drawer-panel w-full sm:max-w-sm h-full overflow-y-auto p-5"
         style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }}
         onClick={(e) => e.stopPropagation()}
       >

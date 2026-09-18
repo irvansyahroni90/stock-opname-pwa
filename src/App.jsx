@@ -405,23 +405,14 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
 }
 
 // --- Transisi kartu melebar ------------------------------------------
-// Kartu yang disentuh di halaman awal "tumbuh" jadi kartu atas di halaman
-// tujuan, lalu mengerut pulang saat kembali. Karena warnanya sama persis,
-// peralihannya terasa seperti satu benda yang bergerak.
+// Urutannya: halaman tujuan dipasang LEBIH DULU, lalu kartu terbang di
+// atasnya. Dengan begitu di belakang kartu selalu sudah ada isi — tidak
+// pernah ada momen layar kosong seperti sebelumnya.
 //
-// Cara kerjanya: kartu digambar langsung pada ukuran & posisi TUJUAN, lalu
-// "dikecilkan balik" ke posisi asal memakai transform. Yang dianimasikan
-// cuma transform — diproses kartu grafis, bukan penghitungan tata letak —
-// sehingga gerakannya mulus dan tidak tersendat di HP.
-// Durasi gerak, dan saat halaman tujuan dipasang. Halaman sengaja muncul
-// sedikit sebelum gerakan selesai supaya tidak ada momen layar diam di
-// tengah transisi.
-const MORPH_MS = 420;
-const MORPH_SWAP_MS = 330;
-// Kurva yang jaraknya terbagi merata sepanjang durasi. Kurva sebelumnya
-// terlalu berat di depan: kartunya menempuh hampir seluruh jarak dalam
-// seperempat waktu pertama, sisanya merayap tak terlihat.
-const MORPH_EASE = "cubic-bezier(0.45, 0.05, 0.2, 1)";
+// JavaScript hanya mengukur posisi kartu dan menyerahkan empat angka ke
+// CSS (--dx, --dy, --sx, --sy). Gerakannya sepenuhnya diurus CSS.
+const MORPH_MS = 440;
+const MORPH_CLEANUP_MS = 640;
 
 // Tinggi area aman di atas layar (poni iPhone) diukur lewat elemen bayangan.
 function readSafeTop() {
@@ -441,64 +432,70 @@ function heroTargetRect() {
   return { left, top: readSafeTop() + 12, width: contentWidth - 32, height: 208 };
 }
 
-// Selisih posisi & skala untuk membawa kotak tujuan agar tampak berada di
-// posisi asal.
-function inverseTransform(from, to) {
-  const sx = from.width / to.width;
-  const sy = from.height / to.height;
-  const dx = from.left - to.left;
-  const dy = from.top - to.top;
-  return `translate3d(${dx}px, ${dy}px, 0) scale(${sx}, ${sy})`;
-}
-
-function MorphOverlay({ morph }) {
-  const ref = useRef(null);
-  const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Pasang posisi awal, paksa peramban menggambarnya, baru lepas ke posisi
-    // tujuan. Tanpa langkah paksa ini gerakannya kerap dilompati.
-    el.style.transition = "none";
-    el.style.transform = inverseTransform(morph.from, morph.to);
-    el.getBoundingClientRect(); // memaksa perhitungan ulang
-    const id = requestAnimationFrame(() => {
-      el.style.transition = `transform ${MORPH_MS}ms ${MORPH_EASE}`;
-      el.style.transform = "translate3d(0, 0, 0) scale(1, 1)";
-    });
-    const t = setTimeout(() => setDone(true), MORPH_SWAP_MS);
-    return () => {
-      cancelAnimationFrame(id);
-      clearTimeout(t);
-    };
-  }, [morph]);
-
+// Kartu terbang: digambar pada ukuran & posisi TUJUAN, lalu CSS yang
+// membawanya dari posisi asal. Di dalamnya ada dua lapisan tulisan yang
+// bersilangan — keduanya tidak ikut membesar supaya hurufnya tetap tajam.
+function CardFlyer({ flight }) {
+  const { from, to, color, title, subtitle, greeting, dateLabel, back } = flight;
   return (
     <div
-      ref={ref}
       aria-hidden="true"
-      className="fixed pointer-events-none"
+      className={`flyer${back ? " is-back" : ""}`}
       style={{
-        zIndex: 80,
-        top: morph.to.top,
-        left: morph.to.left,
-        width: morph.to.width,
-        height: morph.to.height,
-        borderRadius: 32,
-        background: morph.color,
-        transformOrigin: "top left",
-        willChange: "transform, opacity",
-        opacity: done && morph.fadeAtEnd ? 0 : 1,
-        transition: done ? `opacity 220ms ease` : undefined,
+        top: to.top,
+        left: to.left,
+        width: to.width,
+        height: to.height,
+        borderRadius: 30,
+        background: color,
+        "--dx": `${from.left - to.left}px`,
+        "--dy": `${from.top - to.top}px`,
+        "--sx": from.width / to.width,
+        "--sy": from.height / to.height,
       }}
-    />
+    >
+      {/* Tulisan versi kartu di halaman awal */}
+      <div className="flyer-text flyer-text-from" style={{ bottom: 18, paddingLeft: 18, paddingRight: 18 }}>
+        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 24, color: "#fff", lineHeight: 1.15 }}>
+          {title}
+        </div>
+        <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.68)", marginTop: 1 }}>{subtitle}</div>
+      </div>
+
+      {/* Tulisan versi kartu atas di halaman tujuan */}
+      <div className="flyer-text flyer-text-to" style={{ top: 26, paddingLeft: 24, paddingRight: 24 }}>
+        <div className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
+          {greeting}
+        </div>
+        <div
+          style={{
+            fontFamily: "'Baloo 2', cursive",
+            fontWeight: 700,
+            fontSize: 44,
+            lineHeight: 1.02,
+            letterSpacing: "-0.5px",
+            color: "#fff",
+            marginTop: 4,
+          }}
+        >
+          {title.split(" ")[0]}
+          <br />
+          {title.split(" ").slice(1).join(" ")}
+        </div>
+        <div
+          className="inline-flex items-center gap-2 capitalize"
+          style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
+        >
+          {dateLabel}
+        </div>
+      </div>
+    </div>
   );
 }
 
 let pickerIntroPlayed = false;
 
-function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey }) {
+function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returningKey }) {
   // Animasi kartu muncul naik hanya diputar sekali per sesi.
   const skipIntro = pickerIntroPlayed;
   useEffect(() => {
@@ -583,8 +580,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey }) {
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 14px)", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
       >
         <div
-          className="shrink-0"
-          style={{ opacity: pickingKey ? 0 : 1, transition: "opacity 240ms ease" }}
+          className={`shrink-0${pickingKey ? " picker-recede" : ""}${returningKey ? " come-top" : ""}`}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -649,18 +645,34 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey }) {
             return (
               <button
                 key={c.key}
-                onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg)}
-                className={`relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end${skipIntro ? "" : " picker-card"}`}
+                onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg, { title: c.title, subtitle: c.subtitle })}
+                className={[
+                  "relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end",
+                  !skipIntro && !returningKey ? "picker-card" : "",
+                  pickingKey ? "picker-recede" : "",
+                  // Saat kembali: kartu di atas kartu yang tadi dibuka datang
+                  // dari atas, yang di bawahnya datang dari bawah.
+                  returningKey && c.key !== returningKey
+                    ? i < cards.findIndex((x) => x.key === returningKey)
+                      ? "come-top"
+                      : "come-bottom"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 style={{
                   background: c.cardBg,
                   borderRadius: 26,
                   padding: 18,
-                  animationDelay: skipIntro ? undefined : `${50 + i * 70}ms`,
-                  // Kartu yang dipilih disembunyikan karena posisinya diambil
-                  // alih lapisan transisi; dua lainnya menyingkir halus.
-                  opacity: pickingKey ? (pickingKey === c.key ? 0 : 0) : 1,
-                  transform: pickingKey && pickingKey !== c.key ? "scale(0.94)" : "none",
-                  transition: pickingKey ? "opacity 260ms ease, transform 260ms cubic-bezier(0.32,0.72,0,1)" : undefined,
+                  animationDelay: returningKey
+                    ? // yang paling dekat dengan kartu yang dibuka datang duluan
+                      `${Math.abs(i - cards.findIndex((x) => x.key === returningKey)) * 60}ms`
+                    : skipIntro
+                    ? undefined
+                    : `${50 + i * 70}ms`,
+                  // Kartu yang sedang dibuka disembunyikan karena tempatnya
+                  // diambil alih kartu terbang.
+                  opacity: pickingKey === c.key ? 0 : undefined,
                 }}
               >
                 <span
@@ -840,225 +852,71 @@ export default function App() {
   const [activeApp, setActiveApp] = useState(null);
   // Transisi kartu melebar: menyimpan posisi kartu terakhir yang disentuh
   // supaya bisa mengerut pulang ke tempat yang sama.
-  const [morph, setMorph] = useState(null);
   const cardRectRef = useRef({});
 
   // Kartu mana yang sedang dibuka — dipakai halaman awal untuk menyingkirkan
-  // dua kartu lainnya selama transisi berlangsung.
+  // kartu lainnya, dan untuk menentukan arah kedatangan saat kembali.
   const [pickingKey, setPickingKey] = useState(null);
+  const [lastOpenedKey, setLastOpenedKey] = useState(null);
+  const [flight, setFlight] = useState(null);
 
-  const openAppWithMorph = (key, rect, color) => {
+  const todayLabelShort = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const greetingNow = (() => {
+    const h = new Date().getHours();
+    if (h < 10) return "Selamat pagi";
+    if (h < 15) return "Selamat siang";
+    if (h < 18) return "Selamat sore";
+    return "Selamat malam";
+  })();
+
+  const openAppWithMorph = (key, rect, color, card) => {
     if (!rect) {
       setActiveApp(key);
       return;
     }
-    cardRectRef.current[key] = { rect, color };
+    cardRectRef.current[key] = { rect, color, card };
     setPickingKey(key);
-    setMorph({
+    // Halaman tujuan dipasang SEKARANG JUGA, lalu kartu terbang di atasnya.
+    // Inilah yang menghilangkan momen layar kosong.
+    setActiveApp(key);
+    setFlight({
       from: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
       to: heroTargetRect(),
       color,
-      fadeAtEnd: true,
+      title: card.title,
+      subtitle: card.subtitle,
+      greeting: `${greetingNow}${userName ? `, ${userName}` : ""}`,
+      dateLabel: todayLabelShort,
+      back: false,
     });
-    // Halaman tujuan dipasang tepat saat kartu mendarat, lalu lapisan
-    // transisinya diredupkan di atasnya.
     setTimeout(() => {
-      setActiveApp(key);
+      setFlight(null);
       setPickingKey(null);
-      setTimeout(() => setMorph(null), 240);
-    }, MORPH_SWAP_MS);
+    }, MORPH_CLEANUP_MS);
   };
 
   const closeAppWithMorph = () => {
     const saved = activeApp ? cardRectRef.current[activeApp] : null;
+    const key = activeApp;
     if (!saved) {
       setActiveApp(null);
       return;
     }
-    const { rect, color } = saved;
+    const { rect, color, card } = saved;
+    // Halaman awal juga muncul seketika; kartu mengerut pulang di atasnya.
+    setLastOpenedKey(key);
     setActiveApp(null);
-    // Arahnya dibalik: dari posisi kartu atas mengerut pulang ke kartunya.
-    setMorph({
-      from: heroTargetRect(),
-      to: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+    setFlight({
+      from: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+      to: heroTargetRect(),
       color,
-      fadeAtEnd: true,
+      title: card.title,
+      subtitle: card.subtitle,
+      greeting: `${greetingNow}${userName ? `, ${userName}` : ""}`,
+      dateLabel: todayLabelShort,
+      back: true,
     });
-    setTimeout(() => setMorph(null), MORPH_SWAP_MS + 240);
-  };
-
-  const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy' | 'agenda'
-
-  // Swipe kiri/kanan untuk pindah antar tab Beranda-Stok-Beli-Agenda,
-  // dengan halaman sebelah ikut kegeser mengikuti jari (gaya carousel).
-  const TAB_ORDER = ["dashboard", "stock", "tobuy"];
-  const [dragX, setDragX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const touchStartRef = useRef(null);
-  const dragModeRef = useRef(null); // 'horizontal' | 'vertical' | null
-
-  const handleTouchStart = (e) => {
-    const t = e.touches[0];
-    touchStartRef.current = { x: t.clientX, y: t.clientY };
-    dragModeRef.current = null;
-    setDragX(0);
-    setIsDragging(true);
-  };
-  const handleTouchMove = (e) => {
-    const start = touchStartRef.current;
-    if (!start) return;
-    const t = e.touches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-
-    if (dragModeRef.current === null) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      dragModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
-    }
-    if (dragModeRef.current !== "horizontal") return;
-
-    const idx = TAB_ORDER.indexOf(view);
-    let clamped = dx;
-    if (idx === 0 && dx > 0) clamped = dx * 0.35; // efek "karet" di ujung paling awal
-    if (idx === TAB_ORDER.length - 1 && dx < 0) clamped = dx * 0.35; // di ujung paling akhir
-    setDragX(clamped);
-  };
-  const resetDrag = () => {
-    setIsDragging(false);
-    setDragX(0);
-    touchStartRef.current = null;
-    dragModeRef.current = null;
-  };
-
-  // --- Perubahan qty/level yang belum dikonfirmasi ------------------------
-  // Cuma boleh ada SATU perubahan yang "menggantung" (belum ditekan centang)
-  // di seluruh app. Selama itu ada: list gak akan di-sort ulang (karena data
-  // aslinya belum berubah sama sekali, cuma draft lokal), dan navigasi ke
-  // mana pun diblokir sampai dikonfirmasi atau draft-nya balik ke nilai semula.
-  const [pendingEdit, setPendingEdit] = useState(null); // { itemId, itemName, kind: 'qty'|'level', draft, unit }
-  const [blockedNotice, setBlockedNotice] = useState(null); // nama item yang perubahannya belum dikonfirmasi
-
-  const attemptNavigate = (fn) => {
-    if (pendingEdit) {
-      setBlockedNotice(pendingEdit.itemName);
-      return;
-    }
-    fn();
-  };
-
-  const beginOrUpdatePendingQty = (item, delta) => {
-    setPendingEdit((prev) => {
-      const base = prev && prev.itemId === item.id ? prev.draft : item.qty;
-      const draft = Math.max(0, Number((base + delta).toFixed(3)));
-      if (draft === item.qty) return null; // balik ke nilai semula -> gak perlu dikonfirmasi
-      return { itemId: item.id, itemName: item.name, kind: "qty", draft, unit: item.unit };
-    });
-  };
-
-  const setPendingLevelEdit = (item, newLevel) => {
-    if (newLevel === item.level) {
-      setPendingEdit(null);
-      return;
-    }
-    setPendingEdit({ itemId: item.id, itemName: item.name, kind: "level", draft: newLevel });
-  };
-
-  const confirmPendingEdit = async () => {
-    if (!pendingEdit) return;
-    const { itemId, kind, draft } = pendingEdit;
-    if (kind === "qty") {
-      const current = items.find((i) => i.id === itemId);
-      if (current) await handleQuickAdjust(itemId, Number((draft - current.qty).toFixed(3)));
-    } else {
-      await handleLevelChange(itemId, draft);
-    }
-    setPendingEdit(null);
-  };
-
-  const handleBlockedNoticeOk = () => {
-    if (!pendingEdit) {
-      setBlockedNotice(null);
-      return;
-    }
-    setBlockedNotice(null);
-    setHighlightTarget({ type: "stock", id: pendingEdit.itemId });
-  };
-
-  const handleTouchEnd = () => {
-    const idx = TAB_ORDER.indexOf(view);
-    const dx = dragX;
-    const SWIPE_THRESHOLD = 60;
-    if (dragModeRef.current === "horizontal") {
-      if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
-        attemptNavigate(() => setView(TAB_ORDER[idx + 1]));
-      } else if (dx > SWIPE_THRESHOLD && idx > 0) {
-        attemptNavigate(() => setView(TAB_ORDER[idx - 1]));
-      }
-    }
-    resetDrag();
-  };
-
-  const [stockSearch, setStockSearch] = useState("");
-  const [stockFilter, setStockFilter] = useState("all"); // 'all' | 'low' | 'out'
-  const [tobuySearch, setTobuySearch] = useState("");
-  const [tobuyFilter, setTobuyFilter] = useState("pending"); // 'pending' | 'bought'
-  const [agendaSearch, setAgendaSearch] = useState("");
-  const [agendaFilter, setAgendaFilter] = useState("all"); // 'all' | 'soon' | 'overdue' | 'done'
-
-  // Target "loncat & sorot" dari preview Beranda ke item spesifik di halaman penuh
-  const [highlightTarget, setHighlightTarget] = useState(null); // { type: 'stock'|'tobuy'|'agenda', id }
-  // Data Kas Rumah untuk notifikasi gabungan (baca saja).
-  const [kasTx, setKasTx] = useState([]);
-  const [kasCats, setKasCats] = useState([]);
-  // Transaksi Kas yang harus disorot begitu aplikasi Kas Rumah dibuka.
-  const [kasHighlightId, setKasHighlightId] = useState(null);
-
-  const goToStockItem = (item) => {
-    const status = statusOf(item);
-    setStockSearch("");
-    setStockFilter(status === "safe" ? "all" : status);
-    setHighlightTarget({ type: "stock", id: item.id });
-    setActiveApp("stok");
-    setView("stock");
-  };
-
-  const goToToBuyEntry = (entry) => {
-    setTobuySearch("");
-    setTobuyFilter(entry.bought ? "bought" : "pending");
-    setHighlightTarget({ type: "tobuy", id: entry.id });
-    setActiveApp("stok");
-    setView("tobuy");
-  };
-
-  const goToTask = (task) => {
-    const urgency = taskUrgency(task, dueThreshold);
-    setAgendaSearch("");
-    setAgendaFilter(task.done ? "done" : urgency === "overdue" ? "overdue" : urgency === "soon" ? "soon" : "all");
-    setHighlightTarget({ type: "agenda", id: task.id });
-    setActiveApp("agenda");
-  };
-
-  // Klik satu baris notifikasi: buka aplikasi asalnya, lalu sorot itemnya.
-  const handleActivitySelect = (a) => {
-    setShowNotif(false);
-    const ref = a && a.ref;
-    if (!ref) return;
-    if (ref.type === "stock") {
-      const item = items.find((i) => i.id === ref.id);
-      if (item) goToStockItem(item);
-      else setActiveApp("stok");
-    } else if (ref.type === "tobuy") {
-      const entry = toBuy.find((e) => e.id === ref.id);
-      if (entry) goToToBuyEntry(entry);
-      else setActiveApp("stok");
-    } else if (ref.type === "agenda") {
-      const task = tasks.find((t) => t.id === ref.id);
-      if (task) goToTask(task);
-      else setActiveApp("agenda");
-    } else if (ref.type === "kas") {
-      setKasHighlightId(ref.id);
-      setActiveApp("kas");
-    }
+    setTimeout(() => setFlight(null), MORPH_CLEANUP_MS);
   };
 
   const [showHistory, setShowHistory] = useState(false);
@@ -1838,8 +1696,9 @@ export default function App() {
           onLogout={logout}
           notifSlot={notifBell}
           pickingKey={pickingKey}
+          returningKey={flight && flight.back ? lastOpenedKey : null}
         />
-        {morph && <MorphOverlay morph={morph} />}
+        {flight && <CardFlyer flight={flight} />}
       </>
     );
   }
@@ -1857,7 +1716,7 @@ export default function App() {
         initialHighlightId={kasHighlightId}
         onInitialHighlightDone={() => setKasHighlightId(null)}
       />
-      {morph && <MorphOverlay morph={morph} />}
+      {flight && <CardFlyer flight={flight} />}
       </>
     );
   }
@@ -1876,7 +1735,7 @@ export default function App() {
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
       {activeApp === "agenda" ? (
-        <div className="fixed left-0 right-0 app-enter" style={{ top: 0, bottom: 0 }}>
+        <div className="fixed left-0 right-0" style={{ top: 0, bottom: 0 }}>
           <AgendaPage
             tasks={tasks}
             dueThreshold={dueThreshold}
@@ -1902,7 +1761,7 @@ export default function App() {
       ) : (
       <div
         ref={trackWrapRef}
-        className="fixed left-0 right-0 overflow-hidden app-enter"
+        className="fixed left-0 right-0 overflow-hidden"
         style={{ top: 0, bottom: 0, overflow: "clip" }}
       >
         <div
@@ -2278,7 +2137,7 @@ export default function App() {
       {/* History panel */}
       {showHistory && <HistoryPanel activity={fullActivityFeed} onClose={() => setShowHistory(false)} />}
 
-      {morph && <MorphOverlay morph={morph} />}
+      {flight && <CardFlyer flight={flight} />}
 
       {/* User menu drawer */}
       {showUserMenu && (
@@ -2625,7 +2484,7 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
         onClick={handleClose}
       />
       <div
-        className="relative w-full sm:max-w-xs h-full overflow-y-auto p-5"
+        className="drawer-panel relative w-full sm:max-w-xs h-full overflow-y-auto p-5"
         style={{
           background: COLORS.bg,
           paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)",
@@ -4762,13 +4621,13 @@ function Overlay({ children, onClose }) {
 
   return (
     <div
-      className="fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+      className="sheet-scrim fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
       style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
       onClick={onClose}
     >
       <div
         ref={sheetRef}
-        className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
+        className="sheet-panel w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
         style={{
           background: COLORS.card,
           // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
@@ -4812,7 +4671,7 @@ function HistoryPanel({ activity, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div className="w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }} onClick={(e) => e.stopPropagation()}>
+      <div className="drawer-panel w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <ClipboardList size={18} color={COLORS.primary} />
