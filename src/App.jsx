@@ -850,6 +850,11 @@ export default function App() {
   // Aplikasi yang sedang dibuka: null = belum pilih (tampilkan kartu pilihan),
   // 'stok' = Stok Rumah, 'kas' = Kas Rumah.
   const [activeApp, setActiveApp] = useState(null);
+  // Data Kas Rumah untuk notifikasi gabungan (baca saja).
+  const [kasTx, setKasTx] = useState([]);
+  const [kasCats, setKasCats] = useState([]);
+  // Transaksi Kas yang harus disorot begitu aplikasi Kas Rumah dibuka.
+  const [kasHighlightId, setKasHighlightId] = useState(null);
   // Transisi kartu melebar: menyimpan posisi kartu terakhir yang disentuh
   // supaya bisa mengerut pulang ke tempat yang sama.
   const cardRectRef = useRef({});
@@ -917,6 +922,55 @@ export default function App() {
       back: true,
     });
     setTimeout(() => setFlight(null), MORPH_CLEANUP_MS);
+  };
+
+  // Pintasan dari beranda & notifikasi: buka aplikasi yang tepat, arahkan ke
+  // halamannya, lalu sorot item yang dimaksud.
+  const goToStockItem = (item) => {
+    const s = statusOf(item);
+    setStockFilter(s === "safe" ? "all" : s);
+    setStockSearch("");
+    setHighlightTarget({ type: "stock", id: item.id });
+    setActiveApp("stok");
+    setView("stock");
+  };
+
+  const goToToBuyEntry = (entry) => {
+    setTobuyFilter(entry.bought ? "bought" : "pending");
+    setTobuySearch("");
+    setHighlightTarget({ type: "tobuy", id: entry.id });
+    setActiveApp("stok");
+    setView("tobuy");
+  };
+
+  const goToTask = (task) => {
+    setAgendaFilter("all");
+    setAgendaSearch("");
+    setHighlightTarget({ type: "agenda", id: task.id });
+    setActiveApp("agenda");
+  };
+
+  // Klik satu baris notifikasi: buka aplikasi asalnya, lalu sorot itemnya.
+  const handleActivitySelect = (a) => {
+    setShowNotif(false);
+    const ref = a && a.ref;
+    if (!ref) return;
+    if (ref.type === "stock") {
+      const item = items.find((i) => i.id === ref.id);
+      if (item) goToStockItem(item);
+      else setActiveApp("stok");
+    } else if (ref.type === "tobuy") {
+      const entry = toBuy.find((e) => e.id === ref.id);
+      if (entry) goToToBuyEntry(entry);
+      else setActiveApp("stok");
+    } else if (ref.type === "agenda") {
+      const task = tasks.find((t) => t.id === ref.id);
+      if (task) goToTask(task);
+      else setActiveApp("agenda");
+    } else if (ref.type === "kas") {
+      setKasHighlightId(ref.id);
+      setActiveApp("kas");
+    }
   };
 
   const [showHistory, setShowHistory] = useState(false);
