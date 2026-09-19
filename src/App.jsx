@@ -3835,6 +3835,37 @@ function AgendaTile({ label, value, color, active, onClick }) {
 
 function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
+
+  // Geser samping untuk berpindah antara List dan Kalender, seperti tab di
+  // aplikasi lain.
+  const swipeRef = useRef(null);
+  const swipeModeRef = useRef(null);
+  const onAgendaTouchStart = (e) => {
+    const t = e.touches[0];
+    swipeRef.current = { x: t.clientX, y: t.clientY };
+    swipeModeRef.current = null;
+  };
+  const onAgendaTouchMove = (e) => {
+    if (!swipeRef.current) return;
+    const t = e.touches[0];
+    const dx = t.clientX - swipeRef.current.x;
+    const dy = t.clientY - swipeRef.current.y;
+    if (!swipeModeRef.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      swipeModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+    }
+  };
+  const onAgendaTouchEnd = (e) => {
+    if (!swipeRef.current || swipeModeRef.current !== "horizontal") {
+      swipeRef.current = null;
+      return;
+    }
+    const t = e.changedTouches[0];
+    const dx = t.clientX - swipeRef.current.x;
+    swipeRef.current = null;
+    swipeModeRef.current = null;
+    if (dx < -60 && subView === "list") setSubView("calendar");
+    else if (dx > 60 && subView === "calendar") setSubView("list");
+  };
   const agendaGreeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -3894,14 +3925,17 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   }, [highlightId]);
 
   return (
-    // Berbeda dari Stok & Kas: di sini TIDAK ada bagian yang dikunci di atas.
-    // Kepala halaman ikut tergulir bersama isinya, supaya di layar HP tidak
-    // ada ruang yang habis terpakai dan daftar tugasnya terlihat lebih banyak.
+    // Kepala halaman (kartu sambutan, penyaring, pencarian) dikunci di atas;
+    // hanya daftar tugas / kalender yang tergulir. Geser samping berpindah
+    // antara List dan Kalender.
     <div
-      className="h-full overflow-y-auto"
-      style={{ background: AG.bg, overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}
+      className="h-full flex flex-col"
+      style={{ background: AG.bg }}
+      onTouchStart={onAgendaTouchStart}
+      onTouchMove={onAgendaTouchMove}
+      onTouchEnd={onAgendaTouchEnd}
     >
-      <div className="max-w-2xl mx-auto w-full px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {/* Kartu sambutan teal */}
         <div
           className="relative"
@@ -3972,29 +4006,6 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           </div>
         </div>
 
-        {/* Sakelar List / Kalender */}
-        <div className="flex gap-1 mb-3" style={{ background: AG.card, borderRadius: 999, padding: 5 }}>
-          {[
-            { key: "list", label: "List" },
-            { key: "calendar", label: "Kalender" },
-          ].map((o) => (
-            <button
-              key={o.key}
-              onClick={() => setSubView(o.key)}
-              className="flex-1 font-semibold"
-              style={{
-                background: subView === o.key ? AG.primary : "transparent",
-                color: subView === o.key ? "#fff" : AG.inkSoft,
-                borderRadius: 999,
-                padding: "11px 0",
-                fontSize: 14.5,
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-
         {subView === "list" && (
           <>
             <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
@@ -4020,7 +4031,11 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           </>
         )}
 
-        {subView === "list" ? (
+      </div>
+
+      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div className="max-w-2xl mx-auto w-full px-4 pb-32">
+          {subView === "list" ? (
             <>
               {listToShow.length === 0 ? (
                 <div className="py-10 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, marginBottom: 12 }}>
@@ -4040,6 +4055,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           ) : (
             <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
           )}
+        </div>
       </div>
 
       <AgendaNav subView={subView} setSubView={setSubView} onAdd={onAddTask} />
