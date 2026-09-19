@@ -2222,18 +2222,6 @@ export default function App() {
       </div>
       )}
 
-      {/* Agenda berdiri sendiri tanpa navigasi bawah, jadi tombol tambahnya
-          tetap melayang di pojok. */}
-      {activeApp === "agenda" && (
-        <button
-          onClick={() => attemptNavigate(() => setTaskModal({ mode: "add" }))}
-          className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-          style={{ width: 56, height: 56, background: AG.accent, color: "#fff", bottom: "calc(24px + env(safe-area-inset-bottom))" }}
-        >
-          <Plus size={26} />
-        </button>
-      )}
-
       {activeApp !== "agenda" && (
         <BottomNav
           view={view}
@@ -3906,8 +3894,14 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
   }, [highlightId]);
 
   return (
-    <div className="h-full flex flex-col" style={{ background: AG.bg }}>
-      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: AG.bg }}>
+    // Berbeda dari Stok & Kas: di sini TIDAK ada bagian yang dikunci di atas.
+    // Kepala halaman ikut tergulir bersama isinya, supaya di layar HP tidak
+    // ada ruang yang habis terpakai dan daftar tugasnya terlihat lebih banyak.
+    <div
+      className="h-full overflow-y-auto"
+      style={{ background: AG.bg, overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}
+    >
+      <div className="max-w-2xl mx-auto w-full px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {/* Kartu sambutan teal */}
         <div
           className="relative"
@@ -4025,11 +4019,8 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
             </div>
           </>
         )}
-      </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <div className="max-w-2xl mx-auto px-4 pb-32">
-          {subView === "list" ? (
+        {subView === "list" ? (
             <>
               {listToShow.length === 0 ? (
                 <div className="py-10 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, marginBottom: 12 }}>
@@ -4049,7 +4040,66 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
           ) : (
             <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
           )}
-        </div>
+      </div>
+
+      <AgendaNav subView={subView} setSubView={setSubView} onAdd={onAddTask} />
+    </div>
+  );
+}
+
+// Navigasi bawah Agenda — bentuknya sama dengan aplikasi lain, sekaligus
+// menggantikan sakelar List/Kalender yang dulu memakan ruang di atas.
+function AgendaNav({ subView, setSubView, onAdd }) {
+  const tabs = [
+    { key: "list", label: "List", icon: ListTodo },
+    { key: "calendar", label: "Kalender", icon: Calendar },
+  ];
+  return (
+    <div
+      className="fixed left-0 right-0 z-40 flex justify-center px-4 pointer-events-none"
+      style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
+    >
+      <div
+        className="flex items-center gap-1.5 pointer-events-auto"
+        style={{ background: AG.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(23,64,61,0.30)" }}
+      >
+        {tabs.map((t) => {
+          const active = subView === t.key;
+          const Icon = t.icon;
+          if (active) {
+            return (
+              <div
+                key={t.key}
+                className="flex items-center gap-2"
+                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: AG.primary }}
+              >
+                <Icon size={20} />
+                <span className="font-semibold" style={{ fontSize: 13 }}>
+                  {t.label}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <button
+              key={t.key}
+              onClick={() => setSubView(t.key)}
+              className="flex items-center justify-center"
+              style={{ width: 44, height: 42 }}
+              title={t.label}
+            >
+              <Icon size={20} color="rgba(255,255,255,0.8)" />
+            </button>
+          );
+        })}
+        <button
+          onClick={onAdd}
+          className="flex items-center justify-center shrink-0"
+          style={{ width: 42, height: 42, borderRadius: 999, background: AG.accent, color: "#fff" }}
+          title="Tambah tugas"
+        >
+          <Plus size={22} />
+        </button>
       </div>
     </div>
   );
