@@ -1906,7 +1906,7 @@ export default function App() {
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
       {activeApp === "agenda" ? (
-        <div className="fixed left-0 right-0" style={{ top: 0, bottom: 0 }}>
+        <div className="fixed left-0 right-0 fx-page" style={{ top: 0, bottom: 0 }}>
           <AgendaPage
             tasks={tasks}
             dueThreshold={dueThreshold}
@@ -1932,7 +1932,7 @@ export default function App() {
       ) : (
       <div
         ref={trackWrapRef}
-        className="fixed left-0 right-0 overflow-hidden"
+        className="fixed left-0 right-0 overflow-hidden fx-page"
         style={{ top: 0, bottom: 0, overflow: "clip" }}
       >
         <div
@@ -2683,7 +2683,7 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
           </button>
         </div>
 
-        <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <div className="rounded-2xl overflow-hidden drawer-rows" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
           <UserMenuItem icon={User} label="Ganti Nama" onClick={() => runAndClose(onChangeName)} />
           {onOpenThreshold && (
             <UserMenuItem
