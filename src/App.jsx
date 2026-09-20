@@ -660,6 +660,9 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returnin
                       ? "come-top"
                       : "come-bottom"
                     : "",
+                  // Kartu tujuan ditahan sampai kartu terbang sampai di sini,
+                  // supaya tidak pernah terlihat dua kartu sekaligus.
+                  returningKey && c.key === returningKey ? "card-hold" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
@@ -1957,7 +1960,7 @@ export default function App() {
                     dikunci — bentuk yang sama persis dengan kartu terbang,
                     supaya serah terimanya tidak berkedip. */}
                 <div
-                  className="relative flex flex-col justify-between"
+                  className="hero-hold relative flex flex-col justify-between"
                   style={{
                     background: COLORS.navy,
                     borderRadius: "0 0 30px 30px",
@@ -3948,7 +3951,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3">
         {/* Kartu sambutan teal */}
         <div
-          className="relative flex flex-col justify-between"
+          className="hero-hold relative flex flex-col justify-between"
           style={{
             background: AG.primary,
             borderRadius: "0 0 30px 30px",

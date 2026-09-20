@@ -1027,7 +1027,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
           {/* Kartu sambutan — latar ungu muda mengikuti warna Kas Rumah di
               halaman awal, dengan tulisan ungu tua supaya tetap terbaca. */}
           <div
-            className="relative flex flex-col justify-between"
+            className="hero-hold relative flex flex-col justify-between"
             style={{
               background: COLORS.primary,
               borderRadius: "0 0 30px 30px",

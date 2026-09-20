@@ -76,6 +76,16 @@ export function SharedStyles() {
       .is-back .flyer-text-from { animation: textIn calc(680ms * var(--sp)) var(--ease-lux) forwards; }
       .is-back .flyer-text-to   { animation: textOut calc(680ms * var(--sp)) ease forwards; }
 
+      /* 1c. Kartu atas di halaman tujuan DITAHAN tak terlihat selama kartu
+         terbang masih di jalan, lalu muncul seketika tepat saat mendarat.
+         steps(1,end) membuatnya berpindah sekali di akhir — bukan memudar —
+         sehingga serah terimanya tidak terlihat sama sekali. */
+      @keyframes heroHold { from { opacity: 0 } to { opacity: 1 } }
+      .hero-hold { animation: heroHold calc(600ms * var(--sp)) steps(1, end) both; }
+      /* Arah sebaliknya: kartu tujuan di halaman awal ditahan sampai kartu
+         terbang mengerut sampai di tempatnya. */
+      .card-hold { animation: heroHold calc(660ms * var(--sp)) steps(1, end) both; }
+
       /* 1b. Tombol di kartu atas muncul SETELAH kartu mendarat */
       @keyframes late { 0%,62% { opacity:0 } 100% { opacity:1 } }
       .hero-actions { animation: late calc(760ms * var(--sp)) ease both; }
