@@ -1059,9 +1059,12 @@ export default function App() {
     const r = el.getBoundingClientRect();
     const { color, card } = saved;
     setLastOpenedKey(measuring);
+    // Arah kembali: kartu digambar pada posisi KARTU (tujuan akhir), lalu
+    // dibalik transformnya ke posisi kartu atas. Gerakannya sama dengan arah
+    // masuk — yang ditukar hanya titik awal dan tujuannya.
     setFlight({
-      from: { top: r.top, left: r.left, width: r.width, height: r.height },
-      to: heroTargetRect(),
+      from: heroTargetRect(),
+      to: { top: r.top, left: r.left, width: r.width, height: r.height },
       color,
       title: card.title,
       subtitle: card.subtitle,
