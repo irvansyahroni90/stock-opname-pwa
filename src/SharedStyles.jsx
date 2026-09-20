@@ -84,11 +84,22 @@ export function SharedStyles() {
       .hero-hold { animation: heroHold calc(600ms * var(--sp)) steps(1, end) both; }
       /* Arah sebaliknya: kartu tujuan di halaman awal ditahan sampai kartu
          terbang mengerut sampai di tempatnya. */
-      .card-hold { animation: heroHold calc(660ms * var(--sp)) steps(1, end) both; }
+      .card-hold { animation: heroHold calc(680ms * var(--sp)) steps(1, end) both; }
 
       /* 1b. Tombol di kartu atas muncul SETELAH kartu mendarat */
       @keyframes late { 0%,62% { opacity:0 } 100% { opacity:1 } }
       .hero-actions { animation: late calc(760ms * var(--sp)) ease both; }
+
+      /* Lapisan warna penutup saat kembali — halaman awal tidak "pop",
+         tapi tersingkap dari balik warna aplikasi yang baru ditinggalkan. */
+      @keyframes veilOut { from { opacity: 1 } to { opacity: 0 } }
+      .veil { position: fixed; inset: 0; z-index: 70; pointer-events: none;
+              animation: veilOut calc(520ms * var(--sp)) cubic-bezier(.4,0,.2,1) forwards; }
+
+      /* Kartu lain menyusul setelah kartu utama hampir mendarat */
+      .card-return:nth-child(1){ animation-delay: 150ms }
+      .card-return:nth-child(2){ animation-delay: 220ms }
+      .card-return:nth-child(3){ animation-delay: 290ms }
 
       /* 2. Halaman awal menyingkir: mundur + buram, bukan sekadar pudar */
       @keyframes recedeAway { to { opacity:0; transform:scale(.93) translateY(-6px); filter:blur(3px); } }
@@ -164,6 +175,10 @@ export function SharedStyles() {
       .row-stagger > *:nth-child(4){animation-delay:220ms}
       .row-stagger > *:nth-child(5){animation-delay:280ms}
       .row-stagger > *:nth-child(n+6){animation-delay:330ms}
+
+      /* Pemintal pada tombol simpan saat menyimpan */
+      @keyframes spin { to { transform: rotate(360deg) } }
+      .spin { animation: spin 620ms linear infinite; }
 
       .tile-swap { transition: background-color calc(420ms * var(--sp)) ease, box-shadow calc(420ms * var(--sp)) ease, color calc(420ms * var(--sp)) ease; }
 

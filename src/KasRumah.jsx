@@ -292,6 +292,16 @@ function useVisibleViewport() {
 function Overlay({ children, onClose }) {
   const vp = useVisibleViewport();
   const sheetRef = useRef(null);
+  // Jendela turun dulu, baru dilepas — bukan hilang mendadak.
+  const [closing, setClosing] = useState(false);
+  const closeSheet = () => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      onClose && onClose();
+    }, 380);
+  };
 
   // Kolom yang sedang diketik digulir ke tengah supaya tidak tertutup papan
   // ketik, tanpa perlu menggulir sendiri.
@@ -311,13 +321,13 @@ function Overlay({ children, onClose }) {
 
   return (
     <div
-      className="sheet-scrim fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+      className={`sheet-scrim${closing ? " scrim-out" : ""} fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4`}
       style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
-      onClick={onClose}
+      onClick={closeSheet}
     >
       <div
         ref={sheetRef}
-        className="sheet-panel w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
+        className={`sheet-panel${closing ? " sheet-panel-out" : ""} w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto`}
         style={{
           background: COLORS.card,
           // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini

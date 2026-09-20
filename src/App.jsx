@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus,
   Trash2,
@@ -19,6 +19,7 @@ import {
   ClipboardList,
   ShoppingCart,
   Check,
+  Loader2,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -648,6 +649,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returnin
             return (
               <button
                 key={c.key}
+                data-card={c.key}
                 onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg, { title: c.title, subtitle: c.subtitle })}
                 className={[
                   "relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end",
@@ -656,9 +658,7 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returnin
                   // Saat kembali: kartu di atas kartu yang tadi dibuka datang
                   // dari atas, yang di bawahnya datang dari bawah.
                   returningKey && c.key !== returningKey
-                    ? i < cards.findIndex((x) => x.key === returningKey)
-                      ? "come-top"
-                      : "come-bottom"
+                    ? (i < cards.findIndex((x) => x.key === returningKey) ? "come-top" : "come-bottom") + " card-return"
                     : "",
                   // Kartu tujuan ditahan sampai kartu terbang sampai di sini,
                   // supaya tidak pernah terlihat dua kartu sekaligus.
@@ -875,6 +875,12 @@ export default function App() {
   const [highlightTarget, setHighlightTarget] = useState(null); // { type, id }
 
   const TAB_ORDER = ["dashboard", "stock", "tobuy"];
+  // Arah masuknya isi halaman mengikuti arah perpindahan tab.
+  const [dir, setDir] = useState(1);
+  const changeView = (next) => {
+    setDir(TAB_ORDER.indexOf(next) > TAB_ORDER.indexOf(view) ? 1 : -1);
+    setView(next);
+  };
 
   // --- Geser kiri/kanan antar tab ---------------------------------------
   const [dragX, setDragX] = useState(0);
@@ -921,9 +927,9 @@ export default function App() {
     const SWIPE_THRESHOLD = 60;
     if (dragModeRef.current === "horizontal") {
       if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
-        attemptNavigate(() => setView(TAB_ORDER[idx + 1]));
+        attemptNavigate(() => changeView(TAB_ORDER[idx + 1]));
       } else if (dx > SWIPE_THRESHOLD && idx > 0) {
-        attemptNavigate(() => setView(TAB_ORDER[idx - 1]));
+        attemptNavigate(() => changeView(TAB_ORDER[idx - 1]));
       }
     }
     resetDrag();
@@ -987,6 +993,16 @@ export default function App() {
   const [pickingKey, setPickingKey] = useState(null);
   const [lastOpenedKey, setLastOpenedKey] = useState(null);
   const [flight, setFlight] = useState(null);
+  // Halaman awal dipasang tak terlihat lebih dulu supaya kartunya bisa diukur.
+  const [measuring, setMeasuring] = useState(null);
+  const [veil, setVeil] = useState(null);
+  // Riak tinta yang melebar dari tombol tambah sebelum jendela naik.
+  const [ink, setInk] = useState(null);
+  const splashInk = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setInk({ left: r.left, top: r.top, color: COLORS.accent });
+    setTimeout(() => setInk(null), 800);
+  };
 
   const todayLabelShort = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const greetingNow = (() => {
@@ -1023,19 +1039,28 @@ export default function App() {
     }, MORPH_CLEANUP_MS);
   };
 
+  // Transisi kembali mengikuti aturan berkas rancangan: JANGAN menebak posisi
+  // kartu tujuan. Halaman awal dipasang dulu dalam keadaan tak terlihat,
+  // kartunya diukur pada saat commit, baru animasinya dimulai.
   const closeAppWithMorph = () => {
-    const saved = activeApp ? cardRectRef.current[activeApp] : null;
-    const key = activeApp;
-    if (!saved) {
+    if (!activeApp) return;
+    setMeasuring(activeApp);
+  };
+
+  useLayoutEffect(() => {
+    if (!measuring) return;
+    const el = document.querySelector(`[data-card="${measuring}"]`);
+    const saved = cardRectRef.current[measuring];
+    if (!el || !saved) {
+      setMeasuring(null);
       setActiveApp(null);
       return;
     }
-    const { rect, color, card } = saved;
-    // Halaman awal juga muncul seketika; kartu mengerut pulang di atasnya.
-    setLastOpenedKey(key);
-    setActiveApp(null);
+    const r = el.getBoundingClientRect();
+    const { color, card } = saved;
+    setLastOpenedKey(measuring);
     setFlight({
-      from: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+      from: { top: r.top, left: r.left, width: r.width, height: r.height },
       to: heroTargetRect(),
       color,
       title: card.title,
@@ -1044,8 +1069,17 @@ export default function App() {
       dateLabel: todayLabelShort,
       back: true,
     });
-    setTimeout(() => setFlight(null), MORPH_CLEANUP_MS);
-  };
+    setVeil(color);
+    setMeasuring(null);
+    setActiveApp(null);
+    const t1 = setTimeout(() => setVeil(null), 560);
+    const t2 = setTimeout(() => setFlight(null), 720);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measuring]);
 
   // Pintasan dari beranda & notifikasi: buka aplikasi yang tepat, arahkan ke
   // halamannya, lalu sorot item yang dimaksud.
@@ -1876,6 +1910,14 @@ export default function App() {
           returningKey={flight && flight.back ? lastOpenedKey : null}
         />
         {flight && <CardFlyer flight={flight} />}
+      {ink && <span className="fab-ink" style={{ left: ink.left, top: ink.top, background: ink.color }} />}
+      {/* Halaman awal dipasang tak terlihat supaya kartunya bisa diukur. */}
+      {measuring && (
+        <div className="fixed inset-0" style={{ opacity: 0, pointerEvents: "none", zIndex: 1 }} aria-hidden="true">
+          <AppPicker userName={userName} onPick={() => {}} onLogout={() => {}} notifSlot={null} />
+        </div>
+      )}
+      {veil && <div className="veil" style={{ background: veil }} />}
       </>
     );
   }
@@ -2238,14 +2280,15 @@ export default function App() {
       {activeApp !== "agenda" && (
         <BottomNav
           view={view}
-          setView={(v) => attemptNavigate(() => setView(v))}
+          setView={(v) => attemptNavigate(() => changeView(v))}
           showAdd={view === "stock" || view === "tobuy"}
-          onAdd={() =>
+          onAdd={(e) => {
+            splashInk(e);
             attemptNavigate(() => {
               if (view === "stock") setModal({ mode: "add" });
               else setToBuyModal({ mode: "add" });
-            })
-          }
+            });
+          }}
         />
       )}
 
@@ -2310,6 +2353,13 @@ export default function App() {
       {showHistory && <HistoryPanel activity={fullActivityFeed} onClose={() => setShowHistory(false)} />}
 
       {flight && <CardFlyer flight={flight} />}
+      {/* Halaman awal dipasang tak terlihat supaya kartunya bisa diukur. */}
+      {measuring && (
+        <div className="fixed inset-0" style={{ opacity: 0, pointerEvents: "none", zIndex: 1 }} aria-hidden="true">
+          <AppPicker userName={userName} onPick={() => {}} onLogout={() => {}} notifSlot={null} />
+        </div>
+      )}
+      {veil && <div className="veil" style={{ background: veil }} />}
 
       {/* User menu drawer */}
       {showUserMenu && (
@@ -3004,19 +3054,65 @@ function Chip({ label, tone }) {
 
 // Kartu filter di halaman Stok — angka besar berwarna sesuai maknanya,
 // label abu-abu di bawahnya. Yang sedang dipilih jadi navy penuh.
-function FilterTile({ label, value, color, active, onClick }) {
+// Tombol simpan berfase: label, lalu pemintal saat menyimpan, lalu centang
+// sesaat sebelum jendelanya turun.
+function SaveButton({ saving, done, label = "Simpan", onClick, style }) {
   return (
     <button
       onClick={onClick}
+      disabled={saving || done}
+      className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white flex items-center justify-center gap-2"
+      style={{ background: COLORS.primary, opacity: saving ? 0.85 : 1, ...style }}
+    >
+      {done ? (
+        <>
+          <Check size={16} /> Tersimpan
+        </>
+      ) : saving ? (
+        <>
+          <Loader2 size={16} className="spin" /> Menyimpan
+        </>
+      ) : (
+        label
+      )}
+    </button>
+  );
+}
+
+function FilterTile({ label, value, color, active, onClick }) {
+  return (
+    <button
+      onClick={(e) => {
+        // Warna mengembang dari titik yang disentuh, bukan berganti mendadak.
+        const r = e.currentTarget.getBoundingClientRect();
+        e.currentTarget.style.setProperty("--ox", `${e.clientX - r.left}px`);
+        e.currentTarget.style.setProperty("--oy", `${e.clientY - r.top}px`);
+        onClick();
+      }}
       className="min-w-0 text-left"
       style={{
-        background: active ? COLORS.navy : COLORS.card,
+        position: "relative",
+        overflow: "hidden",
+        background: COLORS.card,
         borderRadius: 18,
         padding: "13px 12px 12px",
         boxShadow: active ? "0 4px 12px rgba(38,49,77,0.22)" : "0 2px 8px rgba(38,49,77,0.05)",
       }}
     >
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: COLORS.navy,
+          borderRadius: 18,
+          transformOrigin: "var(--ox, 50%) var(--oy, 50%)",
+          transform: active ? "scale(1)" : "scale(0)",
+          transition: "transform 560ms var(--ease-lux)",
+        }}
+      />
       <div
+        className="tile-swap relative"
         style={{
           fontFamily: "'Baloo 2', cursive",
           fontWeight: 700,
@@ -3027,7 +3123,7 @@ function FilterTile({ label, value, color, active, onClick }) {
       >
         {value}
       </div>
-      <div className="truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : COLORS.inkSoft }}>
+      <div className="tile-swap relative truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : COLORS.inkSoft }}>
         {label}
       </div>
     </button>
@@ -3188,6 +3284,12 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
 }
 
 function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConfirmPending, onEdit, onDelete, highlighted }) {
+  // Angka bergulir naik saat ditambah, turun saat dikurangi.
+  const [roll, setRoll] = useState({ dir: 0, n: 0 });
+  const bump = (d) => {
+    setRoll((r) => ({ dir: d, n: r.n + 1 }));
+    onAdjust(d);
+  };
   const status = statusOf(item);
   const meta = STATUS_META[status];
   const isLevel = item.type === "level";
@@ -3255,21 +3357,29 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
             ) : (
               <div className="flex items-center gap-2.5">
                 <button
-                  onClick={() => onAdjust(-1)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                  key={`m${roll.n}`}
+                  onClick={() => bump(-1)}
+                  className="tap-ring w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{ border: `1.5px solid ${COLORS.border}` }}
                 >
                   <Minus size={13} color={COLORS.ink} />
                 </button>
-                <div className="text-center" style={{ minWidth: 48 }}>
-                  <span className="font-bold" style={{ fontSize: 15, color: isPending ? COLORS.low : COLORS.ink }}>{displayQty}</span>
+                <div className="text-center overflow-hidden" style={{ minWidth: 48 }}>
+                  <span
+                    key={roll.n}
+                    className={roll.dir > 0 ? "roll-up" : roll.dir < 0 ? "roll-down" : ""}
+                    style={{ display: "inline-block", fontWeight: 700, fontSize: 15, color: isPending ? COLORS.low : COLORS.ink }}
+                  >
+                    {displayQty}
+                  </span>
                   <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
                     {item.unit}
                   </span>
                 </div>
                 <button
-                  onClick={() => onAdjust(1)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                  key={`p${roll.n}`}
+                  onClick={() => bump(1)}
+                  className="tap-ring w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{ border: `1.5px solid ${COLORS.border}` }}
                 >
                   <Plus size={13} color={COLORS.ink} />
@@ -4860,6 +4970,16 @@ function useVisibleViewport() {
 function Overlay({ children, onClose }) {
   const vp = useVisibleViewport();
   const sheetRef = useRef(null);
+  // Jendela turun dulu, baru dilepas — bukan hilang mendadak.
+  const [closing, setClosing] = useState(false);
+  const closeSheet = () => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      onClose && onClose();
+    }, 380);
+  };
 
   // Kolom yang sedang diketik digulir ke tengah supaya tidak tertutup papan
   // ketik, tanpa perlu menggulir sendiri.
@@ -4879,13 +4999,13 @@ function Overlay({ children, onClose }) {
 
   return (
     <div
-      className="sheet-scrim fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+      className={`sheet-scrim${closing ? " scrim-out" : ""} fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4`}
       style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
-      onClick={onClose}
+      onClick={closeSheet}
     >
       <div
         ref={sheetRef}
-        className="sheet-panel w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto"
+        className={`sheet-panel${closing ? " sheet-panel-out" : ""} w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto`}
         style={{
           background: COLORS.card,
           // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
