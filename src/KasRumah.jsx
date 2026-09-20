@@ -1023,12 +1023,19 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
   return (
     <div className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
       <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        <div className="pt-3">
+        <div>
           {/* Kartu sambutan — latar ungu muda mengikuti warna Kas Rumah di
               halaman awal, dengan tulisan ungu tua supaya tetap terbaca. */}
           <div
-            className="relative"
-            style={{ background: COLORS.primary, borderRadius: 34, padding: "26px 24px 28px" }}
+            className="relative flex flex-col justify-between"
+            style={{
+              background: COLORS.primary,
+              borderRadius: "0 0 30px 30px",
+              padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px",
+              height: "calc(244px + env(safe-area-inset-top))",
+              marginLeft: -16,
+              marginRight: -16,
+            }}
           >
             <span
               className="absolute inset-0 overflow-hidden pointer-events-none"
@@ -1066,7 +1073,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                   Rumah
                 </h1>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="hero-actions flex items-center gap-2 shrink-0">
                 {notifSlot}
                 <button
                   onClick={onBackToPicker}

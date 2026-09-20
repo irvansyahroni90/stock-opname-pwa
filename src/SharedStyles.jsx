@@ -32,113 +32,133 @@ export function SharedStyles() {
       .app-enter { animation: appEnter 320ms ease both; }
 
 
-      /* ---------------------------------------------------------------
-         Sistem transisi. JavaScript hanya mengirim empat angka
-         (--dx, --dy, --sx, --sy) lalu lepas tangan; seluruh gerakan di
-         bawah ini dijalankan sendiri oleh peramban.
+      /* ===============================================================
+         Sistem transisi. Satu kurva untuk semua: panjang, tenang, tanpa
+         pantulan. --sp adalah pengali kecepatan global.
+         =============================================================== */
+      :root { --ease-lux: cubic-bezier(.16, 1, .3, 1); --sp: 1; }
 
-         --sp = pengali kecepatan, bisa dipakai memperlambat semuanya
-         sekaligus kalau suatu saat ingin disetel.
-         --------------------------------------------------------------- */
-
-      /* Kartu terbang: berlapis — bergerak, sedikit kabur di tengah jalan,
-         dan menggantung dengan bayangan tebal supaya terasa melayang. */
-      @keyframes flyToHero {
-        from { transform: translate3d(var(--dx), var(--dy), 0) scale(var(--sx), var(--sy)); filter: blur(0px); }
-        45%  { filter: blur(1.5px); }
-        to   { transform: translate3d(0, 0, 0) scale(1, 1); filter: blur(0); }
-      }
-      @keyframes flyBackToCard {
-        from { transform: translate3d(0, 0, 0) scale(1, 1); }
-        to   { transform: translate3d(var(--dx), var(--dy), 0) scale(var(--sx), var(--sy)); }
-      }
-      @keyframes flyerFade { 0%, 78% { opacity: 1; } 100% { opacity: 0; } }
-
+      /* 1. Kartu terbang — serah terima TANPA pudar, jadi tidak ada kedipan.
+         Kartu berhenti tepat di atas kartu atas yang identik lalu dilepas.
+         Bayangan dan sudutnya ikut dianimasikan supaya bentuk akhirnya sama
+         persis — tidak ada satu pun sifat yang "loncat" di bingkai terakhir. */
       .flyer {
         position: fixed;
         z-index: 80;
         pointer-events: none;
         transform-origin: top left;
-        will-change: transform, opacity;
-        box-shadow: 0 30px 60px rgba(18, 32, 24, 0.30);
-        animation: flyToHero calc(620ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) forwards,
-                   flyerFade calc(820ms * var(--sp, 1)) ease forwards;
+        will-change: transform;
+        animation: flyToHero calc(620ms * var(--sp)) var(--ease-lux) forwards,
+                   radiusFwd calc(620ms * var(--sp)) var(--ease-lux) forwards;
       }
+      @keyframes flyToHero {
+        from { transform: translate3d(var(--dx), var(--dy), 0) scale(var(--sx), var(--sy));
+               box-shadow: 0 30px 60px rgba(18,32,24,.30); }
+        45%  { box-shadow: 0 22px 44px rgba(18,32,24,.22); }
+        to   { transform: translate3d(0,0,0) scale(1,1);
+               box-shadow: 0 0 0 rgba(18,32,24,0); }
+      }
+      @keyframes radiusFwd { from { border-radius: 26px } to { border-radius: 0 0 30px 30px } }
+      @keyframes radiusBack { from { border-radius: 0 0 30px 30px } to { border-radius: 26px } }
       .flyer.is-back {
-        animation: flyBackToCard calc(560ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) forwards,
-                   flyerFade calc(720ms * var(--sp, 1)) ease forwards;
+        animation: flyToHero calc(680ms * var(--sp)) var(--ease-lux) forwards,
+                   radiusBack calc(680ms * var(--sp)) var(--ease-lux) forwards;
       }
 
-      /* Dua lapisan tulisan yang bersilangan di dalam kartu terbang. Sengaja
-         TIDAK ikut membesar supaya hurufnya tetap tajam. */
+      /* Teks di dalam kartu terbang: dua lapis yang bersilangan, tidak ikut
+         membesar supaya hurufnya tetap tajam. */
       .flyer-text { position: absolute; left: 0; right: 0; }
-      @keyframes textOut { 0% { opacity: 1; transform: translateY(0); } 40% { opacity: 0; transform: translateY(-8px); } 100% { opacity: 0; } }
-      @keyframes textIn  { 0%, 32% { opacity: 0; transform: translateY(14px); } 100% { opacity: 1; transform: translateY(0); } }
-      .flyer-text-from { animation: textOut calc(620ms * var(--sp, 1)) ease forwards; }
-      .flyer-text-to   { animation: textIn calc(620ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .is-back .flyer-text-from { animation: textIn calc(560ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .is-back .flyer-text-to   { animation: textOut calc(560ms * var(--sp, 1)) ease forwards; }
+      .flyer .flyer-text-to { bottom: 20px; padding: 0 22px; }
+      @keyframes textOut { 0% { opacity:1; transform:translateY(0) } 40% { opacity:0; transform:translateY(-8px) } 100% { opacity:0 } }
+      @keyframes textIn  { 0%,32% { opacity:0; transform:translateY(14px) } 100% { opacity:1; transform:translateY(0) } }
+      .flyer-text-from { animation: textOut calc(620ms * var(--sp)) ease forwards; }
+      .flyer-text-to   { animation: textIn calc(620ms * var(--sp)) var(--ease-lux) forwards; }
+      .is-back .flyer-text-from { animation: textIn calc(680ms * var(--sp)) var(--ease-lux) forwards; }
+      .is-back .flyer-text-to   { animation: textOut calc(680ms * var(--sp)) ease forwards; }
 
-      /* Halaman awal menyurut: mengecil, naik sedikit, dan mengabur. */
-      @keyframes recedeAway { to { opacity: 0; transform: scale(0.93) translateY(-6px); filter: blur(3px); } }
-      .picker-recede { animation: recedeAway calc(420ms * var(--sp, 1)) cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+      /* 1b. Tombol di kartu atas muncul SETELAH kartu mendarat */
+      @keyframes late { 0%,62% { opacity:0 } 100% { opacity:1 } }
+      .hero-actions { animation: late calc(760ms * var(--sp)) ease both; }
 
-      /* Saat kembali: kartu di ATAS kartu yang tadi dibuka datang dari atas,
-         yang di BAWAH datang dari bawah — seolah berkumpul lagi. */
-      @keyframes comeFromTop    { from { opacity: 0; transform: translateY(-34px) scale(0.97); } to { opacity: 1; transform: none; } }
-      @keyframes comeFromBottom { from { opacity: 0; transform: translateY(34px) scale(0.97); }  to { opacity: 1; transform: none; } }
-      .come-top    { animation: comeFromTop calc(560ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; }
-      .come-bottom { animation: comeFromBottom calc(560ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; }
+      /* 2. Halaman awal menyingkir: mundur + buram, bukan sekadar pudar */
+      @keyframes recedeAway { to { opacity:0; transform:scale(.93) translateY(-6px); filter:blur(3px); } }
+      .picker-recede { animation: recedeAway calc(420ms * var(--sp)) cubic-bezier(.4,0,.2,1) forwards; }
 
-      /* Halaman tujuan menggeser masuk sedikit di balik kartu terbang */
-      @keyframes pageIn { 0% { opacity: 0; transform: translateX(var(--pd, 18px)) scale(0.985); } 100% { opacity: 1; transform: none; } }
-      .fx-page { animation: pageIn calc(480ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; }
+      /* Saat kembali: kartu berdatangan dari arah masing-masing, berurutan */
+      @keyframes comeFromTop    { from { opacity:0; transform:translateY(-34px) scale(.97) } to { opacity:1; transform:none } }
+      @keyframes comeFromBottom { from { opacity:0; transform:translateY(34px) scale(.97) }  to { opacity:1; transform:none } }
+      .come-top    { animation: comeFromTop calc(560ms * var(--sp)) var(--ease-lux) both; }
+      .come-bottom { animation: comeFromBottom calc(560ms * var(--sp)) var(--ease-lux) both; }
 
-      /* Baris daftar muncul berurutan */
-      @keyframes rowIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
-      .row-stagger > * { animation: rowIn calc(520ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; }
-      .row-stagger > *:nth-child(1) { animation-delay: calc(40ms * var(--sp, 1)); }
-      .row-stagger > *:nth-child(2) { animation-delay: calc(100ms * var(--sp, 1)); }
-      .row-stagger > *:nth-child(3) { animation-delay: calc(160ms * var(--sp, 1)); }
-      .row-stagger > *:nth-child(4) { animation-delay: calc(220ms * var(--sp, 1)); }
-      .row-stagger > *:nth-child(5) { animation-delay: calc(280ms * var(--sp, 1)); }
-      .row-stagger > *:nth-child(n + 6) { animation-delay: calc(330ms * var(--sp, 1)); }
+      /* 3. Pindah tab: isi masuk dari arah tab yang dituju */
+      @keyframes pageIn { 0% { opacity:0; transform:translateX(var(--pd,18px)) scale(.985) } 100% { opacity:1; transform:none } }
+      .fx-page, .page-enter { animation: pageIn calc(480ms * var(--sp)) var(--ease-lux) both; }
 
-      /* Sentuhan terasa direspons: menekan cepat, kembali perlahan */
-      button {
-        transition: transform calc(420ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1),
-                    box-shadow calc(420ms * var(--sp, 1)) ease,
-                    background-color calc(420ms * var(--sp, 1)) ease,
-                    color calc(420ms * var(--sp, 1)) ease;
+      /* 4. Tombol: tekan cepat, lepas melambat */
+      button { transition: transform calc(420ms * var(--sp)) var(--ease-lux),
+                           background-color calc(420ms * var(--sp)) ease,
+                           color calc(420ms * var(--sp)) ease,
+                           box-shadow calc(420ms * var(--sp)) ease; }
+      button:active { transform: scale(.955); transition-duration: 110ms; }
+
+      /* 5. Angka stok bergulir sesuai arah +/- */
+      @keyframes rollUp { from { opacity:0; transform:translateY(60%) } to { opacity:1; transform:none } }
+      @keyframes rollDown { from { opacity:0; transform:translateY(-60%) } to { opacity:1; transform:none } }
+      .roll-up { animation: rollUp calc(440ms * var(--sp)) var(--ease-lux); }
+      .roll-down { animation: rollDown calc(440ms * var(--sp)) var(--ease-lux); }
+      @keyframes ring { 0% { box-shadow:0 0 0 0 rgba(224,138,60,.45) } 100% { box-shadow:0 0 0 14px rgba(224,138,60,0) } }
+      .tap-ring { animation: ring calc(620ms * var(--sp)) ease-out; }
+
+      /* 6. Centang setuju: masuk melewati posisi akhir, lalu kilau menyapu */
+      @keyframes confirmSlideIn {
+        0% { opacity:0; transform:translateX(18px) scale(.7) }
+        60% { opacity:1; transform:translateX(-2px) scale(1.06) }
+        100% { opacity:1; transform:none }
       }
-      button:active { transform: scale(0.955); transition-duration: 110ms; }
+      .confirm-slide-in { animation: confirmSlideIn calc(520ms * var(--sp)) var(--ease-lux) both; }
+      @keyframes sweep { from { transform:translateX(-110%) } to { transform:translateX(210%) } }
+      .btn-sweep { animation: sweep calc(760ms * var(--sp)) cubic-bezier(.4,0,.2,1); }
 
-      /* Jendela formulir: latar mengabur, panel naik dari bawah */
-      @keyframes scrimIn { from { opacity: 0; backdrop-filter: blur(0px); } to { opacity: 1; backdrop-filter: blur(6px); } }
-      .sheet-scrim { animation: scrimIn calc(460ms * var(--sp, 1)) ease both; }
-      @keyframes sheetUp { 0% { opacity: 0; transform: translateY(64px) scale(0.97); } 100% { opacity: 1; transform: none; } }
-      .sheet-panel { animation: sheetUp calc(620ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: bottom center; }
+      /* 7. Sheet: latar meredup + memburam, panel naik dari bawah */
+      @keyframes scrimIn { from { opacity:0; backdrop-filter:blur(0) } to { opacity:1; backdrop-filter:blur(6px) } }
+      .sheet-scrim { animation: scrimIn calc(460ms * var(--sp)) ease both; }
+      @keyframes sheetUp { 0% { opacity:0; transform:translateY(64px) scale(.97) } 100% { opacity:1; transform:none } }
+      .sheet-panel { animation: sheetUp calc(620ms * var(--sp)) var(--ease-lux) both; transform-origin: bottom center; }
+      @keyframes sheetDown { to { opacity:0; transform:translateY(70px) scale(.97) } }
+      .sheet-panel-out { animation: sheetDown calc(380ms * var(--sp)) cubic-bezier(.4,0,1,1) forwards; }
+      @keyframes scrimOut { to { opacity:0 } }
+      .scrim-out { animation: scrimOut calc(380ms * var(--sp)) ease forwards; }
 
-      /* Panel samping meluncur dari kanan, isinya menyusul berurutan */
-      @keyframes drawerIn { from { opacity: 0; transform: translateX(64px); } to { opacity: 1; transform: none; } }
-      .drawer-panel { animation: drawerIn calc(560ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; }
-      @keyframes drawerRowIn { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
-      .drawer-rows > * { animation: drawerRowIn calc(520ms * var(--sp, 1)) cubic-bezier(0.16, 1, 0.3, 1) both; }
-      .drawer-rows > *:nth-child(1) { animation-delay: calc(90ms * var(--sp, 1)); }
-      .drawer-rows > *:nth-child(2) { animation-delay: calc(140ms * var(--sp, 1)); }
-      .drawer-rows > *:nth-child(3) { animation-delay: calc(190ms * var(--sp, 1)); }
-      .drawer-rows > *:nth-child(4) { animation-delay: calc(240ms * var(--sp, 1)); }
+      /* 8. Riak tinta dari tombol + — melebar di belakang sheet */
+      @keyframes ink { from { transform:scale(0); opacity:.30 } to { transform:scale(34); opacity:0 } }
+      .fab-ink { position:fixed; width:42px; height:42px; border-radius:999px;
+                 pointer-events:none; z-index:45;
+                 animation: ink calc(760ms * var(--sp)) cubic-bezier(.22,1,.36,1) forwards; }
 
-      /* Kartu filter berpindah warna dengan halus */
-      .tile-swap { transition: background-color calc(420ms * var(--sp, 1)) ease, box-shadow calc(420ms * var(--sp, 1)) ease, color calc(420ms * var(--sp, 1)) ease; }
+      /* 9. Drawer: panel meluncur, isinya menyusul satu per satu */
+      @keyframes slideFromRight { from { opacity:0; transform:translateX(64px) } to { opacity:1; transform:none } }
+      .drawer-panel { animation: slideFromRight calc(560ms * var(--sp)) var(--ease-lux) both; }
+      @keyframes drawerRow { from { opacity:0; transform:translateX(26px) } to { opacity:1; transform:none } }
+      .drawer-rows > * { animation: drawerRow calc(520ms * var(--sp)) var(--ease-lux) both; }
+      .drawer-rows > *:nth-child(1){animation-delay:90ms}
+      .drawer-rows > *:nth-child(2){animation-delay:140ms}
+      .drawer-rows > *:nth-child(3){animation-delay:190ms}
+      .drawer-rows > *:nth-child(4){animation-delay:240ms}
 
-      /* Hormati pengguna yang mematikan animasi di pengaturan HP-nya */
+      /* 10. Baris daftar menyusul bertahap */
+      @keyframes rowIn { from { opacity:0; transform:translateY(14px) scale(.985) } to { opacity:1; transform:none } }
+      .row-stagger > * { animation: rowIn calc(520ms * var(--sp)) var(--ease-lux) both; }
+      .row-stagger > *:nth-child(1){animation-delay:40ms}
+      .row-stagger > *:nth-child(2){animation-delay:100ms}
+      .row-stagger > *:nth-child(3){animation-delay:160ms}
+      .row-stagger > *:nth-child(4){animation-delay:220ms}
+      .row-stagger > *:nth-child(5){animation-delay:280ms}
+      .row-stagger > *:nth-child(n+6){animation-delay:330ms}
+
+      .tile-swap { transition: background-color calc(420ms * var(--sp)) ease, box-shadow calc(420ms * var(--sp)) ease, color calc(420ms * var(--sp)) ease; }
+
       @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-        }
+        *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; }
       }
 
       /* Denyut saat struk sedang dibaca AI */

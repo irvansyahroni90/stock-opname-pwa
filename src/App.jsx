@@ -411,8 +411,8 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
 //
 // JavaScript hanya mengukur posisi kartu dan menyerahkan empat angka ke
 // CSS (--dx, --dy, --sx, --sy). Gerakannya sepenuhnya diurus CSS.
-const MORPH_MS = 440;
-const MORPH_CLEANUP_MS = 640;
+const MORPH_MS = 620;
+const MORPH_CLEANUP_MS = 860;
 
 // Tinggi area aman di atas layar (poni iPhone) diukur lewat elemen bayangan.
 function readSafeTop() {
@@ -425,11 +425,15 @@ function readSafeTop() {
 }
 
 // Posisi dan ukuran kartu atas di dalam aplikasi — tempat kartu mendarat.
+// Kartu atas menempel penuh ke tepi layar, tinggi dikunci, sudut membulat
+// hanya di bawah. Bentuk inilah yang membuat serah terima kartu terbang
+// tidak berkedip: kartu mendarat tepat di atas bentuk yang identik.
+const HERO_HEIGHT = 244;
+
 function heroTargetRect() {
   const vw = window.innerWidth;
   const contentWidth = Math.min(vw, 672);
-  const left = (vw - contentWidth) / 2 + 16;
-  return { left, top: readSafeTop() + 12, width: contentWidth - 32, height: 208 };
+  return { left: (vw - contentWidth) / 2, top: 0, width: contentWidth, height: HERO_HEIGHT + readSafeTop() };
 }
 
 // Kartu terbang: digambar pada ukuran & posisi TUJUAN, lalu CSS yang
@@ -446,7 +450,6 @@ function CardFlyer({ flight }) {
         left: to.left,
         width: to.width,
         height: to.height,
-        borderRadius: 30,
         background: color,
         "--dx": `${from.left - to.left}px`,
         "--dy": `${from.top - to.top}px`,
@@ -1949,13 +1952,20 @@ export default function App() {
         >
           <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-              <div className="pt-3">
-                {/* Kartu sambutan hijau — judul, sapaan, tombol, dan tanggal
-                    dikumpulkan jadi satu blok supaya bagian atas layar punya
-                    jangkar visual yang kuat. */}
+              <div>
+                {/* Kartu sambutan menempel penuh ke tepi layar dengan tinggi
+                    dikunci — bentuk yang sama persis dengan kartu terbang,
+                    supaya serah terimanya tidak berkedip. */}
                 <div
-                  className="relative"
-                  style={{ background: COLORS.navy, borderRadius: 34, padding: "26px 24px 28px" }}
+                  className="relative flex flex-col justify-between"
+                  style={{
+                    background: COLORS.navy,
+                    borderRadius: "0 0 30px 30px",
+                    padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px",
+                    height: `calc(${HERO_HEIGHT}px + env(safe-area-inset-top))`,
+                    marginLeft: -16,
+                    marginRight: -16,
+                  }}
                 >
                   {/* Hiasan lingkaran dibungkus lapisan sendiri yang memotong
                       luapannya. Tombol di bawah ini berada DI LUAR lapisan itu,
@@ -1996,7 +2006,7 @@ export default function App() {
                         Rumah
                       </h1>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="hero-actions flex items-center gap-2 shrink-0">
                       {view === "dashboard" ? notifBellOnDark : null}
                       <button
                         onClick={() => attemptNavigate(closeAppWithMorph)}
@@ -3935,11 +3945,19 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
       onTouchMove={onAgendaTouchMove}
       onTouchEnd={onAgendaTouchEnd}
     >
-      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3">
         {/* Kartu sambutan teal */}
         <div
-          className="relative"
-          style={{ background: AG.primary, borderRadius: 34, padding: "26px 24px 28px", marginTop: 12, marginBottom: 14 }}
+          className="relative flex flex-col justify-between"
+          style={{
+            background: AG.primary,
+            borderRadius: "0 0 30px 30px",
+            padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px",
+            height: `calc(${HERO_HEIGHT}px + env(safe-area-inset-top))`,
+            marginLeft: -16,
+            marginRight: -16,
+            marginBottom: 14,
+          }}
         >
           <span
             className="absolute inset-0 overflow-hidden pointer-events-none"
@@ -3977,7 +3995,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
                 Rumah
               </h1>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="hero-actions flex items-center gap-2 shrink-0">
               {notifSlot}
               <button
                 onClick={onSwitchApp}
