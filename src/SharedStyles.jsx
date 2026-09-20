@@ -60,8 +60,15 @@ export function SharedStyles() {
       }
       @keyframes radiusFwd { from { border-radius: 26px } to { border-radius: 0 0 30px 30px } }
       @keyframes radiusBack { from { border-radius: 0 0 30px 30px } to { border-radius: 26px } }
+      @keyframes flyBackToCard {
+        from { transform: translate3d(0,0,0) scale(1,1);
+               box-shadow: 0 0 0 rgba(18,32,24,0); }
+        45%  { box-shadow: 0 22px 44px rgba(18,32,24,.22); }
+        to   { transform: translate3d(var(--dx), var(--dy), 0) scale(var(--sx), var(--sy));
+               box-shadow: 0 30px 60px rgba(18,32,24,.30); }
+      }
       .flyer.is-back {
-        animation: flyToHero calc(680ms * var(--sp)) var(--ease-lux) forwards,
+        animation: flyBackToCard calc(680ms * var(--sp)) var(--ease-lux) forwards,
                    radiusBack calc(680ms * var(--sp)) var(--ease-lux) forwards;
       }
 
@@ -113,7 +120,10 @@ export function SharedStyles() {
 
       /* 3. Pindah tab: isi masuk dari arah tab yang dituju */
       @keyframes pageIn { 0% { opacity:0; transform:translateX(var(--pd,18px)) scale(.985) } 100% { opacity:1; transform:none } }
-      .fx-page, .page-enter { animation: pageIn calc(480ms * var(--sp)) var(--ease-lux) both; }
+      /* Isi halaman menyusul setelah kartu hampir mendarat, bukan muncul
+         bersamaan dengan kartu yang masih di jalan. */
+      .fx-page, .page-enter { animation: pageIn calc(480ms * var(--sp)) var(--ease-lux) both;
+                              animation-delay: calc(150ms * var(--sp)); }
 
       /* 4. Tombol: tekan cepat, lepas melambat */
       button { transition: transform calc(420ms * var(--sp)) var(--ease-lux),

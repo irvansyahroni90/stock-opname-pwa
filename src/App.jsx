@@ -670,12 +670,9 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returnin
                   background: c.cardBg,
                   borderRadius: 26,
                   padding: 18,
-                  animationDelay: returningKey
-                    ? // yang paling dekat dengan kartu yang dibuka datang duluan
-                      `${Math.abs(i - cards.findIndex((x) => x.key === returningKey)) * 60}ms`
-                    : skipIntro
-                    ? undefined
-                    : `${50 + i * 70}ms`,
+                  // Saat kembali, jedanya diatur lewat aturan .card-return
+                  // supaya urutannya sesuai rancangan.
+                  animationDelay: returningKey ? undefined : skipIntro ? undefined : `${50 + i * 70}ms`,
                   // Kartu yang sedang dibuka disembunyikan karena tempatnya
                   // diambil alih kartu terbang.
                   opacity: pickingKey === c.key ? 0 : undefined,
@@ -864,6 +861,7 @@ export default function App() {
   // Transisi kartu melebar: menyimpan posisi kartu terakhir yang disentuh
   // supaya bisa mengerut pulang ke tempat yang sama.
   const cardRectRef = useRef({});
+  const cleanupRef = useRef([]);
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy'
   const [stockSearch, setStockSearch] = useState("");
@@ -1020,9 +1018,6 @@ export default function App() {
     }
     cardRectRef.current[key] = { rect, color, card };
     setPickingKey(key);
-    // Halaman tujuan dipasang SEKARANG JUGA, lalu kartu terbang di atasnya.
-    // Inilah yang menghilangkan momen layar kosong.
-    setActiveApp(key);
     setFlight({
       from: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
       to: heroTargetRect(),
@@ -1033,10 +1028,14 @@ export default function App() {
       dateLabel: todayLabelShort,
       back: false,
     });
-    setTimeout(() => {
+    // Halaman tujuan dipasang sesaat setelahnya, supaya gerakan menyingkir
+    // halaman awal sempat terlihat dulu.
+    const t1 = setTimeout(() => setActiveApp(key), 120);
+    const t2 = setTimeout(() => {
       setFlight(null);
       setPickingKey(null);
     }, MORPH_CLEANUP_MS);
+    cleanupRef.current = [t1, t2];
   };
 
   // Transisi kembali mengikuti aturan berkas rancangan: JANGAN menebak posisi
@@ -1059,12 +1058,12 @@ export default function App() {
     const r = el.getBoundingClientRect();
     const { color, card } = saved;
     setLastOpenedKey(measuring);
-    // Arah kembali: kartu digambar pada posisi KARTU (tujuan akhir), lalu
-    // dibalik transformnya ke posisi kartu atas. Gerakannya sama dengan arah
-    // masuk — yang ditukar hanya titik awal dan tujuannya.
+    // Acuannya sama persis dengan arah maju: elemen digambar seukuran kartu
+    // atas, dan --dx/--dy/--sx/--sy menunjuk ke kartunya. Yang membedakan
+    // hanya arah gerakannya (lihat kelas .is-back).
     setFlight({
-      from: heroTargetRect(),
-      to: { top: r.top, left: r.left, width: r.width, height: r.height },
+      from: { top: r.top, left: r.left, width: r.width, height: r.height },
+      to: heroTargetRect(),
       color,
       title: card.title,
       subtitle: card.subtitle,
