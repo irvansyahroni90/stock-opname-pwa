@@ -44,11 +44,35 @@ import {
   Bell,
   Wallet,
 } from "lucide-react";
-import { AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 import KasRumahApp from "./KasRumah";
 import { SharedStyles } from "./SharedStyles";
-import { Sheet, Drawer, BottomNav as NavBar, FilterTile as Tile } from "./ui";
+import {
+  Sheet,
+  Drawer,
+  BottomNav as NavBar,
+  FilterTile as Tile,
+  TabPager,
+  RollingNumber,
+  CheckCircle,
+  Screen,
+  Backdrop,
+  Rise,
+  FadeSwap,
+  AnimatedList,
+  Stagger,
+  StaggerItem,
+  highlightMotion,
+  Hero,
+  morphId,
+  CARD_CORNERS,
+  HERO_HEIGHT,
+  SPRING,
+  DUR,
+  EASE,
+  EXIT,
+} from "./ui";
 
 const COLORS = {
   bg: "#EDEAE1",
@@ -107,10 +131,8 @@ const AG = {
 
 const APP_FONT = "'Outfit', sans-serif";
 
-// Cincin sorotan saat sebuah item dituju dari beranda/notifikasi. Untuk
-// sementara berupa garis diam; versi beranimasinya menyusul di fase
-// mikro-interaksi.
-const HIGHLIGHT_RING = "0 0 0 3px rgba(224,138,60,0.55)";
+// Warna pendar saat sebuah item dituju dari beranda/notifikasi.
+const HIGHLIGHT_RGB = "224,138,60";
 
 const UNIT_SUGGESTIONS = ["pcs", "kg", "gram", "liter", "ml", "botol", "pack", "sachet"];
 
@@ -385,9 +407,6 @@ function loginErrorMessage(err) {
   return "Gagal masuk. Coba lagi.";
 }
 
-// Tinggi kartu sambutan di atas tiap aplikasi (belum termasuk area poni).
-const HERO_HEIGHT = 244;
-
 // Empat ikon kecil 2x2 di sudut kartu — murni hiasan yang menggambarkan isi
 // aplikasinya, bukan tombol.
 function CardGlyphs({ icons, tint, solid, glyphColor }) {
@@ -412,7 +431,10 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
   );
 }
 
-function AppPicker({ userName, onPick, onLogout, notifSlot }) {
+// returning: { key, morph } — kartu mana yang baru ditinggalkan, dan apakah
+// kartu sambutannya tadi terlihat (kalau ya, kartu ini mengerut kembali dari
+// sana; kalau tidak, kartu ini cukup muncul biasa).
+function AppPicker({ userName, onPick, onLogout, notifSlot, returning }) {
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const greeting = useMemo(() => {
@@ -474,18 +496,24 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
     },
   ];
 
+  const returnIdx = returning ? cards.findIndex((c) => c.key === returning.key) : -1;
+
   return (
-    <div
-      className="flex flex-col"
-      style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: APP_FONT, overflow: "hidden" }}
-    >
-      <SharedStyles />
+    <div className="flex flex-col h-full" style={{ color: COLORS.ink, fontFamily: APP_FONT, overflow: "hidden" }}>
+      <Backdrop color={COLORS.bg} />
 
       <div
-        className="max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0 px-5"
+        className="relative max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0 px-5"
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 14px)", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
       >
-        <div className="shrink-0">
+        {/* zIndex: panel notifikasi di header harus tetap di atas kartu. */}
+        <motion.div
+          className="relative shrink-0"
+          style={{ zIndex: 5 }}
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0, transition: { ...SPRING.page, delay: 0.04 } }}
+          exit={{ opacity: 0, transition: EXIT }}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm" style={{ color: COLORS.inkSoft }}>
@@ -539,41 +567,71 @@ function AppPicker({ userName, onPick, onLogout, notifSlot }) {
             <Calendar size={16} color={COLORS.iconBuyFg} />
             {todayLabel}
           </div>
-        </div>
+        </motion.div>
 
         {/* Ketiga kartu berbagi sisa tinggi layar secara merata, jadi selalu
             muat tanpa perlu digulir — berapa pun tinggi layar HP-nya. */}
         <div className="flex flex-col gap-3 flex-1 min-h-0" style={{ marginTop: 18 }}>
-          {cards.map((c) => {
+          {cards.map((c, i) => {
             const Icon = c.icon;
+            const isReturning = i === returnIdx;
+            // Kartu yang baru ditinggalkan dan kartu sambutannya tadi terlihat:
+            // kartu ini TIDAK memudar — latarnya mengerut kembali dari kartu
+            // sambutan, isinya menyusul.
+            const morphIn = isReturning && returning.morph;
+            // Saat pulang, kartu di atas kartu tadi datang dari atas, yang di
+            // bawahnya dari bawah. Saat pertama dibuka, semuanya naik pelan.
+            const fromY = returning ? (i < returnIdx ? -24 : 24) : 18;
+            const delay = returning ? 0.1 + Math.abs(i - returnIdx) * 0.05 : 0.08 + i * 0.06;
             return (
-              <button
+              <motion.button
                 key={c.key}
                 data-card={c.key}
                 onClick={() => onPick(c.key)}
-                className="relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end"
-                style={{ background: c.cardBg, borderRadius: 26, padding: 18 }}
+                className="relative w-full flex-1 min-h-0 text-left"
+                style={{ background: "transparent", borderRadius: 26 }}
+                initial={morphIn ? false : { opacity: 0, y: fromY }}
+                animate={{ opacity: 1, y: 0, transition: { ...SPRING.page, delay } }}
+                exit={{ opacity: 0, y: 12, transition: EXIT }}
               >
-                <span
-                  className="absolute rounded-full pointer-events-none"
-                  style={{ right: -30, bottom: -70, width: 190, height: 190, background: c.blobColor }}
+                {/* Latar kartu — inilah yang melebar jadi kartu sambutan. */}
+                <motion.span
+                  aria-hidden="true"
+                  layoutId={morphId(c.key)}
+                  className="absolute inset-0"
+                  style={{ background: c.cardBg, ...CARD_CORNERS }}
+                  transition={SPRING.page}
                 />
-                <span
-                  className="absolute flex items-center justify-center"
-                  style={{ left: 18, top: 18, width: 52, height: 52, borderRadius: 17, background: c.iconBg }}
+                <motion.span
+                  className="absolute inset-0 flex flex-col justify-end overflow-hidden"
+                  style={{ padding: 18, borderRadius: 26 }}
+                  initial={morphIn ? { opacity: 0 } : false}
+                  animate={{ opacity: 1, transition: { delay: morphIn ? 0.24 : 0, duration: DUR.base } }}
                 >
-                  <Icon size={25} color={c.iconFg} />
-                </span>
-                <CardGlyphs icons={c.glyphs} tint={c.glyphTint} solid={c.glyphSolid} glyphColor={c.glyphColor} />
-                <div className="relative">
-                  <div
-                    style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 24, lineHeight: 1.15, color: c.titleColor }}
+                  <span
+                    className="absolute rounded-full pointer-events-none"
+                    style={{ right: -30, bottom: -70, width: 190, height: 190, background: c.blobColor }}
+                  />
+                  <span
+                    className="absolute flex items-center justify-center"
+                    style={{ left: 18, top: 18, width: 52, height: 52, borderRadius: 17, background: c.iconBg }}
                   >
-                    {c.title}
-                  </div>
-                  <div style={{ fontSize: 13.5, color: c.subColor, marginTop: 1 }}>{c.subtitle}</div>
-                </div>
-              </button>
+                    <Icon size={25} color={c.iconFg} />
+                  </span>
+                  <CardGlyphs icons={c.glyphs} tint={c.glyphTint} solid={c.glyphSolid} glyphColor={c.glyphColor} />
+                  <span className="relative block">
+                    <span
+                      className="block"
+                      style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 24, lineHeight: 1.15, color: c.titleColor }}
+                    >
+                      {c.title}
+                    </span>
+                    <span className="block" style={{ fontSize: 13.5, color: c.subColor, marginTop: 1 }}>
+                      {c.subtitle}
+                    </span>
+                  </span>
+                </motion.span>
+              </motion.button>
             );
           })}
         </div>
@@ -620,7 +678,12 @@ function LoginScreen({ onLogin }) {
         input:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
       `}</style>
-      <div className="w-full sm:max-w-xs p-5 rounded-2xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+      <motion.div
+        className="w-full sm:max-w-xs p-5 rounded-2xl"
+        style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0, transition: SPRING.page }}
+      >
         <div className="flex flex-col items-center mb-6 mt-2">
           <img
             src="/frinirvan-icon.png"
@@ -692,7 +755,20 @@ function LoginScreen({ onLogin }) {
             {submitting ? "Masuk..." : "Masuk"}
           </button>
         </form>
-      </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// Layar tunggu sesaat (cek login, memuat data). Tulisannya baru muncul
+// setelah jeda singkat, jadi kalau datanya cepat siap, tidak ada kilatan
+// tulisan yang langsung hilang lagi.
+function LoadingScreen({ text }) {
+  return (
+    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.inkSoft, fontFamily: APP_FONT }} className="flex items-center justify-center text-sm">
+      <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.3, duration: DUR.base } }}>
+        {text}
+      </motion.span>
     </div>
   );
 }
@@ -743,61 +819,57 @@ export default function App() {
   const TAB_ORDER = ["dashboard", "stock", "tobuy"];
   const changeView = (next) => setView(next);
 
-  // Buka / tutup aplikasi dari halaman awal. Transisinya menyusul di Fase 2.
-  const openApp = (key) => setActiveApp(key);
-  const closeApp = () => setActiveApp(null);
-
-  // --- Geser kiri/kanan antar tab ---------------------------------------
-  const [dragX, setDragX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const touchStartRef = useRef(null);
-  const dragModeRef = useRef(null);
-
-  const handleTouchStart = (e) => {
-    const t = e.touches[0];
-    touchStartRef.current = { x: t.clientX, y: t.clientY };
-    dragModeRef.current = null;
+  // --- Buka / tutup aplikasi dari halaman awal ---------------------------
+  // returning: kartu mana yang baru ditinggalkan dan apakah kartu
+  // sambutannya tadi terlihat — dipakai halaman awal untuk memilih gerakan
+  // pulang yang tepat (mengerut kembali ke kartu, atau muncul biasa).
+  const [returning, setReturning] = useState(null);
+  // Tab yang sedang dibuka di Kas Rumah (dilaporkan oleh Kas sendiri).
+  const kasViewRef = useRef("dashboard");
+  // Kunci singkat selama transisi, supaya ketukan ganda tidak memicu dua
+  // perpindahan sekaligus.
+  const busyRef = useRef(false);
+  const lockBriefly = () => {
+    busyRef.current = true;
+    setTimeout(() => {
+      busyRef.current = false;
+    }, 650);
   };
 
-  const handleTouchMove = (e) => {
-    if (!touchStartRef.current) return;
-    const t = e.touches[0];
-    const dx = t.clientX - touchStartRef.current.x;
-    const dy = t.clientY - touchStartRef.current.y;
-    if (!dragModeRef.current) {
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-        dragModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
-        if (dragModeRef.current === "horizontal") setIsDragging(true);
-      }
-      return;
-    }
-    if (dragModeRef.current !== "horizontal") return;
-    const idx = TAB_ORDER.indexOf(view);
-    let clamped = dx;
-    if (idx === 0 && dx > 0) clamped = dx * 0.35;
-    if (idx === TAB_ORDER.length - 1 && dx < 0) clamped = dx * 0.35;
-    setDragX(clamped);
+  // entryMorph: true kalau aplikasi dibuka dengan menyentuh kartunya (kartu
+  // melebar jadi kartu sambutan). Kalau dibuka lewat notifikasi/pintasan,
+  // kartu sambutannya cukup muncul memudar.
+  const [entryMorph, setEntryMorph] = useState(false);
+
+  const openApp = (key) => {
+    if (busyRef.current) return;
+    lockBriefly();
+    // Kartu selalu mendarat di beranda aplikasinya.
+    if (key === "stok") setView("dashboard");
+    setEntryMorph(true);
+    setShowNotif(false);
+    setActiveApp(key);
   };
 
-  const resetDrag = () => {
-    setIsDragging(false);
-    setDragX(0);
-    touchStartRef.current = null;
-    dragModeRef.current = null;
+  // Pindah ke aplikasi lain tanpa lewat kartu (notifikasi, pintasan beranda).
+  const jumpToApp = (key) => {
+    if (activeApp === key) return;
+    lockBriefly();
+    setEntryMorph(false);
+    setShowNotif(false);
+    setActiveApp(key);
   };
 
-  const handleTouchEnd = () => {
-    const idx = TAB_ORDER.indexOf(view);
-    const dx = dragX;
-    const SWIPE_THRESHOLD = 60;
-    if (dragModeRef.current === "horizontal") {
-      if (dx < -SWIPE_THRESHOLD && idx < TAB_ORDER.length - 1) {
-        attemptNavigate(() => changeView(TAB_ORDER[idx + 1]));
-      } else if (dx > SWIPE_THRESHOLD && idx > 0) {
-        attemptNavigate(() => changeView(TAB_ORDER[idx - 1]));
-      }
-    }
-    resetDrag();
+  const closeApp = () => {
+    if (busyRef.current || !activeApp) return;
+    lockBriefly();
+    // Kartu sambutan hanya terlihat di beranda aplikasi (Agenda selalu).
+    const heroVisible =
+      activeApp === "agenda" ? true : activeApp === "kas" ? kasViewRef.current === "dashboard" : view === "dashboard";
+    setReturning({ key: activeApp, morph: heroVisible });
+    setShowNotif(false);
+    setShowUserMenu(false);
+    setActiveApp(null);
   };
 
   // --- Perubahan qty/level yang belum dikonfirmasi ------------------------
@@ -860,7 +932,7 @@ export default function App() {
     setStockFilter(s === "safe" ? "all" : s);
     setStockSearch("");
     setHighlightTarget({ type: "stock", id: item.id });
-    setActiveApp("stok");
+    jumpToApp("stok");
     setView("stock");
   };
 
@@ -868,7 +940,7 @@ export default function App() {
     setTobuyFilter(entry.bought ? "bought" : "pending");
     setTobuySearch("");
     setHighlightTarget({ type: "tobuy", id: entry.id });
-    setActiveApp("stok");
+    jumpToApp("stok");
     setView("tobuy");
   };
 
@@ -876,7 +948,7 @@ export default function App() {
     setAgendaFilter("all");
     setAgendaSearch("");
     setHighlightTarget({ type: "agenda", id: task.id });
-    setActiveApp("agenda");
+    jumpToApp("agenda");
   };
 
   // Klik satu baris notifikasi: buka aplikasi asalnya, lalu sorot itemnya.
@@ -887,18 +959,18 @@ export default function App() {
     if (ref.type === "stock") {
       const item = items.find((i) => i.id === ref.id);
       if (item) goToStockItem(item);
-      else setActiveApp("stok");
+      else jumpToApp("stok");
     } else if (ref.type === "tobuy") {
       const entry = toBuy.find((e) => e.id === ref.id);
       if (entry) goToToBuyEntry(entry);
-      else setActiveApp("stok");
+      else jumpToApp("stok");
     } else if (ref.type === "agenda") {
       const task = tasks.find((t) => t.id === ref.id);
       if (task) goToTask(task);
-      else setActiveApp("agenda");
+      else jumpToApp("agenda");
     } else if (ref.type === "kas") {
       setKasHighlightId(ref.id);
-      setActiveApp("kas");
+      jumpToApp("kas");
     }
   };
 
@@ -973,32 +1045,14 @@ export default function App() {
 
   const fileInputRef = useRef(null);
   const userNameRef = useRef("");
-  const trackWrapRef = useRef(null);
-
-  // Guard cadangan (defense-in-depth) untuk bug navigasi tab yang salah
-  // geser: kontainer carousel (digeser via CSS transform) TIDAK PERNAH boleh
-  // punya scroll horizontal sendiri — posisi horizontalnya 100% dikendalikan
-  // oleh transform. Perbaikan utamanya ada di `overflow: "clip"` pada style
-  // kontainer ini, yang mencegah browser diam-diam menggeser scrollLeft
-  // kontainer saat scrollIntoView() dipanggil pada item yang di-highlight.
-  // Listener ini cuma jaring pengaman tambahan.
-  useEffect(() => {
-    const el = trackWrapRef.current;
-    if (!el) return;
-    const resetScroll = () => {
-      if (el.scrollLeft !== 0) el.scrollLeft = 0;
-    };
-    el.addEventListener("scroll", resetScroll, { passive: true });
-    return () => el.removeEventListener("scroll", resetScroll);
-  }, [activeApp]);
-
   // Cegah efek "karet"/tembus ala iOS (rubber-band bounce) saat list
   // discroll sampai mentok atas/bawah — TERMASUK saat app dibuka dari
   // "Add to Home Screen" (mode standalone). Listener dipasang di `document`
   // dan eksplisit non-passive supaya preventDefault()-nya didengar browser.
-  // Ini tidak mengganggu swipe kiri/kanan pindah tab (ditangani terpisah
-  // oleh handleTouchStart/Move/End).
+  // Gerakan menyamping (geser tab, tarik drawer) dibiarkan — itu milik
+  // TabPager dan Drawer.
   useEffect(() => {
+    let startX = 0;
     let startY = 0;
     let scrollTarget = null;
 
@@ -1015,6 +1069,7 @@ export default function App() {
 
     function onStart(e) {
       if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       scrollTarget = findScrollable(e.target);
     }
@@ -1022,8 +1077,10 @@ export default function App() {
     function onMove(e) {
       if (e.touches.length !== 1) return;
 
-      // Bagian dari swipe geser kiri/kanan pindah tab — jangan diganggu.
-      if (dragModeRef.current === "horizontal") return;
+      // Gerakan menyamping — jangan diganggu.
+      const dxAbs = Math.abs(e.touches[0].clientX - startX);
+      const dyAbs = Math.abs(e.touches[0].clientY - startY);
+      if (dxAbs > dyAbs) return;
 
       // Tidak ada elemen yang bisa di-scroll di jalur sentuhan ini (mis.
       // BottomNav, area kosong) — cegah total supaya WebKit standalone
@@ -1591,11 +1648,7 @@ export default function App() {
 
   // Masih mengecek status login ke Firebase (sekejap saat pertama buka app)
   if (authUser === undefined) {
-    return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.inkSoft }} className="flex items-center justify-center text-sm">
-        Memuat...
-      </div>
-    );
+    return <LoadingScreen text="Memuat..." />;
   }
 
   // Belum login (atau baru logout) — tampilkan layar login, jangan render app-nya
@@ -1604,11 +1657,7 @@ export default function App() {
   }
 
   if (loading) {
-    return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.inkSoft }} className="flex items-center justify-center text-sm">
-        Memuat data...
-      </div>
-    );
+    return <LoadingScreen text="Memuat data..." />;
   }
 
   // Belum isi nama — tanya dulu sebelum masuk ke pemilihan aplikasi.
@@ -1640,378 +1689,348 @@ export default function App() {
     );
   }
 
-  // Sudah login & sudah punya nama — pilih mau buka aplikasi yang mana.
-  if (!activeApp) {
-    return <AppPicker userName={userName} onPick={openApp} onLogout={logout} notifSlot={notifBell} />;
-  }
-
-  if (activeApp === "kas") {
-    return (
-      <KasRumahApp
-        userName={userName}
-        onBackToPicker={closeApp}
-        onSwitchApp={closeApp}
-        onLogout={logout}
-        notifSlot={notifBell}
-        notifSlotDark={notifBellOnDark}
-        initialHighlightId={kasHighlightId}
-        onInitialHighlightDone={() => setKasHighlightId(null)}
-      />
-    );
-  }
+  const stokIndex = TAB_ORDER.indexOf(view);
 
   return (
-    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: APP_FONT }}>
+    <div style={{ color: COLORS.ink, fontFamily: APP_FONT }}>
       <SharedStyles />
       <style>{`
         html, body {
           overflow: hidden;
           overscroll-behavior: none;
         }
-        input:focus, button:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
+        input:focus, textarea:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
+        button:focus { outline: none; }
+        button:focus-visible { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
       `}</style>
 
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
-      {activeApp === "agenda" ? (
-        <div className="fixed left-0 right-0" style={{ top: 0, bottom: 0 }}>
-          <AgendaPage
-            tasks={tasks}
-            dueThreshold={dueThreshold}
-            search={agendaSearch}
-            setSearch={setAgendaSearch}
-            filter={agendaFilter}
-            setFilter={setAgendaFilter}
-            onBack={closeApp}
-            onAddTask={() => setTaskModal({ mode: "add" })}
-            onEditTask={(task) => setTaskModal({ mode: "edit", task })}
-            onDeleteTask={(task) => setConfirmDelete({ type: "task", id: task.id, label: task.title })}
-            onToggleDone={handleToggleTaskDone}
-            onOpenThreshold={() => setThresholdModal(true)}
-            userName={userName}
-            onOpenUserMenu={() => setShowUserMenu(true)}
-            onSwitchApp={closeApp}
-            notifSlot={notifBellOnDark}
-            onRefresh={loadAll}
-            highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
-            onHighlightDone={() => setHighlightTarget(null)}
-          />
-        </div>
-      ) : (
-      <div
-        ref={trackWrapRef}
-        className="fixed left-0 right-0 overflow-hidden"
-        style={{ top: 0, bottom: 0, overflow: "clip" }}
-      >
-        <div
-          className="flex h-full"
-          style={{
-            width: "300vw",
-            transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
-          }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={resetDrag}
-        >
-          <div className="h-full overflow-y-auto" style={{ width: "100vw", overscrollBehaviorY: "contain" }}>
-            <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-              <div>
-                {/* Kartu sambutan menempel penuh ke tepi layar dengan tinggi
-                    dikunci. */}
-                <div
-                  className="relative flex flex-col justify-between"
-                  style={{
-                    background: COLORS.navy,
-                    borderRadius: "0 0 30px 30px",
-                    padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px",
-                    height: `calc(${HERO_HEIGHT}px + env(safe-area-inset-top))`,
-                    marginLeft: -16,
-                    marginRight: -16,
-                  }}
-                >
-                  {/* Hiasan lingkaran dibungkus lapisan sendiri yang memotong
-                      luapannya. Tombol di bawah ini berada DI LUAR lapisan itu,
-                      supaya panel notifikasi bebas menjulur keluar kartu. */}
-                  <span
-                    className="absolute inset-0 overflow-hidden pointer-events-none"
-                    style={{ borderRadius: 34 }}
-                    aria-hidden="true"
-                  >
-                    <span
-                      className="absolute rounded-full"
-                      style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(255,255,255,0.07)" }}
-                    />
-                    <span
-                      className="absolute rounded-full"
-                      style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.05)" }}
-                    />
-                  </span>
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="text-sm font-medium" style={{ color: "#A8B2CC" }}>
-                        {greeting}
-                        {userName ? `, ${userName}` : ""} <span>👋</span>
-                      </span>
-                      <h1
-                        style={{
-                          fontFamily: "'Baloo 2', cursive",
-                          fontWeight: 700,
-                          fontSize: 44,
-                          lineHeight: 1.02,
-                          letterSpacing: "-0.5px",
-                          color: "#fff",
-                          marginTop: 4,
+      {/* Setiap aplikasi adalah satu "layar". Layar yang baru selalu di atas,
+          layar yang ditinggalkan memudar di bawahnya — sementara kartu
+          berwarnanya berubah bentuk dari satu layar ke layar lain. */}
+      <AnimatePresence>
+        {!activeApp && (
+          <Screen key="picker">
+            <AppPicker userName={userName} onPick={openApp} onLogout={logout} notifSlot={notifBell} returning={returning} />
+          </Screen>
+        )}
+
+        {activeApp === "kas" && (
+          <Screen key="kas">
+            <KasRumahApp
+              userName={userName}
+              onBackToPicker={closeApp}
+              onSwitchApp={closeApp}
+              onLogout={logout}
+              notifSlot={notifBell}
+              notifSlotDark={notifBellOnDark}
+              initialHighlightId={kasHighlightId}
+              onInitialHighlightDone={() => setKasHighlightId(null)}
+              morphIn={entryMorph}
+              heroLayoutId={morphId("kas")}
+              onViewChange={(v) => {
+                kasViewRef.current = v;
+              }}
+            />
+          </Screen>
+        )}
+
+        {activeApp === "agenda" && (
+          <Screen key="agenda">
+            <AgendaPage
+              tasks={tasks}
+              dueThreshold={dueThreshold}
+              search={agendaSearch}
+              setSearch={setAgendaSearch}
+              filter={agendaFilter}
+              setFilter={setAgendaFilter}
+              onAddTask={() => setTaskModal({ mode: "add" })}
+              onEditTask={(task) => setTaskModal({ mode: "edit", task })}
+              onDeleteTask={(task) => setConfirmDelete({ type: "task", id: task.id, label: task.title })}
+              onToggleDone={handleToggleTaskDone}
+              userName={userName}
+              onOpenUserMenu={() => setShowUserMenu(true)}
+              onSwitchApp={closeApp}
+              notifSlot={notifBellOnDark}
+              highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
+              onHighlightDone={() => setHighlightTarget(null)}
+              morphIn={entryMorph}
+            />
+          </Screen>
+        )}
+
+        {activeApp === "stok" && (
+          <Screen key="stok">
+            <Backdrop color={COLORS.bg} />
+            <div className="fixed inset-0">
+              <TabPager
+                index={stokIndex}
+                onIndexChange={(i) => changeView(TAB_ORDER[i])}
+                canNavigate={() => !pendingEdit}
+                onBlocked={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
+              >
+                <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+                  <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+                    {/* Kartu sambutan menempel penuh ke tepi layar dengan tinggi
+                        dikunci. Lapisan warnanya yang berubah bentuk dari kartu
+                        di halaman awal; isinya menyusul. */}
+                    <Hero color={COLORS.navy} layoutId={view === "dashboard" ? morphId("stok") : undefined} fadeIn={!entryMorph}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium" style={{ color: "#A8B2CC" }}>
+                              {greeting}
+                              {userName ? `, ${userName}` : ""} <span>👋</span>
+                            </span>
+                            <h1
+                              style={{
+                                fontFamily: "'Baloo 2', cursive",
+                                fontWeight: 700,
+                                fontSize: 44,
+                                lineHeight: 1.02,
+                                letterSpacing: "-0.5px",
+                                color: "#fff",
+                                marginTop: 4,
+                              }}
+                            >
+                              Stok
+                              <br />
+                              Rumah
+                            </h1>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {view === "dashboard" ? notifBellOnDark : null}
+                            <button
+                              onClick={() => attemptNavigate(closeApp)}
+                              className="w-10 h-10 rounded-full flex items-center justify-center"
+                              style={{ background: "rgba(255,255,255,0.14)" }}
+                              title="Ganti aplikasi"
+                            >
+                              <LayoutGrid size={19} color="#fff" />
+                            </button>
+                            <button
+                              onClick={() => setShowUserMenu(true)}
+                              className="w-10 h-10 rounded-full flex items-center justify-center"
+                              style={{ background: "rgba(255,255,255,0.14)" }}
+                              title="Menu"
+                            >
+                              <Menu size={19} color="#fff" />
+                            </button>
+                          </div>
+                        </div>
+                        <div
+                          className="inline-flex items-center gap-2 capitalize self-start"
+                          style={{ background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "#E6EAF3" }}
+                        >
+                          <Calendar size={15} color="#E6EAF3" />
+                          {todayLabel}
+                        </div>
+                    </Hero>
+
+                    {/* Tiga ringkasan angka — sekaligus pintasan ke daftar yang sesuai */}
+                    <Rise delay={0.12} className="grid gap-2" style={{ marginTop: 16, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                      <HomeStat
+                        icon={ThumbsUp}
+                        value={stockCounts.total - stockPreview.total}
+                        label="stok aman"
+                        bg={COLORS.navySoft}
+                        fg={COLORS.navy}
+                        textColor={COLORS.navyText}
+                        onClick={() => {
+                          setStockFilter("safe");
+                          setView("stock");
                         }}
-                      >
-                        Stok
-                        <br />
-                        Rumah
-                      </h1>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {view === "dashboard" ? notifBellOnDark : null}
-                      <button
-                        onClick={() => attemptNavigate(closeApp)}
-                        className="w-10 h-10 rounded-full flex items-center justify-center"
-                        style={{ background: "rgba(255,255,255,0.14)" }}
-                        title="Ganti aplikasi"
-                      >
-                        <LayoutGrid size={19} color="#fff" />
-                      </button>
-                      <button
-                        onClick={() => setShowUserMenu(true)}
-                        className="w-10 h-10 rounded-full flex items-center justify-center"
-                        style={{ background: "rgba(255,255,255,0.14)" }}
-                        title="Menu"
-                      >
-                        <Menu size={19} color="#fff" />
-                      </button>
+                      />
+                      <HomeStat
+                        icon={AlertTriangle}
+                        value={stockPreview.total}
+                        label="perlu dicek"
+                        bg={COLORS.iconStockBg}
+                        fg={COLORS.iconStockFg}
+                        textColor={COLORS.iconStockText}
+                        onClick={() => {
+                          setStockFilter(stockCounts.out > 0 ? "out" : "low");
+                          setView("stock");
+                        }}
+                      />
+                      <HomeStat
+                        icon={ShoppingBasket}
+                        value={toBuyCounts.pending}
+                        label="akan dibeli"
+                        bg={COLORS.iconBuyBg}
+                        fg={COLORS.iconBuyFg}
+                        textColor={COLORS.iconBuyText}
+                        onClick={() => {
+                          setTobuyFilter("pending");
+                          setView("tobuy");
+                        }}
+                      />
+                    </Rise>
+
+                    <div className="flex flex-col gap-3" style={{ marginTop: 16 }}>
+                      <Rise delay={0.17}>
+                        <SectionCard
+                          icon={Package}
+                          iconBg={COLORS.iconStockBg}
+                          iconFg={COLORS.iconStockFg}
+                          title="Stok Rumah"
+                          subtitle={
+                            stockPreview.total > 0
+                              ? `${stockPreview.total} barang perlu diperhatikan`
+                              : stockCounts.total === 0
+                              ? "Belum ada item"
+                              : "Semua aman ✓"
+                          }
+                          badge={stockPreview.total}
+                          badgeColor={stockCounts.out > 0 ? COLORS.out : COLORS.low}
+                          onOpen={() => setView("stock")}
+                          rows={stockPreview.list.map((item) => (
+                            <StockPreviewRow key={item.id} item={item} onClick={() => goToStockItem(item)} />
+                          ))}
+                          moreButton={
+                            stockPreview.total > 3 && (
+                              <SeeAllButton
+                                count={stockPreview.total - stockPreview.list.length}
+                                onClick={() => {
+                                  setStockFilter("all");
+                                  setView("stock");
+                                }}
+                              />
+                            )
+                          }
+                        />
+                      </Rise>
+
+                      <Rise delay={0.21}>
+                        <SectionCard
+                          icon={ShoppingCart}
+                          iconBg={COLORS.iconBuyBg}
+                          iconFg={COLORS.iconBuyFg}
+                          title="Akan Dibeli"
+                          subtitle={
+                            toBuyPreview.total > 0
+                              ? `${toBuyPreview.total} barang dalam daftar`
+                              : toBuyCounts.total === 0
+                              ? "Belum ada yang perlu dibeli"
+                              : "Semua sudah dibeli 🎉"
+                          }
+                          badge={toBuyPreview.total}
+                          badgeColor={COLORS.low}
+                          onOpen={() => setView("tobuy")}
+                          rows={toBuyPreview.list.map((entry) => (
+                            <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => goToToBuyEntry(entry)} />
+                          ))}
+                          moreButton={
+                            toBuyPreview.total > 3 && (
+                              <SeeAllButton
+                                count={toBuyPreview.total - toBuyPreview.list.length}
+                                onClick={() => {
+                                  setTobuyFilter("pending");
+                                  setView("tobuy");
+                                }}
+                              />
+                            )
+                          }
+                        />
+                      </Rise>
+
+                      <Rise delay={0.25}>
+                        <SectionCard
+                          icon={CalendarCheck2}
+                          iconBg={COLORS.iconAgendaBg}
+                          iconFg={COLORS.iconAgendaFg}
+                          title="Agenda Rumah"
+                          subtitle={agendaPreview.total > 0 ? `${agendaPreview.total} tugas aktif` : "Belum ada tugas"}
+                          badge={agendaCounts.overdue + agendaCounts.soon}
+                          badgeColor={agendaCounts.overdue > 0 ? COLORS.out : COLORS.low}
+                          onOpen={() => attemptNavigate(() => jumpToApp("agenda"))}
+                          rows={agendaPreview.list.map((task) => (
+                            <AgendaPreviewRow
+                              key={task.id}
+                              task={task}
+                              threshold={dueThreshold}
+                              onToggle={() => handleToggleTaskDone(task.id)}
+                              onClick={() => attemptNavigate(() => goToTask(task))}
+                            />
+                          ))}
+                          moreButton={
+                            agendaPreview.total > 3 && (
+                              <SeeAllButton
+                                count={agendaPreview.total - agendaPreview.list.length}
+                                onClick={() =>
+                                  attemptNavigate(() => {
+                                    setAgendaFilter("all");
+                                    jumpToApp("agenda");
+                                  })
+                                }
+                              />
+                            )
+                          }
+                        />
+                      </Rise>
                     </div>
                   </div>
-                  <div
-                    className="relative inline-flex items-center gap-2 capitalize"
-                    style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "#E6EAF3" }}
-                  >
-                    <Calendar size={15} color="#E6EAF3" />
-                    {todayLabel}
-                  </div>
-                </div>
+                </motion.div>
 
-                {/* Tiga ringkasan angka — sekaligus pintasan ke daftar yang sesuai */}
-                <div
-                  className="grid gap-2"
-                  style={{ marginTop: 16, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
-                >
-                  <HomeStat
-                    icon={ThumbsUp}
-                    value={stockCounts.total - stockPreview.total}
-                    label="stok aman"
-                    bg={COLORS.navySoft}
-                    fg={COLORS.navy}
-                    textColor={COLORS.navyText}
-                    onClick={() => {
-                      setStockFilter("safe");
-                      setView("stock");
-                    }}
-                  />
-                  <HomeStat
-                    icon={AlertTriangle}
-                    value={stockPreview.total}
-                    label="perlu dicek"
-                    bg={COLORS.iconStockBg}
-                    fg={COLORS.iconStockFg}
-                    textColor={COLORS.iconStockText}
-                    onClick={() => {
-                      setStockFilter(stockCounts.out > 0 ? "out" : "low");
-                      setView("stock");
-                    }}
-                  />
-                  <HomeStat
-                    icon={ShoppingBasket}
-                    value={toBuyCounts.pending}
-                    label="akan dibeli"
-                    bg={COLORS.iconBuyBg}
-                    fg={COLORS.iconBuyFg}
-                    textColor={COLORS.iconBuyText}
-                    onClick={() => {
-                      setTobuyFilter("pending");
-                      setView("tobuy");
-                    }}
-                  />
-                </div>
-              </div>
+                <StockPage
+                  items={items}
+                  search={stockSearch}
+                  setSearch={setStockSearch}
+                  filter={stockFilter}
+                  setFilter={setStockFilter}
+                  onBack={() => attemptNavigate(() => setView("dashboard"))}
+                  onEditItem={(item) => attemptNavigate(() => setModal({ mode: "edit", item }))}
+                  onDeleteItem={(item) => attemptNavigate(() => setConfirmDelete({ type: "item", id: item.id, label: item.name }))}
+                  onAdjust={beginOrUpdatePendingQty}
+                  onLevelChange={setPendingLevelEdit}
+                  pendingEdit={pendingEdit}
+                  onConfirmPending={confirmPendingEdit}
+                  onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
+                  onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
+                  onSwitchApp={() => attemptNavigate(closeApp)}
+                  notifSlot={view === "stock" ? notifBell : null}
+                  highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
+                  onHighlightDone={() => setHighlightTarget(null)}
+                />
 
-            <div className="flex flex-col gap-3" style={{ marginTop: 16 }}>
-              <SectionCard
-                icon={Package}
-                iconBg={COLORS.iconStockBg}
-                iconFg={COLORS.iconStockFg}
-                title="Stok Rumah"
-                subtitle={
-                  stockPreview.total > 0
-                    ? `${stockPreview.total} barang perlu diperhatikan`
-                    : stockCounts.total === 0
-                    ? "Belum ada item"
-                    : "Semua aman ✓"
-                }
-                badge={stockPreview.total}
-                badgeColor={stockCounts.out > 0 ? COLORS.out : COLORS.low}
-                onOpen={() => setView("stock")}
-                rows={stockPreview.list.map((item) => (
-                  <StockPreviewRow key={item.id} item={item} onClick={() => goToStockItem(item)} />
-                ))}
-                moreButton={
-                  stockPreview.total > 3 && (
-                    <SeeAllButton
-                      count={stockPreview.total - stockPreview.list.length}
-                      onClick={() => {
-                        setStockFilter("all");
-                        setView("stock");
-                      }}
-                    />
-                  )
-                }
-              />
-
-              <SectionCard
-                icon={ShoppingCart}
-                iconBg={COLORS.iconBuyBg}
-                iconFg={COLORS.iconBuyFg}
-                title="Akan Dibeli"
-                subtitle={
-                  toBuyPreview.total > 0
-                    ? `${toBuyPreview.total} barang dalam daftar`
-                    : toBuyCounts.total === 0
-                    ? "Belum ada yang perlu dibeli"
-                    : "Semua sudah dibeli 🎉"
-                }
-                badge={toBuyPreview.total}
-                badgeColor={COLORS.low}
-                onOpen={() => setView("tobuy")}
-                rows={toBuyPreview.list.map((entry) => (
-                  <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => goToToBuyEntry(entry)} />
-                ))}
-                moreButton={
-                  toBuyPreview.total > 3 && (
-                    <SeeAllButton
-                      count={toBuyPreview.total - toBuyPreview.list.length}
-                      onClick={() => {
-                        setTobuyFilter("pending");
-                        setView("tobuy");
-                      }}
-                    />
-                  )
-                }
-              />
-
-              <SectionCard
-                icon={CalendarCheck2}
-                iconBg={COLORS.iconAgendaBg}
-                iconFg={COLORS.iconAgendaFg}
-                title="Agenda Rumah"
-                subtitle={
-                  agendaPreview.total > 0
-                    ? `${agendaPreview.total} tugas aktif`
-                    : "Belum ada tugas"
-                }
-                badge={agendaCounts.overdue + agendaCounts.soon}
-                badgeColor={agendaCounts.overdue > 0 ? COLORS.out : COLORS.low}
-                onOpen={() => setActiveApp("agenda")}
-                rows={agendaPreview.list.map((task) => (
-                  <AgendaPreviewRow
-                    key={task.id}
-                    task={task}
-                    threshold={dueThreshold}
-                    onToggle={() => handleToggleTaskDone(task.id)}
-                    onClick={() => goToTask(task)}
-                  />
-                ))}
-                moreButton={
-                  agendaPreview.total > 3 && (
-                    <SeeAllButton
-                      count={agendaPreview.total - agendaPreview.list.length}
-                      onClick={() => {
-                        setAgendaFilter("all");
-                        setActiveApp("agenda");
-                      }}
-                    />
-                  )
-                }
-              />
+                <ToBuyPage
+                  toBuy={toBuy}
+                  search={tobuySearch}
+                  setSearch={setTobuySearch}
+                  filter={tobuyFilter}
+                  setFilter={setTobuyFilter}
+                  onBack={() => setView("dashboard")}
+                  onEditEntry={(entry) => setToBuyModal({ mode: "edit", entry })}
+                  onDeleteEntry={(entry) => setConfirmDelete({ type: "tobuy", id: entry.id, label: entry.itemName })}
+                  onToggle={handleToggleBought}
+                  onOpenUserMenu={() => setShowUserMenu(true)}
+                  onSwitchApp={closeApp}
+                  notifSlot={view === "tobuy" ? notifBell : null}
+                  highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
+                  onHighlightDone={() => setHighlightTarget(null)}
+                />
+              </TabPager>
             </div>
-          </div>
-          </div>
 
-          <div className="h-full" style={{ width: "100vw" }}>
-          <StockPage
-            items={items}
-            search={stockSearch}
-            setSearch={setStockSearch}
-            filter={stockFilter}
-            setFilter={setStockFilter}
-            onBack={() => attemptNavigate(() => setView("dashboard"))}
-            onAdd={() => attemptNavigate(() => setModal({ mode: "add" }))}
-            onEditItem={(item) => attemptNavigate(() => setModal({ mode: "edit", item }))}
-            onDeleteItem={(item) => attemptNavigate(() => setConfirmDelete({ type: "item", id: item.id, label: item.name }))}
-            onAdjust={beginOrUpdatePendingQty}
-            onLevelChange={setPendingLevelEdit}
-            pendingEdit={pendingEdit}
-            onConfirmPending={confirmPendingEdit}
-            onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
-            userName={userName}
-            onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
-            onSwitchApp={() => attemptNavigate(closeApp)}
-            notifSlot={view === "stock" ? notifBell : null}
-            onRefresh={loadAll}
-            highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
-            onHighlightDone={() => setHighlightTarget(null)}
-          />
-          </div>
-
-          <div className="h-full" style={{ width: "100vw" }}>
-          <ToBuyPage
-            toBuy={toBuy}
-            search={tobuySearch}
-            setSearch={setTobuySearch}
-            filter={tobuyFilter}
-            setFilter={setTobuyFilter}
-            onBack={() => setView("dashboard")}
-            onAddManual={() => setToBuyModal({ mode: "add" })}
-            onEditEntry={(entry) => setToBuyModal({ mode: "edit", entry })}
-            onDeleteEntry={(entry) => setConfirmDelete({ type: "tobuy", id: entry.id, label: entry.itemName })}
-            onToggle={handleToggleBought}
-            userName={userName}
-            onOpenUserMenu={() => setShowUserMenu(true)}
-            onSwitchApp={closeApp}
-            notifSlot={view === "tobuy" ? notifBell : null}
-            onRefresh={loadAll}
-            highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
-            onHighlightDone={() => setHighlightTarget(null)}
-          />
-          </div>
-
-        </div>
-      </div>
-      )}
-
-      {activeApp !== "agenda" && (
-        <NavBar
-          tabs={STOK_TABS}
-          active={view}
-          onChange={(v) => attemptNavigate(() => changeView(v))}
-          showAdd={view === "stock" || view === "tobuy"}
-          onAdd={() =>
-            attemptNavigate(() => {
-              if (view === "stock") setModal({ mode: "add" });
-              else setToBuyModal({ mode: "add" });
-            })
-          }
-          color={COLORS.navy}
-          accent={COLORS.accent}
-          shadowRgb="38,49,77"
-        />
-      )}
+            <NavBar
+              id="stok-nav"
+              tabs={STOK_TABS}
+              active={view}
+              onChange={(v) => attemptNavigate(() => changeView(v))}
+              showAdd={view === "stock" || view === "tobuy"}
+              onAdd={() =>
+                attemptNavigate(() => {
+                  if (view === "stock") setModal({ mode: "add" });
+                  else setToBuyModal({ mode: "add" });
+                })
+              }
+              color={COLORS.navy}
+              accent={COLORS.accent}
+              shadowRgb="38,49,77"
+            />
+          </Screen>
+        )}
+      </AnimatePresence>
 
       {/* Setiap jendela dibungkus AnimatePresence supaya animasi keluarnya
           tetap diputar walau state-nya sudah dikosongkan. */}
@@ -2271,35 +2290,48 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
         title="Notifikasi"
       >
         <Bell size={onDark ? 19 : 16} color={onDark ? "#fff" : COLORS.ink} />
-        {count > 0 && (
-          <span
-            className="absolute flex items-center justify-center font-semibold text-white"
-            style={{
-              top: -2,
-              right: -2,
-              minWidth: 17,
-              height: 17,
-              padding: "0 4px",
-              borderRadius: 999,
-              background: COLORS.out,
-              fontSize: 10,
-            }}
-          >
-            {count > 9 ? "9+" : count}
-          </span>
-        )}
+        <AnimatePresence initial={false}>
+          {count > 0 && (
+            <motion.span
+              key="badge"
+              className="absolute flex items-center justify-center font-semibold text-white"
+              style={{
+                top: -2,
+                right: -2,
+                minWidth: 17,
+                height: 17,
+                padding: "0 4px",
+                borderRadius: 999,
+                background: COLORS.out,
+                fontSize: 10,
+              }}
+              initial={{ scale: 0.4, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1, transition: SPRING.press }}
+              exit={{ scale: 0.4, opacity: 0, transition: { duration: DUR.micro } }}
+            >
+              <RollingNumber value={count > 9 ? "9+" : count} />
+            </motion.span>
+          )}
+        </AnimatePresence>
       </button>
 
+      {/* Panel tumbuh dari lonceng (sudut kanan atas), bukan muncul mendadak. */}
+      <AnimatePresence>
       {open && (
-        <div
+        <motion.div
+          key="notif-panel"
           className="absolute"
           style={{
             top: "calc(100% + 10px)",
             right: 0,
             zIndex: 60,
             width: panelWidth,
+            transformOrigin: "calc(100% - 20px) -8px",
             filter: "drop-shadow(0 16px 30px rgba(43,42,37,0.20)) drop-shadow(0 2px 6px rgba(43,42,37,0.10))",
           }}
+          initial={{ opacity: 0, scale: 0.94, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0, transition: { ...SPRING.snappy, opacity: { duration: 0.14 } } }}
+          exit={{ opacity: 0, scale: 0.96, y: -4, transition: { duration: DUR.micro, ease: EASE.in } }}
         >
           {/* Panah penunjuk: bentuknya menyatu dengan kartu (bayangan gabungan
               lewat drop-shadow di wrapper), jadi tidak ada garis sambungan */}
@@ -2397,8 +2429,9 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -2413,42 +2446,44 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
 
   return (
     <Drawer onClose={onClose} background={COLORS.bg} font={APP_FONT} color={COLORS.ink} narrow>
-      <div className="flex items-center justify-between mb-6 pt-1">
-        <div className="flex items-center gap-3">
-          <span
-            className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0"
-            style={{ background: COLORS.primary }}
-          >
-            {userName ? userName.charAt(0).toUpperCase() : "?"}
-          </span>
-          <div>
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
-            <div className="text-xs" style={{ color: COLORS.inkSoft }}>{userEmail || "Frinirvan Tracker"}</div>
+      <Stagger>
+        <StaggerItem className="flex items-center justify-between mb-6 pt-1">
+          <div className="flex items-center gap-3">
+            <span
+              className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0"
+              style={{ background: COLORS.primary }}
+            >
+              {userName ? userName.charAt(0).toUpperCase() : "?"}
+            </span>
+            <div>
+              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
+              <div className="text-xs" style={{ color: COLORS.inkSoft }}>{userEmail || "Frinirvan Tracker"}</div>
+            </div>
           </div>
-        </div>
-        <button onClick={onClose}>
-          <X size={18} color={COLORS.inkSoft} />
-        </button>
-      </div>
+          <button onClick={onClose}>
+            <X size={18} color={COLORS.inkSoft} />
+          </button>
+        </StaggerItem>
 
-      <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-        <UserMenuItem icon={User} label="Ganti Nama" onClick={() => runAndClose(onChangeName)} />
-        {onOpenThreshold && (
-          <UserMenuItem
-            icon={SlidersHorizontal}
-            label={`Atur Pengingat (H-${dueThreshold})`}
-            onClick={() => runAndClose(onOpenThreshold)}
-          />
-        )}
-        <UserMenuItem icon={History} label="Riwayat" onClick={() => runAndClose(onOpenHistory)} />
-        <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
-        <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
-      </div>
+        <StaggerItem className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <UserMenuItem icon={User} label="Ganti Nama" onClick={() => runAndClose(onChangeName)} />
+          {onOpenThreshold && (
+            <UserMenuItem
+              icon={SlidersHorizontal}
+              label={`Atur Pengingat (H-${dueThreshold})`}
+              onClick={() => runAndClose(onOpenThreshold)}
+            />
+          )}
+          <UserMenuItem icon={History} label="Riwayat" onClick={() => runAndClose(onOpenHistory)} />
+          <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
+          <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
+        </StaggerItem>
 
-      <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-        <UserMenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
-        <UserMenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
-      </div>
+        <StaggerItem className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+          <UserMenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
+          <UserMenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
+        </StaggerItem>
+      </Stagger>
     </Drawer>
   );
 }
@@ -2528,14 +2563,20 @@ function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badge
       className="relative w-full"
       style={{ background: COLORS.card, borderRadius: 26, padding: 18, boxShadow: "0 4px 14px rgba(31,61,43,0.06)" }}
     >
-      {badge > 0 && (
-        <span
-          className="absolute flex items-center justify-center font-semibold text-white"
-          style={{ top: 18, right: 18, minWidth: 24, height: 24, padding: "0 7px", borderRadius: 12, background: badgeColor, fontSize: 12 }}
-        >
-          {badge}
-        </span>
-      )}
+      <AnimatePresence initial={false}>
+        {badge > 0 && (
+          <motion.span
+            key="badge"
+            className="absolute flex items-center justify-center font-semibold text-white"
+            style={{ top: 18, right: 18, minWidth: 24, height: 24, padding: "0 7px", borderRadius: 12, fontSize: 12 }}
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1, backgroundColor: badgeColor, transition: SPRING.press }}
+            exit={{ scale: 0.5, opacity: 0, transition: { duration: DUR.micro } }}
+          >
+            <RollingNumber value={badge} />
+          </motion.span>
+        )}
+      </AnimatePresence>
       <button onClick={onOpen} className="w-full flex items-center gap-3 text-left pr-9">
         <div
           className="flex items-center justify-center shrink-0"
@@ -2551,9 +2592,9 @@ function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badge
         </div>
       </button>
       {rows && React.Children.count(rows) > 0 && (
-        <div className="flex flex-col gap-2" style={{ marginTop: 14 }}>
+        <AnimatedList className="flex flex-col gap-2" style={{ marginTop: 14 }}>
           {rows}
-        </div>
+        </AnimatedList>
       )}
       {moreButton}
     </div>
@@ -2594,13 +2635,14 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
   if (entry.place) detailParts.push(entry.place);
   return (
     <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
-      <button
+      <CheckCircle
+        checked={false}
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
         }}
-        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-        style={{ background: "transparent", border: `1.5px solid ${COLORS.border}` }}
+        color={COLORS.safe}
+        borderColor={COLORS.border}
         title="Tandai sudah dibeli"
       />
       <button onClick={onClick} className="flex-1 min-w-0 flex flex-col items-start text-left">
@@ -2623,13 +2665,14 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
   const meta = URGENCY_META[urgency];
   return (
     <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
-      <button
+      <CheckCircle
+        checked={false}
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
         }}
-        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-        style={{ background: "transparent", border: `1.5px solid ${COLORS.border}` }}
+        color={COLORS.safe}
+        borderColor={COLORS.border}
         title="Tandai selesai"
       />
       <button onClick={onClick} className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left">
@@ -2667,7 +2710,7 @@ function HomeStat({ icon: Icon, value, label, bg, fg, textColor, onClick }) {
           marginTop: 3,
         }}
       >
-        {value}
+        <RollingNumber value={value} />
       </span>
       <span className="truncate" style={{ fontSize: 11, color: textColor, lineHeight: "16px", marginTop: 1 }}>
         {label}
@@ -2720,10 +2763,16 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
 
   useEffect(() => {
     if (!highlightId) return;
-    const el = document.getElementById(`stock-item-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
-    return () => clearTimeout(t);
+    // Tunggu halaman/daftarnya selesai bergeser dulu, baru digulir ke item.
+    const t1 = setTimeout(() => {
+      const el = document.getElementById(`stock-item-${highlightId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }, 320);
+    const t2 = setTimeout(() => onHighlightDone && onHighlightDone(), 2000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
@@ -2743,10 +2792,10 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         {/* Empat kartu filter: angka besar berwarna sesuai maknanya, label
             abu-abu di bawahnya. Yang aktif jadi navy penuh. */}
         <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <FilterTile label="Semua" value={counts.total} color={COLORS.navy} active={filter === "all"} onClick={() => guardedSetFilter("all")} />
-          <FilterTile label="Aman" value={counts.total - counts.low - counts.out} color={COLORS.safe} active={filter === "safe"} onClick={() => guardedSetFilter("safe")} />
-          <FilterTile label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
-          <FilterTile label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
+          <FilterTile group="stok" label="Semua" value={counts.total} color={COLORS.navy} active={filter === "all"} onClick={() => guardedSetFilter("all")} />
+          <FilterTile group="stok" label="Aman" value={counts.total - counts.low - counts.out} color={COLORS.safe} active={filter === "safe"} onClick={() => guardedSetFilter("safe")} />
+          <FilterTile group="stok" label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
+          <FilterTile group="stok" label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
         </div>
 
         <div
@@ -2764,9 +2813,11 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         </div>
       </div>
 
-      {/* Area list: satu-satunya yang scroll & bounce, terpisah dari header. */}
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <div className="max-w-2xl mx-auto px-4 pb-32">
+      {/* Area list: satu-satunya yang scroll & bounce, terpisah dari header.
+          Ganti filter = berganti silang cepat; tambah/hapus/pindah urutan item
+          = baris bergerak halus ke tempatnya. */}
+      <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pb-32">
           {filteredSorted.length === 0 ? (
             <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <Package size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
@@ -2775,7 +2826,7 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-2.5">
+            <AnimatedList className="flex flex-col gap-2.5">
               {filteredSorted.map((item) => {
                 const isPending = pendingEdit && pendingEdit.itemId === item.id;
                 const isBlocked = !!pendingEdit && !isPending;
@@ -2794,10 +2845,10 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
                   />
                 );
               })}
-            </div>
+            </AnimatedList>
           )}
-        </div>
-      </div>
+        </FadeSwap>
+      </motion.div>
     </div>
   );
 }
@@ -2809,18 +2860,26 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
   const isPending = !!pendingDraft;
   const displayQty = isPending && pendingDraft.kind === "qty" ? pendingDraft.draft : item.qty;
   const displayLevel = isPending && pendingDraft.kind === "level" ? pendingDraft.draft : item.level;
+  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
   return (
-    <div
+    <motion.div
       id={`stock-item-${item.id}`}
       className="rounded-2xl overflow-hidden flex"
-      style={{
-        background: COLORS.card,
-        border: `1px solid ${isPending ? COLORS.low : COLORS.border}`,
+      style={{ background: COLORS.card, borderWidth: 1, borderStyle: "solid" }}
+      initial={false}
+      animate={{
+        ...glow.animate,
+        borderColor: isPending ? COLORS.low : COLORS.border,
         opacity: blocked ? 0.55 : 1,
-        boxShadow: highlighted ? HIGHLIGHT_RING : undefined,
       }}
+      transition={{ ...glow.transition, borderColor: { duration: DUR.fast }, opacity: { duration: DUR.fast } }}
     >
-      <div style={{ width: 4, background: isPending ? COLORS.low : meta.fg }} />
+      <motion.div
+        style={{ width: 4 }}
+        initial={false}
+        animate={{ backgroundColor: isPending ? COLORS.low : meta.fg }}
+        transition={{ duration: DUR.fast }}
+      />
       <div className="flex-1 p-3">
         <div className="min-w-0">
           <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
@@ -2835,11 +2894,20 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
                 min {item.minQty} {item.unit}
               </span>
             )}
-            {isPending && (
-              <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: COLORS.lowBg, color: COLORS.low, fontSize: 11 }}>
-                Belum disetujui
-              </span>
-            )}
+            <AnimatePresence initial={false}>
+              {isPending && (
+                <motion.span
+                  key="pending"
+                  className="px-1.5 py-0.5 rounded-full font-medium"
+                  style={{ background: COLORS.lowBg, color: COLORS.low, fontSize: 11 }}
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1, transition: SPRING.press }}
+                  exit={{ opacity: 0, scale: 0.85, transition: { duration: DUR.micro } }}
+                >
+                  Belum disetujui
+                </motion.span>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -2877,9 +2945,14 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
                   <Minus size={13} color={COLORS.ink} />
                 </button>
                 <div className="text-center" style={{ minWidth: 48 }}>
-                  <span style={{ display: "inline-block", fontWeight: 700, fontSize: 15, color: isPending ? COLORS.low : COLORS.ink }}>
-                    {displayQty}
-                  </span>
+                  <motion.span
+                    style={{ display: "inline-block", fontWeight: 700, fontSize: 15 }}
+                    initial={false}
+                    animate={{ color: isPending ? COLORS.low : COLORS.ink }}
+                    transition={{ duration: DUR.fast }}
+                  >
+                    <RollingNumber value={displayQty} />
+                  </motion.span>
                   <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
                     {item.unit}
                   </span>
@@ -2895,16 +2968,22 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
             )}
           </div>
 
-          {isPending && (
-            <button
-              onClick={onConfirmPending}
-              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white"
-              style={{ background: COLORS.safe, boxShadow: "0 3px 10px rgba(107,143,113,0.4)" }}
-              title="Setujui perubahan"
-            >
-              <Check size={16} />
-            </button>
-          )}
+          <AnimatePresence initial={false}>
+            {isPending && (
+              <motion.button
+                key="confirm"
+                onClick={onConfirmPending}
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white"
+                style={{ background: COLORS.safe, boxShadow: "0 3px 10px rgba(107,143,113,0.4)" }}
+                title="Setujui perubahan"
+                initial={{ opacity: 0, scale: 0.5, x: 12 }}
+                animate={{ opacity: 1, scale: 1, x: 0, transition: SPRING.press }}
+                exit={{ opacity: 0, scale: 0.5, transition: { duration: DUR.micro } }}
+              >
+                <Check size={16} />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </div>
 
         {item.notes && (
@@ -2943,7 +3022,7 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -3133,10 +3212,16 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEdit
 
   useEffect(() => {
     if (!highlightId) return;
-    const el = document.getElementById(`tobuy-item-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
-    return () => clearTimeout(t);
+    // Tunggu halaman/daftarnya selesai bergeser dulu, baru digulir ke item.
+    const t1 = setTimeout(() => {
+      const el = document.getElementById(`tobuy-item-${highlightId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }, 320);
+    const t2 = setTimeout(() => onHighlightDone && onHighlightDone(), 2000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
@@ -3153,8 +3238,8 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEdit
 
         {/* Format kartu filter dibuat sama persis dengan halaman Stok. */}
         <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-          <FilterTile label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
-          <FilterTile label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
+          <FilterTile group="tobuy" label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
+          <FilterTile group="tobuy" label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
         </div>
 
         <div
@@ -3172,8 +3257,8 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEdit
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <div className="max-w-2xl mx-auto px-4 pb-32">
+      <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pb-32">
           {filtered.length === 0 ? (
             <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <ShoppingCart size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
@@ -3182,14 +3267,14 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEdit
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <AnimatedList className="flex flex-col gap-2">
               {filtered.map((e) => (
                 <ToBuyRow key={e.id} entry={e} onToggle={() => onToggle(e.id)} onEdit={() => onEditEntry(e)} onDelete={() => onDeleteEntry(e)} highlighted={e.id === highlightId} />
               ))}
-            </div>
+            </AnimatedList>
           )}
-        </div>
-      </div>
+        </FadeSwap>
+      </motion.div>
     </div>
   );
 }
@@ -3199,20 +3284,25 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
   if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
   if (entry.place) detailParts.push(entry.place);
 
+  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
   return (
-    <div
+    <motion.div
       id={`tobuy-item-${entry.id}`}
       className="rounded-2xl p-3"
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: highlighted ? HIGHLIGHT_RING : undefined }}
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+      initial={false}
+      animate={glow.animate}
+      transition={glow.transition}
     >
       <div className="flex items-start gap-2.5">
-        <button
+        <CheckCircle
+          checked={entry.bought}
           onClick={onToggle}
-          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
-          style={{ background: entry.bought ? COLORS.safe : "transparent", border: `1.5px solid ${entry.bought ? COLORS.safe : COLORS.border}` }}
-        >
-          {entry.bought && <Check size={12} color="#fff" />}
-        </button>
+          color={COLORS.safe}
+          borderColor={COLORS.border}
+          style={{ marginTop: 2 }}
+          title={entry.bought ? "Batal tandai dibeli" : "Tandai sudah dibeli"}
+        />
         <div className="min-w-0 flex-1">
           <div
             className="font-semibold truncate"
@@ -3268,7 +3358,7 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -3435,39 +3525,10 @@ function AgendaTile(props) {
   return <Tile activeBg={AG.primary} inkSoft={AG.inkSoft} shadowRgb="23,64,61" {...props} />;
 }
 
-function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onAddTask, onEditTask, onDeleteTask, onToggleDone, userName, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
+function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onAddTask, onEditTask, onDeleteTask, onToggleDone, userName, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone, morphIn }) {
+  const SUBVIEWS = ["list", "calendar"];
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
 
-  // Geser samping untuk berpindah antara List dan Kalender, seperti tab di
-  // aplikasi lain.
-  const swipeRef = useRef(null);
-  const swipeModeRef = useRef(null);
-  const onAgendaTouchStart = (e) => {
-    const t = e.touches[0];
-    swipeRef.current = { x: t.clientX, y: t.clientY };
-    swipeModeRef.current = null;
-  };
-  const onAgendaTouchMove = (e) => {
-    if (!swipeRef.current) return;
-    const t = e.touches[0];
-    const dx = t.clientX - swipeRef.current.x;
-    const dy = t.clientY - swipeRef.current.y;
-    if (!swipeModeRef.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-      swipeModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
-    }
-  };
-  const onAgendaTouchEnd = (e) => {
-    if (!swipeRef.current || swipeModeRef.current !== "horizontal") {
-      swipeRef.current = null;
-      return;
-    }
-    const t = e.changedTouches[0];
-    const dx = t.clientX - swipeRef.current.x;
-    swipeRef.current = null;
-    swipeModeRef.current = null;
-    if (dx < -60 && subView === "list") setSubView("calendar");
-    else if (dx > 60 && subView === "calendar") setSubView("list");
-  };
   const agendaGreeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -3519,156 +3580,138 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
 
   useEffect(() => {
     if (!highlightId) return;
-    const el = document.getElementById(`agenda-item-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
-    return () => clearTimeout(t);
+    // Sorotan selalu di tab List.
+    setSubView("list");
+    // Tunggu halaman/daftarnya selesai bergeser dulu, baru digulir ke item.
+    const t1 = setTimeout(() => {
+      const el = document.getElementById(`agenda-item-${highlightId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }, 320);
+    const t2 = setTimeout(() => onHighlightDone && onHighlightDone(), 2000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
   return (
-    // Kepala halaman (kartu sambutan, penyaring, pencarian) dikunci di atas;
-    // hanya daftar tugas / kalender yang tergulir. Geser samping berpindah
-    // antara List dan Kalender.
-    <div
-      className="h-full flex flex-col"
-      style={{ background: AG.bg }}
-      onTouchStart={onAgendaTouchStart}
-      onTouchMove={onAgendaTouchMove}
-      onTouchEnd={onAgendaTouchEnd}
-    >
-      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3">
-        {/* Kartu sambutan teal */}
-        <div
-          className="relative flex flex-col justify-between"
-          style={{
-            background: AG.primary,
-            borderRadius: "0 0 30px 30px",
-            padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px",
-            height: `calc(${HERO_HEIGHT}px + env(safe-area-inset-top))`,
-            marginLeft: -16,
-            marginRight: -16,
-            marginBottom: 14,
-          }}
-        >
-          <span
-            className="absolute inset-0 overflow-hidden pointer-events-none"
-            style={{ borderRadius: 34 }}
-            aria-hidden="true"
-          >
-            <span
-              className="absolute rounded-full"
-              style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(255,255,255,0.07)" }}
-            />
-            <span
-              className="absolute rounded-full"
-              style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.05)" }}
-            />
-          </span>
-          <div className="relative flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
-                {agendaGreeting}
-                {userName ? `, ${userName}` : ""} <span>👋</span>
-              </span>
-              <h1
-                style={{
-                  fontFamily: "'Baloo 2', cursive",
-                  fontWeight: 700,
-                  fontSize: 44,
-                  lineHeight: 1.02,
-                  letterSpacing: "-0.5px",
-                  color: "#fff",
-                  marginTop: 4,
-                }}
-              >
-                Agenda
-                <br />
-                Rumah
-              </h1>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {notifSlot}
-              <button
-                onClick={onSwitchApp}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.14)" }}
-                title="Ganti aplikasi"
-              >
-                <LayoutGrid size={18} color="#fff" />
-              </button>
-              <button
-                onClick={onOpenUserMenu}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.14)" }}
-                title="Menu"
-              >
-                <Menu size={18} color="#fff" />
-              </button>
-            </div>
-          </div>
-          <div
-            className="relative inline-flex items-center gap-2 capitalize"
-            style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
-          >
-            <Clock size={15} color="rgba(255,255,255,0.88)" />
-            {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-          </div>
-        </div>
+    // Kartu sambutan dikunci di atas; di bawahnya dua halaman (List dan
+    // Kalender) yang bisa digeser atau dipilih dari navigasi bawah.
+    <div className="h-full flex flex-col" style={{ color: AG.ink }}>
+      <Backdrop color={AG.bg} />
 
-        {subView === "list" && (
-          <>
-            <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-              <AgendaTile label="Semua" value={counts.all} color={AG.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-              <AgendaTile label="Dekat" value={counts.soon} color={AG.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
-              <AgendaTile label="Terlambat" value={counts.overdue} color={AG.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
-              <AgendaTile label="Selesai" value={counts.done} color={AG.safe} active={filter === "done"} onClick={() => setFilter("done")} />
+      <div className="relative shrink-0 max-w-2xl mx-auto w-full px-4">
+        {/* Kartu sambutan teal — lapisan warnanya berubah bentuk dari kartu
+            di halaman awal, isinya menyusul. */}
+        <Hero color={AG.primary} layoutId={morphId("agenda")} fadeIn={!morphIn} marginBottom={14}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
+                  {agendaGreeting}
+                  {userName ? `, ${userName}` : ""} <span>👋</span>
+                </span>
+                <h1
+                  style={{
+                    fontFamily: "'Baloo 2', cursive",
+                    fontWeight: 700,
+                    fontSize: 44,
+                    lineHeight: 1.02,
+                    letterSpacing: "-0.5px",
+                    color: "#fff",
+                    marginTop: 4,
+                  }}
+                >
+                  Agenda
+                  <br />
+                  Rumah
+                </h1>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {notifSlot}
+                <button
+                  onClick={onSwitchApp}
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(255,255,255,0.14)" }}
+                  title="Ganti aplikasi"
+                >
+                  <LayoutGrid size={18} color="#fff" />
+                </button>
+                <button
+                  onClick={onOpenUserMenu}
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(255,255,255,0.14)" }}
+                  title="Menu"
+                >
+                  <Menu size={18} color="#fff" />
+                </button>
+              </div>
             </div>
-
             <div
-              className="flex items-center gap-2.5"
-              style={{ background: AG.card, borderRadius: 999, padding: "13px 18px" }}
+              className="inline-flex items-center gap-2 capitalize self-start"
+              style={{ background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
             >
-              <Search size={18} color={AG.inkSoft} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari tugas..."
-                className="flex-1 bg-transparent"
-                style={{ color: AG.ink, fontSize: 14.5, outline: "none", border: "none" }}
-              />
+              <Clock size={15} color="rgba(255,255,255,0.88)" />
+              {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </div>
-          </>
-        )}
-
+        </Hero>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <div className="max-w-2xl mx-auto w-full px-4 pb-32">
-          {subView === "list" ? (
-            <>
-              {listToShow.length === 0 ? (
-                <div className="py-10 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, marginBottom: 12 }}>
-                  <ListTodo size={26} color={AG.inkSoft} style={{ margin: "0 auto 8px" }} />
-                  <div style={{ color: AG.inkSoft }} className="text-sm">
-                    {tasks.length === 0 ? "Belum ada tugas." : showingDone ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
+      <Rise delay={0.12} className="relative flex-1 min-h-0">
+        <TabPager index={SUBVIEWS.indexOf(subView)} onIndexChange={(i) => setSubView(SUBVIEWS[i])}>
+          {/* Halaman List: penyaring & pencarian dikunci, daftar tergulir. */}
+          <div className="h-full flex flex-col">
+            <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3">
+              <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                <AgendaTile group="agenda" label="Semua" value={counts.all} color={AG.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+                <AgendaTile group="agenda" label="Dekat" value={counts.soon} color={AG.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
+                <AgendaTile group="agenda" label="Terlambat" value={counts.overdue} color={AG.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+                <AgendaTile group="agenda" label="Selesai" value={counts.done} color={AG.safe} active={filter === "done"} onClick={() => setFilter("done")} />
+              </div>
+
+              <div className="flex items-center gap-2.5" style={{ background: AG.card, borderRadius: 999, padding: "13px 18px" }}>
+                <Search size={18} color={AG.inkSoft} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Cari tugas..."
+                  className="flex-1 bg-transparent"
+                  style={{ color: AG.ink, fontSize: 14.5, outline: "none", border: "none" }}
+                />
+              </div>
+            </div>
+
+            <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+              <FadeSwap swapKey={filter} className="max-w-2xl mx-auto w-full px-4 pb-32">
+                {listToShow.length === 0 ? (
+                  <div className="py-10 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, marginBottom: 12 }}>
+                    <ListTodo size={26} color={AG.inkSoft} style={{ margin: "0 auto 8px" }} />
+                    <div style={{ color: AG.inkSoft }} className="text-sm">
+                      {tasks.length === 0 ? "Belum ada tugas." : showingDone ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {listToShow.map((t) => (
-                    <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} highlighted={t.id === highlightId} />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
-          )}
-        </div>
-      </div>
+                ) : (
+                  <AnimatedList className="flex flex-col gap-2">
+                    {listToShow.map((t) => (
+                      <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} highlighted={t.id === highlightId} />
+                    ))}
+                  </AnimatedList>
+                )}
+              </FadeSwap>
+            </motion.div>
+          </div>
+
+          {/* Halaman Kalender */}
+          <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+            <div className="max-w-2xl mx-auto w-full px-4 pb-32">
+              <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
+            </div>
+          </motion.div>
+        </TabPager>
+      </Rise>
 
       <NavBar
+        id="agenda-nav"
         tabs={AGENDA_TABS}
         active={subView}
         onChange={setSubView}
@@ -3720,6 +3763,12 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
     return d;
   });
   const [selectedDate, setSelectedDate] = useState(() => toDateStr(new Date()));
+  // Arah pergantian bulan: 1 = maju (grid masuk dari kanan), -1 = mundur.
+  const [monthDir, setMonthDir] = useState(1);
+  const goMonth = (delta) => {
+    setMonthDir(delta);
+    setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta, 1));
+  };
 
   const active = tasks.filter((t) => !t.done);
 
@@ -3795,7 +3844,7 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
       <div style={{ background: AG.card, borderRadius: 24, padding: 18 }}>
         <div className="flex items-center justify-between gap-2 mb-4">
           <button
-            onClick={() => setCursor(new Date(year, month - 1, 1))}
+            onClick={() => goMonth(-1)}
             className="flex items-center justify-center shrink-0"
             style={{ width: 40, height: 40, borderRadius: 14, background: AG.soft }}
             title="Bulan sebelumnya"
@@ -3804,12 +3853,14 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
           </button>
           <div className="text-center min-w-0">
             <div className="capitalize" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 20, color: AG.ink }}>
-              {monthLabel}
+              <RollingNumber value={monthLabel} />
             </div>
-            <div style={{ fontSize: 12.5, color: AG.inkSoft, marginTop: 1 }}>{monthTaskCount} tugas bulan ini</div>
+            <div style={{ fontSize: 12.5, color: AG.inkSoft, marginTop: 1 }}>
+              <RollingNumber value={monthTaskCount} /> tugas bulan ini
+            </div>
           </div>
           <button
-            onClick={() => setCursor(new Date(year, month + 1, 1))}
+            onClick={() => goMonth(1)}
             className="flex items-center justify-center shrink-0"
             style={{ width: 40, height: 40, borderRadius: 14, background: AG.primary }}
             title="Bulan berikutnya"
@@ -3830,7 +3881,23 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-y-1">
+        <div className="relative overflow-hidden">
+        <AnimatePresence initial={false} mode="popLayout" custom={monthDir}>
+        <motion.div
+          key={`${year}-${month}`}
+          className="grid grid-cols-7 gap-y-1"
+          custom={monthDir}
+          variants={{
+            enter: (d) => ({ x: d > 0 ? 36 : -36, opacity: 0 }),
+            // Bulan baru masuk sedikit setelah bulan lama pergi, supaya
+            // angka tanggal keduanya tidak sempat bertumpuk.
+            center: { x: 0, opacity: 1, transition: { ...SPRING.snappy, opacity: { duration: DUR.fast, delay: 0.08 } } },
+            exit: (d) => ({ x: d > 0 ? -36 : 36, opacity: 0, transition: { duration: 0.12, ease: EASE.in } }),
+          }}
+          initial="enter"
+          animate="center"
+          exit="exit"
+        >
           {cells.map((c, i) => {
             const info = dateMap[c.dateStr];
             const isToday = c.dateStr === todayStr;
@@ -3895,6 +3962,8 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
               </button>
             );
           })}
+        </motion.div>
+        </AnimatePresence>
         </div>
 
         <div className="flex flex-wrap gap-2" style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${AG.border}` }}>
@@ -3936,38 +4005,42 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
         )}
       </div>
 
-      {selectedTasks.length === 0 && selectedProjected.length === 0 ? (
-        <div
-          className="py-8 text-center"
-          style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, color: AG.inkSoft }}
-        >
-          <span className="text-sm">Gak ada tugas di tanggal ini.</span>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {selectedTasks.map((t) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              threshold={dueThreshold}
-              onToggle={() => onToggleDone(t.id)}
-              onEdit={() => onEditTask(t)}
-              onDelete={() => onDeleteTask(t)}
-            />
-          ))}
-
-          {selectedProjected.length > 0 && (
-            <>
-              <div style={{ fontSize: 12, color: AG.inkSoft, marginTop: 6 }}>
-                Jadwal berulang berikutnya
-              </div>
-              {selectedProjected.map((t) => (
-                <ProjectedTaskRow key={`${t.id}-${t.occurrence}`} task={t} />
+      <FadeSwap swapKey={selectedDate}>
+        {selectedTasks.length === 0 && selectedProjected.length === 0 ? (
+          <div
+            className="py-8 text-center"
+            style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, color: AG.inkSoft }}
+          >
+            <span className="text-sm">Gak ada tugas di tanggal ini.</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <AnimatedList className="flex flex-col gap-2">
+              {selectedTasks.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  threshold={dueThreshold}
+                  onToggle={() => onToggleDone(t.id)}
+                  onEdit={() => onEditTask(t)}
+                  onDelete={() => onDeleteTask(t)}
+                />
               ))}
-            </>
-          )}
-        </div>
-      )}
+            </AnimatedList>
+
+            {selectedProjected.length > 0 && (
+              <>
+                <div style={{ fontSize: 12, color: AG.inkSoft, marginTop: 6 }}>
+                  Jadwal berulang berikutnya
+                </div>
+                {selectedProjected.map((t) => (
+                  <ProjectedTaskRow key={`${t.id}-${t.occurrence}`} task={t} />
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </FadeSwap>
     </div>
   );
 }
@@ -4018,29 +4091,35 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
   // Warna garis tepi kiri menandakan tingkat mendesaknya tugas.
   const barColor = task.done ? AG.safe : urgency === "overdue" ? AG.out : urgency === "soon" ? AG.low : AG.primary;
 
+  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
   return (
-    <div
+    <motion.div
       id={`agenda-item-${task.id}`}
       className="relative overflow-hidden"
-      style={{ background: AG.card, borderRadius: 20, paddingLeft: 6, boxShadow: highlighted ? HIGHLIGHT_RING : undefined }}
+      style={{ background: AG.card, borderRadius: 20, paddingLeft: 6 }}
+      initial={false}
+      animate={glow.animate}
+      transition={glow.transition}
     >
-      <span className="absolute left-0 top-0 bottom-0" style={{ width: 6, background: barColor }} />
+      <motion.span
+        className="absolute left-0 top-0 bottom-0"
+        style={{ width: 6 }}
+        initial={false}
+        animate={{ backgroundColor: barColor }}
+        transition={{ duration: DUR.fast }}
+      />
       <div style={{ padding: "16px 16px 0 12px" }}>
         <div className="flex items-start gap-3">
-          <button
+          <CheckCircle
+            checked={task.done}
             onClick={onToggle}
-            className="flex items-center justify-center shrink-0"
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: 999,
-              marginTop: 1,
-              background: task.done ? AG.safe : "transparent",
-              border: `2px solid ${task.done ? AG.safe : AG.border}`,
-            }}
-          >
-            {task.done && <Check size={14} color="#fff" />}
-          </button>
+            size={26}
+            borderWidth={2}
+            color={AG.safe}
+            borderColor={AG.border}
+            style={{ marginTop: 1 }}
+            title={task.done ? "Batal selesai" : "Tandai selesai"}
+          />
 
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
@@ -4149,7 +4228,7 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -4417,9 +4496,9 @@ function HistoryPanel({ activity, onClose }) {
           Belum ada riwayat perubahan.
         </div>
       ) : (
-        <div className="flex flex-col">
+        <Stagger className="flex flex-col">
           {groups.map((g, gi) => (
-            <div key={g.label}>
+            <StaggerItem key={g.label}>
               <div
                 className="uppercase"
                 style={{
@@ -4457,9 +4536,9 @@ function HistoryPanel({ activity, onClose }) {
                   );
                 })}
               </div>
-            </div>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       )}
     </Drawer>
   );

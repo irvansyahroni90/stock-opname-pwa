@@ -47,11 +47,29 @@ import {
   CreditCard,
   Coins,
 } from "lucide-react";
-import { AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { storageSet, storageSubscribe } from "./firebase";
 import { SharedStyles } from "./SharedStyles";
 import { scanReceipt, guessWallet, findDuplicate } from "./receiptScan";
-import { Sheet, Drawer, BottomNav as NavBar, FilterTile as Tile } from "./ui";
+import {
+  Sheet,
+  Drawer,
+  BottomNav as NavBar,
+  FilterTile as Tile,
+  TabPager,
+  RollingNumber,
+  Backdrop,
+  Rise,
+  FadeSwap,
+  AnimatedList,
+  Stagger,
+  StaggerItem,
+  Collapse,
+  Hero,
+  highlightMotion,
+  SPRING,
+  DUR,
+} from "./ui";
 
 // Palet khusus Kas Rumah — hijau hutan pekat dengan aksen oranye.
 const COLORS = {
@@ -88,9 +106,8 @@ const COLORS = {
 
 const KAS_FONT = "'Poppins', system-ui, sans-serif";
 
-// Cincin sorotan saat transaksi dituju dari beranda/notifikasi. Versi
-// beranimasinya menyusul di fase mikro-interaksi.
-const HIGHLIGHT_RING = "0 0 0 3px rgba(220,138,44,0.55)";
+// Warna pendar saat transaksi dituju dari beranda/notifikasi.
+const HIGHLIGHT_RGB = "220,138,44";
 
 const TAB_ORDER = ["dashboard", "transactions", "wallets"];
 
@@ -337,6 +354,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
           onClick={onBack}
           className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
           style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+          title="Kembali"
         >
           <ArrowLeft size={17} color={COLORS.ink} />
         </button>
@@ -361,6 +379,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
           onClick={onOpenMenu}
           className="w-10 h-10 rounded-full flex items-center justify-center"
           style={{ background: COLORS.card, boxShadow: "0 2px 8px rgba(43,42,37,0.10)" }}
+          title="Menu"
         >
           <Menu size={16} color={COLORS.ink} />
         </button>
@@ -375,8 +394,29 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
 // awal.
 let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null };
 
-export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, notifSlotDark, initialHighlightId, onInitialHighlightDone }) {
-  const [view, setView] = useState("dashboard");
+export default function KasRumahApp({
+  userName,
+  onBackToPicker,
+  onLogout,
+  onSwitchApp,
+  notifSlot,
+  notifSlotDark,
+  initialHighlightId,
+  onInitialHighlightDone,
+  morphIn,
+  heroLayoutId,
+  onViewChange,
+}) {
+  // Dibuka dari notifikasi transaksi → langsung di tab Transaksi sejak awal,
+  // supaya tidak sempat terlihat beranda lalu bergeser.
+  const [view, setView] = useState(() => (initialHighlightId ? "transactions" : "dashboard"));
+
+  // Laporkan tab yang terbuka ke App, supaya saat pulang ke halaman awal App
+  // tahu apakah kartu sambutan sedang terlihat (untuk animasi mengerut).
+  useEffect(() => {
+    onViewChange && onViewChange(view);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
   // Kalau data sebelumnya masih tersimpan, langsung tampilkan tanpa layar muat.
   const [loading, setLoading] = useState(() => !(kasCache.wallets && kasCache.categories && kasCache.transactions));
 
@@ -602,60 +642,24 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
     return { income, expense, balance, monthCount: transactions.filter((t) => isSameMonth(t.date, ref)).length };
   }, [transactions, wallets]);
 
-  // --- Geser kiri/kanan antar tab --------------------------------------
-  const [dragX, setDragX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const touchStartRef = useRef(null);
-  const dragModeRef = useRef(null);
-
-  const handleTouchStart = (e) => {
-    const t = e.touches[0];
-    touchStartRef.current = { x: t.clientX, y: t.clientY };
-    dragModeRef.current = null;
-  };
-
-  const handleTouchMove = (e) => {
-    if (!touchStartRef.current) return;
-    const t = e.touches[0];
-    const dx = t.clientX - touchStartRef.current.x;
-    const dy = t.clientY - touchStartRef.current.y;
-    if (!dragModeRef.current) {
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-        dragModeRef.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
-        if (dragModeRef.current === "horizontal") setIsDragging(true);
-      }
-      return;
-    }
-    if (dragModeRef.current !== "horizontal") return;
-    const idx = TAB_ORDER.indexOf(view);
-    let clamped = dx;
-    if (idx === 0 && dx > 0) clamped = dx * 0.35;
-    if (idx === TAB_ORDER.length - 1 && dx < 0) clamped = dx * 0.35;
-    setDragX(clamped);
-  };
-
-  const resetDrag = () => {
-    setIsDragging(false);
-    setDragX(0);
-    touchStartRef.current = null;
-    dragModeRef.current = null;
-  };
-
-  const handleTouchEnd = () => {
-    const idx = TAB_ORDER.indexOf(view);
-    const dx = dragX;
-    const THRESHOLD = 60;
-    if (dragModeRef.current === "horizontal") {
-      if (dx < -THRESHOLD && idx < TAB_ORDER.length - 1) setView(TAB_ORDER[idx + 1]);
-      else if (dx > THRESHOLD && idx > 0) setView(TAB_ORDER[idx - 1]);
-    }
-    resetDrag();
-  };
-
+  // Data pertama kali belum siap: kartu sambutan tetap langsung tampil (jadi
+  // kartu dari halaman awal tetap punya tempat mendarat), sisanya menunggu.
   if (loading) {
     return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.inkSoft }} className="flex items-center justify-center text-sm">
-        Memuat data...
+      <div className="h-full" style={{ color: COLORS.ink, fontFamily: KAS_FONT }}>
+        <SharedStyles />
+        <Backdrop color={COLORS.bg} />
+        <div className="relative max-w-2xl mx-auto px-4" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+          <KasHero userName={userName} layoutId={heroLayoutId} fadeIn={!morphIn} />
+          <motion.div
+            className="text-center text-sm"
+            style={{ color: COLORS.inkSoft, marginTop: 40 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { delay: 0.3, duration: DUR.base } }}
+          >
+            Memuat data...
+          </motion.div>
+        </div>
       </div>
     );
   }
@@ -666,101 +670,94 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   };
 
   return (
-    <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: KAS_FONT, overflow: "hidden" }}>
+    <div className="h-full" style={{ color: COLORS.ink, fontFamily: KAS_FONT }}>
       <SharedStyles />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
       `}</style>
+      <Backdrop color={COLORS.bg} />
 
-      <div className="h-full overflow-hidden">
-        <div
-          className="flex h-full"
-          style={{
-            width: "300vw",
-            transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
-          }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={resetDrag}
-        >
-          <div className="h-full" style={{ width: "100vw" }}>
-            <DashboardPage
-              userName={userName}
-              totals={totals}
-              recent={sortedTx.slice(0, 4)}
-              transactions={transactions}
-              catById={catById}
-              walById={walById}
-              onOpenMenu={() => setShowMenu(true)}
-              walletCount={wallets.length}
-              onSeeAll={() => setView("transactions")}
-              onOpenTransfer={() => setTransferModal(true)}
-              onSeeWallets={() => setView("wallets")}
-              notifSlot={view === "dashboard" ? notifSlotDark || notifSlot : null}
-              onOpenTx={(tx) => {
-                setView("transactions");
-                setHighlightId(tx.id);
-              }}
-              onBackToPicker={onBackToPicker}
-            />
-          </div>
+      <div className="fixed inset-0">
+        <TabPager index={TAB_ORDER.indexOf(view)} onIndexChange={(i) => setView(TAB_ORDER[i])}>
+          <DashboardPage
+            userName={userName}
+            totals={totals}
+            recent={sortedTx.slice(0, 4)}
+            transactions={transactions}
+            catById={catById}
+            walById={walById}
+            onOpenMenu={() => setShowMenu(true)}
+            walletCount={wallets.length}
+            onSeeAll={() => setView("transactions")}
+            onOpenTransfer={() => setTransferModal(true)}
+            onSeeWallets={() => setView("wallets")}
+            notifSlot={view === "dashboard" ? notifSlotDark || notifSlot : null}
+            onOpenTx={(tx) => {
+              setView("transactions");
+              setHighlightId(tx.id);
+            }}
+            onBackToPicker={onBackToPicker}
+            heroLayoutId={view === "dashboard" ? heroLayoutId : undefined}
+            morphIn={morphIn}
+          />
 
-          <div className="h-full" style={{ width: "100vw" }}>
-            <TransactionsPage
-              transactions={sortedTx}
-              catById={catById}
-              walById={walById}
-              search={txSearch}
-              setSearch={setTxSearch}
-              filter={txFilter}
-              setFilter={setTxFilter}
-              onBack={() => setView("dashboard")}
-              onOpenMenu={() => setShowMenu(true)}
-              onSwitchApp={onBackToPicker}
-              notifSlot={view === "transactions" ? notifSlot : null}
-              onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
-              onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
-              highlightId={highlightId}
-              onHighlightDone={() => setHighlightId(null)}
-              onDuplicate={(tx) =>
-                setTxModal({
-                  mode: "duplicate",
-                  tx: { ...tx, id: undefined, date: new Date().toISOString() },
-                })
-              }
-            />
-          </div>
+          <TransactionsPage
+            transactions={sortedTx}
+            catById={catById}
+            walById={walById}
+            search={txSearch}
+            setSearch={setTxSearch}
+            filter={txFilter}
+            setFilter={setTxFilter}
+            onBack={() => setView("dashboard")}
+            onOpenMenu={() => setShowMenu(true)}
+            onSwitchApp={onBackToPicker}
+            notifSlot={view === "transactions" ? notifSlot : null}
+            onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
+            onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
+            highlightId={highlightId}
+            onHighlightDone={() => setHighlightId(null)}
+            onDuplicate={(tx) =>
+              setTxModal({
+                mode: "duplicate",
+                tx: { ...tx, id: undefined, date: new Date().toISOString() },
+              })
+            }
+          />
 
-          <div className="h-full" style={{ width: "100vw" }}>
-            <WalletsPage
-              wallets={wallets}
-              transactions={transactions}
-              onBack={() => setView("dashboard")}
-              onOpenMenu={() => setShowMenu(true)}
-              onSwitchApp={onBackToPicker}
-              notifSlot={view === "wallets" ? notifSlot : null}
-              onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
-              onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
-            />
-          </div>
-
-        </div>
+          <WalletsPage
+            wallets={wallets}
+            transactions={transactions}
+            onBack={() => setView("dashboard")}
+            onOpenMenu={() => setShowMenu(true)}
+            onSwitchApp={onBackToPicker}
+            notifSlot={view === "wallets" ? notifSlot : null}
+            onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
+            onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
+          />
+        </TabPager>
       </div>
 
       {/* Tombol scan tetap melayang, ditaruh di atas kapsul navigasi. */}
-      {(view === "dashboard" || view === "transactions") && (
-        <button
-          onClick={() => setScanModal(true)}
-          className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-          style={{ width: 46, height: 46, background: COLORS.card, color: COLORS.primary, border: `1.5px solid ${COLORS.border}`, bottom: "calc(90px + env(safe-area-inset-bottom))" }}
-          title="Scan struk"
-        >
-          <ScanLine size={20} />
-        </button>
-      )}
+      <AnimatePresence>
+        {(view === "dashboard" || view === "transactions") && (
+          <motion.button
+            key="scan"
+            onClick={() => setScanModal(true)}
+            className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
+            style={{ width: 46, height: 46, background: COLORS.card, color: COLORS.primary, border: `1.5px solid ${COLORS.border}`, bottom: "calc(90px + env(safe-area-inset-bottom))" }}
+            title="Scan struk"
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1, transition: { ...SPRING.snappy, delay: 0.1 } }}
+            exit={{ opacity: 0, scale: 0.6, transition: { duration: DUR.micro } }}
+          >
+            <ScanLine size={20} />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <NavBar
+        id="kas-nav"
         tabs={KAS_TABS}
         active={view}
         onChange={setView}
@@ -908,7 +905,10 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
 }
 
 // --- Beranda ------------------------------------------------------------
-function DashboardPage({ userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot }) {
+// Kartu sambutan hijau pekat. Dipisah jadi komponen sendiri karena juga
+// dipakai di layar tunggu (supaya kartu dari halaman awal selalu punya
+// tempat mendarat walau datanya belum siap).
+function KasHero({ userName, layoutId, fadeIn, notifSlot, onBackToPicker, onOpenMenu }) {
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 10) return "Selamat pagi";
@@ -916,94 +916,82 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
     if (h < 18) return "Selamat sore";
     return "Selamat malam";
   }, []);
-
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-      <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        <div>
-          {/* Kartu sambutan hijau pekat */}
-          <div
-            className="relative flex flex-col justify-between"
+    <Hero color={COLORS.primary} layoutId={layoutId} fadeIn={fadeIn}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
+            {greeting}
+            {userName ? `, ${userName}` : ""} <span>👋</span>
+          </span>
+          <h1
             style={{
-              background: COLORS.primary,
-              borderRadius: "0 0 30px 30px",
-              padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px",
-              height: "calc(244px + env(safe-area-inset-top))",
-              marginLeft: -16,
-              marginRight: -16,
+              fontFamily: "'Baloo 2', cursive",
+              fontWeight: 700,
+              fontSize: 44,
+              lineHeight: 1.02,
+              letterSpacing: "-0.5px",
+              color: "#fff",
+              marginTop: 4,
             }}
           >
-            <span
-              className="absolute inset-0 overflow-hidden pointer-events-none"
-              style={{ borderRadius: 34 }}
-              aria-hidden="true"
-            >
-              <span
-                className="absolute rounded-full"
-                style={{ right: -52, top: -60, width: 230, height: 230, background: "rgba(255,255,255,0.07)" }}
-              />
-              <span
-                className="absolute rounded-full"
-                style={{ right: 28, bottom: -66, width: 165, height: 165, background: "rgba(255,255,255,0.05)" }}
-              />
-            </span>
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
-                  {greeting}
-                  {userName ? `, ${userName}` : ""} <span>👋</span>
-                </span>
-                <h1
-                  style={{
-                    fontFamily: "'Baloo 2', cursive",
-                    fontWeight: 700,
-                    fontSize: 44,
-                    lineHeight: 1.02,
-                    letterSpacing: "-0.5px",
-                    color: "#fff",
-                    marginTop: 4,
-                  }}
-                >
-                  Kas
-                  <br />
-                  Rumah
-                </h1>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {notifSlot}
-                <button
-                  onClick={onBackToPicker}
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.14)" }}
-                  title="Ganti aplikasi"
-                >
-                  <LayoutGrid size={19} color="#EAF3EC" />
-                </button>
-                <button
-                  onClick={onOpenMenu}
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.14)" }}
-                  title="Menu"
-                >
-                  <Menu size={19} color="#EAF3EC" />
-                </button>
-              </div>
-            </div>
-            <div
-              className="relative inline-flex items-center gap-2 capitalize"
-              style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
-            >
-              <Calendar size={15} color="rgba(255,255,255,0.88)" />
-              {todayLabel}
-            </div>
-          </div>
+            Kas
+            <br />
+            Rumah
+          </h1>
         </div>
+        {(onBackToPicker || onOpenMenu) && (
+          <div className="flex items-center gap-2 shrink-0">
+            {notifSlot}
+            <button
+              onClick={onBackToPicker}
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.14)" }}
+              title="Ganti aplikasi"
+            >
+              <LayoutGrid size={19} color="#EAF3EC" />
+            </button>
+            <button
+              onClick={onOpenMenu}
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.14)" }}
+              title="Menu"
+            >
+              <Menu size={19} color="#EAF3EC" />
+            </button>
+          </div>
+        )}
+      </div>
+      <div
+        className="inline-flex items-center gap-2 capitalize self-start"
+        style={{ background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
+      >
+        <Calendar size={15} color="rgba(255,255,255,0.88)" />
+        {todayLabel}
+      </div>
+    </Hero>
+  );
+}
+
+function DashboardPage({ userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
+  return (
+    <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+      <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        <KasHero
+          userName={userName}
+          layoutId={heroLayoutId}
+          fadeIn={!morphIn}
+          notifSlot={notifSlot}
+          onBackToPicker={onBackToPicker}
+          onOpenMenu={onOpenMenu}
+        />
 
         {/* Kartu saldo — putih dengan dua kotak Masuk/Keluar dan batang yang
             menunjukkan berapa dari pemasukan bulan ini yang masih tersisa. */}
-        <div
+        <Rise
+          delay={0.12}
           style={{
             background: COLORS.card,
             borderRadius: 26,
@@ -1031,7 +1019,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
           </div>
 
           <div style={{ fontSize: 33, fontWeight: 700, color: COLORS.ink, marginTop: 8, letterSpacing: "-0.02em" }}>
-            {fmtRupiah(totals.balance)}
+            <RollingNumber value={fmtRupiah(totals.balance)} />
           </div>
 
           <div className="flex gap-2.5" style={{ marginTop: 16 }}>
@@ -1040,7 +1028,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                 <ArrowDownLeft size={14} /> Masuk
               </div>
               <div className="truncate" style={{ fontSize: 15.5, fontWeight: 700, color: COLORS.ink, marginTop: 5 }}>
-                {fmtRupiah(totals.income)}
+                <RollingNumber value={fmtRupiah(totals.income)} />
               </div>
             </div>
             <div className="flex-1 min-w-0" style={{ padding: "13px 14px", borderRadius: 18, background: COLORS.lowBg }}>
@@ -1048,25 +1036,27 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                 <ArrowUpRight size={14} /> Keluar
               </div>
               <div className="truncate" style={{ fontSize: 15.5, fontWeight: 700, color: COLORS.ink, marginTop: 5 }}>
-                {fmtRupiah(totals.expense)}
+                <RollingNumber value={fmtRupiah(totals.expense)} />
               </div>
             </div>
           </div>
 
           {totals.income > 0 && (
             <>
+              {/* Batang sisa pemasukan — mengisi dari kiri saat muncul dan
+                  bergeser halus saat angkanya berubah. */}
               <div className="flex" style={{ marginTop: 16, height: 8, borderRadius: 99, background: COLORS.track, overflow: "hidden" }}>
-                <span
-                  style={{
-                    width: `${Math.max(0, Math.min(100, ((totals.income - totals.expense) / totals.income) * 100))}%`,
-                    background: `linear-gradient(90deg, ${COLORS.primaryLight}, ${COLORS.mint})`,
-                  }}
+                <motion.span
+                  style={{ background: `linear-gradient(90deg, ${COLORS.primaryLight}, ${COLORS.mint})` }}
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${Math.max(0, Math.min(100, ((totals.income - totals.expense) / totals.income) * 100))}%` }}
+                  transition={{ ...SPRING.page, delay: 0.25 }}
                 />
-                <span
-                  style={{
-                    width: `${Math.max(0, Math.min(100, (totals.expense / totals.income) * 100))}%`,
-                    background: COLORS.accent,
-                  }}
+                <motion.span
+                  style={{ background: COLORS.accent }}
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${Math.max(0, Math.min(100, (totals.expense / totals.income) * 100))}%` }}
+                  transition={{ ...SPRING.page, delay: 0.3 }}
                 />
               </div>
               <div style={{ marginTop: 9, fontSize: 11.5, color: COLORS.inkSoft }}>
@@ -1074,10 +1064,10 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
               </div>
             </>
           )}
-        </div>
+        </Rise>
 
         {/* Dua pintasan cepat */}
-        <div className="flex gap-2.5" style={{ marginTop: 14 }}>
+        <Rise delay={0.17} className="flex gap-2.5" style={{ marginTop: 14 }}>
           <button
             onClick={onOpenTransfer}
             className="flex-1 text-left"
@@ -1096,8 +1086,9 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
             <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.ink, marginTop: 8 }}>Dompet</div>
             <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>{walletCount} aktif</div>
           </button>
-        </div>
+        </Rise>
 
+        <Rise delay={0.22}>
         {/* Transaksi terbaru */}
         <div className="flex items-center justify-between" style={{ marginTop: 22 }}>
           <span style={{ fontSize: 17, fontWeight: 700, color: COLORS.ink }}>Transaksi terbaru</span>
@@ -1106,7 +1097,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
           </button>
         </div>
 
-        <div className="flex flex-col gap-2" style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12 }}>
           {recent.length === 0 ? (
             <div
               className="text-center"
@@ -1115,7 +1106,8 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
               Belum ada transaksi bulan ini.
             </div>
           ) : (
-            recent.map((t) => {
+            <AnimatedList className="flex flex-col gap-2">
+            {recent.map((t) => {
               const isIncome = t.type === "income";
               const isTransfer = t.type === "transfer";
               const cat = catById[t.categoryId];
@@ -1160,13 +1152,15 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                   </span>
                 </button>
               );
-            })
+            })}
+            </AnimatedList>
           )}
         </div>
 
         <AnalysisSection transactions={transactions} catById={catById} walById={walById} />
+        </Rise>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1220,10 +1214,16 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
 
   useEffect(() => {
     if (!highlightId) return;
-    const el = document.getElementById(`kas-tx-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    const t = setTimeout(() => onHighlightDone && onHighlightDone(), 1300);
-    return () => clearTimeout(t);
+    // Tunggu halaman selesai bergeser dulu, baru digulir ke transaksinya.
+    const t1 = setTimeout(() => {
+      const el = document.getElementById(`kas-tx-${highlightId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }, 360);
+    const t2 = setTimeout(() => onHighlightDone && onHighlightDone(), 2000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
@@ -1233,17 +1233,17 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
         <TopBar title="Transaksi" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
 
         <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <FilterTile label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-          <FilterTile label="Masuk" value={counts.income} color={COLORS.safe} active={filter === "income"} onClick={() => setFilter("income")} />
-          <FilterTile label="Keluar" value={counts.expense} color={COLORS.accentDeep} active={filter === "expense"} onClick={() => setFilter("expense")} />
-          <FilterTile label="Transfer" value={counts.transfer} color={COLORS.inkSoft} active={filter === "transfer"} onClick={() => setFilter("transfer")} />
+          <FilterTile group="kas-tx" label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
+          <FilterTile group="kas-tx" label="Masuk" value={counts.income} color={COLORS.safe} active={filter === "income"} onClick={() => setFilter("income")} />
+          <FilterTile group="kas-tx" label="Keluar" value={counts.expense} color={COLORS.accentDeep} active={filter === "expense"} onClick={() => setFilter("expense")} />
+          <FilterTile group="kas-tx" label="Transfer" value={counts.transfer} color={COLORS.inkSoft} active={filter === "transfer"} onClick={() => setFilter("transfer")} />
         </div>
 
         <SearchBox value={search} onChange={setSearch} placeholder="Cari transaksi..." />
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <div className="max-w-2xl mx-auto px-4 pb-32">
+      <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pb-32">
           {groups.length === 0 ? (
             <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <Receipt size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
@@ -1252,18 +1252,18 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
               </div>
             </div>
           ) : (
-            groups.map((g, gi) => (
+            <AnimatedList>
+            {groups.map((g, gi) => (
               <div key={g.label}>
                 <div className="flex items-center justify-between" style={{ paddingTop: gi === 0 ? 0 : 18, paddingBottom: 8 }}>
                   <span className="uppercase" style={{ fontSize: 11, letterSpacing: 0.6, fontWeight: 700, color: COLORS.primaryLight }}>
                     {g.label}
                   </span>
                   <span className="text-xs font-medium" style={{ color: g.total >= 0 ? COLORS.safe : COLORS.out }}>
-                    {g.total >= 0 ? "+" : "-"}
-                    {fmtShortRupiah(g.total)}
+                    <RollingNumber value={`${g.total >= 0 ? "+" : "-"}${fmtShortRupiah(g.total)}`} />
                   </span>
                 </div>
-                <div className="flex flex-col gap-2">
+                <AnimatedList className="flex flex-col gap-2">
                   {g.items.map((t) => (
                     <TransactionRow
                       key={t.id}
@@ -1278,12 +1278,13 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
                       onDuplicate={() => onDuplicate(t)}
                     />
                   ))}
-                </div>
+                </AnimatedList>
               </div>
-            ))
+            ))}
+            </AnimatedList>
           )}
-        </div>
-      </div>
+        </FadeSwap>
+      </motion.div>
     </div>
   );
 }
@@ -1297,11 +1298,15 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
   const color = isTransfer ? COLORS.low : isIncome ? COLORS.safe : category?.color || COLORS.out;
   const amountColor = isTransfer ? COLORS.inkSoft : isIncome ? COLORS.safe : COLORS.out;
 
+  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
   return (
-    <div
+    <motion.div
       id={`kas-tx-${tx.id}`}
       className="rounded-2xl p-3"
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: highlighted ? HIGHLIGHT_RING : undefined }}
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+      initial={false}
+      animate={glow.animate}
+      transition={glow.transition}
     >
       <div className="flex items-start gap-2.5">
         <span className="shrink-0 rounded-full flex items-center justify-center" style={{ width: 36, height: 36, background: `${color}1F` }}>
@@ -1348,10 +1353,17 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
             <>
               <button onClick={() => setOpenSplit((v) => !v)} className="text-[11px] font-medium mt-1.5 flex items-center gap-1" style={{ color: COLORS.primary }}>
                 {openSplit ? "Sembunyikan rincian" : "Lihat rincian"}
-                <ChevronRight size={11} style={{ transform: openSplit ? "rotate(90deg)" : "none" }} />
+                <motion.span
+                  className="inline-flex"
+                  initial={false}
+                  animate={{ rotate: openSplit ? 90 : 0 }}
+                  transition={SPRING.snappy}
+                >
+                  <ChevronRight size={11} />
+                </motion.span>
               </button>
-              {openSplit && (
-                <div className="flex flex-col gap-1 mt-1.5">
+              <Collapse open={openSplit}>
+                <div className="flex flex-col gap-1 pt-1.5">
                   {tx.splits.map((s, i) => (
                     <div key={i} className="rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2" style={{ background: COLORS.bg }}>
                       <span className="text-[11px] truncate" style={{ color: COLORS.ink }}>
@@ -1363,7 +1375,7 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
                     </div>
                   ))}
                 </div>
-              )}
+              </Collapse>
             </>
           )}
         </div>
@@ -1386,7 +1398,7 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1412,12 +1424,12 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
             Total saldo
           </div>
           <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 23, color: "#fff", lineHeight: 1.2 }}>
-            {fmtRupiah(total)}
+            <RollingNumber value={fmtRupiah(total)} />
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+      <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
         <div className="max-w-2xl mx-auto px-4 pb-32">
           {wallets.length === 0 ? (
             <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
@@ -1427,7 +1439,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-2.5">
+            <AnimatedList className="flex flex-col gap-2.5">
               {wallets.map((w) => {
                 const Icon = WALLET_ICONS[w.icon] || Wallet;
                 const bal = walletBalance(w, transactions);
@@ -1442,7 +1454,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                           {w.name}
                         </div>
                         <div className="font-bold mt-0.5" style={{ fontSize: 16, color: bal < 0 ? COLORS.out : COLORS.primary }}>
-                          {fmtRupiah(bal)}
+                          <RollingNumber value={fmtRupiah(bal)} />
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -1457,10 +1469,10 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                   </div>
                 );
               })}
-            </div>
+            </AnimatedList>
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -1925,6 +1937,8 @@ function AnalysisSection({ transactions, catById, walById }) {
         </button>
       </div>
 
+      {/* Pilihan Pengeluaran/Pemasukan — latar warnanya meluncur ke pilihan
+          yang disentuh. */}
       <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         {[
           { key: "expense", label: "Pengeluaran", color: COLORS.out },
@@ -1936,10 +1950,20 @@ function AnalysisSection({ transactions, catById, walById }) {
               setTxType(o.key);
               setDrill(null);
             }}
-            className="flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ background: txType === o.key ? o.color : "transparent", color: txType === o.key ? "#fff" : COLORS.inkSoft }}
+            className="relative flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ color: txType === o.key ? "#fff" : COLORS.inkSoft }}
           >
-            {o.label}
+            {txType === o.key && (
+              <motion.span
+                layoutId="kas-analysis-type"
+                className="absolute inset-0"
+                style={{ borderRadius: 8 }}
+                initial={false}
+                animate={{ backgroundColor: o.color }}
+                transition={SPRING.snappy}
+              />
+            )}
+            <span className="relative">{o.label}</span>
           </button>
         ))}
       </div>
@@ -1967,7 +1991,7 @@ function AnalysisSection({ transactions, catById, walById }) {
               {txType === "expense" ? "Total pengeluaran" : "Total pemasukan"} · {fmtRangeLabel(range)}
             </div>
             <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
-              {fmtRupiah(total)}
+              <RollingNumber value={fmtRupiah(total)} />
             </div>
             {totalPrev > 0 && (
               <div className="text-xs mt-1.5 flex items-center gap-1" style={{ color: total >= totalPrev ? "#F0C994" : "#BEE0CB" }}>
@@ -2000,18 +2024,27 @@ function AnalysisSection({ transactions, catById, walById }) {
                         setDimension(d.key);
                         setDrill(null);
                       }}
-                      className="px-2.5 py-1 rounded-full text-[11px] font-medium shrink-0"
+                      className="relative px-2.5 py-1 rounded-full text-[11px] font-medium shrink-0"
                       style={{
-                        background: dimension === d.key ? COLORS.primaryLight : COLORS.bg,
+                        background: COLORS.bg,
                         color: dimension === d.key ? "#fff" : COLORS.inkSoft,
                         border: `1px solid ${dimension === d.key ? COLORS.primaryLight : COLORS.border}`,
                       }}
                     >
-                      {d.label}
+                      {dimension === d.key && (
+                        <motion.span
+                          layoutId="kas-analysis-dim"
+                          className="absolute inset-0"
+                          style={{ background: COLORS.primaryLight, borderRadius: 999 }}
+                          transition={SPRING.snappy}
+                        />
+                      )}
+                      <span className="relative">{d.label}</span>
                     </button>
                   ))}
                 </div>
 
+                <FadeSwap swapKey={`${dimension}-${txType}-${period}-${customFrom}-${customTo}`}>
                 <DonutChart slices={groups.slice(0, 8)} total={total} />
 
                 <div className="flex flex-col gap-1.5 mt-4">
@@ -2052,7 +2085,9 @@ function AnalysisSection({ transactions, catById, walById }) {
                     );
                   })}
                 </div>
+                </FadeSwap>
 
+                <Collapse open={!!drill}>
                 {drill && (
                   <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
                     <div className="flex items-center justify-between mb-2">
@@ -2082,6 +2117,7 @@ function AnalysisSection({ transactions, catById, walById }) {
                     </div>
                   </div>
                 )}
+                </Collapse>
               </div>
 
               <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
@@ -2232,10 +2268,20 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
           <button
             key={o.key}
             onClick={() => setType(o.key)}
-            className="flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ background: type === o.key ? o.color : "transparent", color: type === o.key ? "#fff" : COLORS.inkSoft }}
+            className="relative flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ color: type === o.key ? "#fff" : COLORS.inkSoft }}
           >
-            {o.label}
+            {type === o.key && (
+              <motion.span
+                layoutId="kas-tx-type"
+                className="absolute inset-0"
+                style={{ borderRadius: 8 }}
+                initial={false}
+                animate={{ backgroundColor: o.color }}
+                transition={SPRING.snappy}
+              />
+            )}
+            <span className="relative">{o.label}</span>
           </button>
         ))}
       </div>
@@ -2278,6 +2324,7 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
         <Split size={13} /> {isSplit ? "Pakai satu kategori saja" : "Bagi ke beberapa kategori"}
       </button>
 
+      <FadeSwap swapKey={isSplit ? "split" : "single"}>
       {isSplit ? (
         <Field label="Pembagian" className="mb-3">
           <div className="flex flex-col gap-2">
@@ -2364,6 +2411,7 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
           </div>
         </Field>
       )}
+      </FadeSwap>
 
       <Field label="Dompet" className="mb-3">
         <div className="flex flex-wrap gap-1.5">
@@ -2643,6 +2691,7 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
         <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Scan Struk</div>
       </div>
 
+      <FadeSwap swapKey={step}>
       {step === "pick" && (
         <>
           {error === "NO_API_KEY" ? (
@@ -2683,9 +2732,15 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
 
       {step === "loading" && (
         <div className="py-8 text-center">
-          <div className="rounded-full mx-auto mb-3 flex items-center justify-center" style={{ width: 52, height: 52, background: COLORS.iconAgendaBg }}>
+          {/* Denyut halus selama struk dibaca. */}
+          <motion.div
+            className="rounded-full mx-auto mb-3 flex items-center justify-center"
+            style={{ width: 52, height: 52, background: COLORS.iconAgendaBg }}
+            animate={{ scale: [1, 1.08, 1], opacity: [1, 0.8, 1] }}
+            transition={{ duration: 1.4, ease: "easeInOut", repeat: Infinity }}
+          >
             <ScanLine size={22} color={COLORS.iconAgendaFg} />
-          </div>
+          </motion.div>
           <div className="text-sm font-medium" style={{ color: COLORS.ink }}>
             {progress || "Membaca struk..."}
           </div>
@@ -2955,6 +3010,7 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
           </div>
         </>
       )}
+      </FadeSwap>
     </Overlay>
   );
 }
@@ -3231,7 +3287,8 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
 
   return (
     <SidePanel onClose={onClose}>
-      <div className="flex items-center justify-between mb-4">
+      <Stagger>
+      <StaggerItem className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Tag size={18} color={COLORS.primary} />
           <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Kategori</div>
@@ -3239,9 +3296,9 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
         <button onClick={onClose}>
           <X size={18} color={COLORS.inkSoft} />
         </button>
-      </div>
+      </StaggerItem>
 
-      <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+      <StaggerItem className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         {[
           { key: "expense", label: "Pengeluaran" },
           { key: "income", label: "Pemasukan" },
@@ -3249,15 +3306,25 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
           <button
             key={o.key}
             onClick={() => setKind(o.key)}
-            className="flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ background: kind === o.key ? COLORS.primary : "transparent", color: kind === o.key ? "#fff" : COLORS.ink }}
+            className="relative flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ color: kind === o.key ? "#fff" : COLORS.ink }}
           >
-            {o.label}
+            {kind === o.key && (
+              <motion.span
+                layoutId="kas-category-kind"
+                className="absolute inset-0"
+                style={{ background: COLORS.primary, borderRadius: 8 }}
+                transition={SPRING.snappy}
+              />
+            )}
+            <span className="relative">{o.label}</span>
           </button>
         ))}
-      </div>
+      </StaggerItem>
 
-      <div className="flex flex-col gap-2 mb-3">
+      <StaggerItem>
+      <FadeSwap swapKey={kind}>
+      <AnimatedList className="flex flex-col gap-2 mb-3">
         {list.map((c) => {
           const Icon = CATEGORY_ICONS[c.icon] || Tag;
           return (
@@ -3277,7 +3344,8 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
             </div>
           );
         })}
-      </div>
+      </AnimatedList>
+      </FadeSwap>
 
       <button
         onClick={() => onAdd(kind)}
@@ -3286,6 +3354,8 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
       >
         <Plus size={15} /> Tambah kategori
       </button>
+      </StaggerItem>
+      </Stagger>
     </SidePanel>
   );
 }
@@ -3403,7 +3473,8 @@ function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchAp
 
   return (
     <SidePanel onClose={onClose}>
-      <div className="flex items-center justify-between mb-4">
+      <Stagger>
+      <StaggerItem className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <span className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: COLORS.iconAgendaBg }}>
             <User size={17} color={COLORS.iconAgendaFg} />
@@ -3420,19 +3491,20 @@ function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchAp
         <button onClick={onClose}>
           <X size={18} color={COLORS.inkSoft} />
         </button>
-      </div>
+      </StaggerItem>
 
-      <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+      <StaggerItem className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         <MenuItem icon={Tag} label="Kelola Kategori" onClick={() => runAndClose(onOpenCategories)} last={!onTransfer} />
         {onTransfer && (
           <MenuItem icon={ArrowLeftRight} label="Transfer Antar Dompet" onClick={() => runAndClose(onTransfer)} last />
         )}
-      </div>
+      </StaggerItem>
 
-      <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+      <StaggerItem className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         <MenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
         <MenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
-      </div>
+      </StaggerItem>
+      </Stagger>
     </SidePanel>
   );
 }

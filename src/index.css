@@ -8,6 +8,9 @@ html, body, #root {
 
 body {
   margin: 0;
+  /* Warna dasar sama dengan latar halaman awal, supaya tidak ada kilatan
+     putih saat layar berganti. */
+  background: #EDEAE1;
   -webkit-tap-highlight-color: transparent;
   /* Cegah pinch-zoom & double-tap zoom di iOS/Android supaya terasa
      seperti aplikasi native, bukan halaman web biasa. */
