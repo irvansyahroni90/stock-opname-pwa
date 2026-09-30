@@ -46,30 +46,58 @@ export function RollingNumber({ value, style, className }) {
 // CheckCircle — lingkaran centang. Warnanya mengisi dengan halus dan
 // tanda centangnya tergambar sebagai garis, bukan muncul mendadak.
 // ---------------------------------------------------------------------
-export function CheckCircle({ checked, onClick, size = 20, color, borderColor, borderWidth = 1.5, title, style }) {
+export function CheckCircle({ checked, onClick, size = 20, color, borderColor, borderWidth = 1.5, title, style, hit = false }) {
+  const circle = {
+    initial: false,
+    animate: {
+      backgroundColor: checked ? color : "rgba(255,255,255,0)",
+      borderColor: checked ? color : borderColor,
+    },
+    transition: { duration: DUR.fast, ease: EASE.standard },
+  };
+  const mark = (
+    <svg width={size * 0.58} height={size * 0.58} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round">
+      <motion.path
+        d="M20 6 9 17l-5-5"
+        initial={false}
+        animate={{ pathLength: checked ? 1 : 0, opacity: checked ? 1 : 0 }}
+        transition={checked ? { duration: 0.28, ease: EASE.out, delay: 0.06 } : { duration: 0.12 }}
+      />
+    </svg>
+  );
+  const circleStyle = { width: size, height: size, borderRadius: 999, borderWidth, borderStyle: "solid", boxSizing: "border-box" };
+
+  // hit: area sentuh 44px (standar jari) dengan lingkaran kecil di tengahnya.
+  if (hit) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        aria-pressed={checked}
+        className="no-tx flex items-center justify-center shrink-0"
+        style={{ width: 44, height: 44, border: "none", background: "transparent", padding: 0, ...style }}
+      >
+        <motion.span {...circle} className="flex items-center justify-center" style={circleStyle}>
+          {mark}
+        </motion.span>
+      </button>
+    );
+  }
+
   return (
     <motion.button
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
       aria-pressed={checked}
       className="no-tx flex items-center justify-center shrink-0"
-      initial={false}
-      animate={{
-        backgroundColor: checked ? color : "rgba(255,255,255,0)",
-        borderColor: checked ? color : borderColor,
-      }}
-      transition={{ duration: DUR.fast, ease: EASE.standard }}
-      style={{ width: size, height: size, borderRadius: 999, borderWidth, borderStyle: "solid", ...style }}
+      {...circle}
+      style={{ ...circleStyle, ...style }}
     >
-      <svg width={size * 0.58} height={size * 0.58} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round">
-        <motion.path
-          d="M20 6 9 17l-5-5"
-          initial={false}
-          animate={{ pathLength: checked ? 1 : 0, opacity: checked ? 1 : 0 }}
-          transition={checked ? { duration: 0.28, ease: EASE.out, delay: 0.06 } : { duration: 0.12 }}
-        />
-      </svg>
+      {mark}
     </motion.button>
   );
 }

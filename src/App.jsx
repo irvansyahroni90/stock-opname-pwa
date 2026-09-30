@@ -64,7 +64,17 @@ import {
   Stagger,
   StaggerItem,
   highlightMotion,
+  Collapse,
+  CardRings,
+  AutoHeight,
+  CollapseList,
+  Segmented,
+  Stepper,
+  Chip,
+  SheetHeader,
+  FieldLabel,
   Hero,
+  HeroBar,
   morphId,
   CARD_CORNERS,
   HERO_HEIGHT,
@@ -127,6 +137,10 @@ const AG = {
   lowBg: "#FBEBD6",
   out: "#D9483B",
   outBg: "#FBE3E0",
+  // Teks yang lebih pekat supaya tetap terbaca di atas putih.
+  muted: "#6B716D",
+  lowText: "#A8650F",
+  outText: "#B83A2E",
 };
 
 const APP_FONT = "'Outfit', sans-serif";
@@ -201,6 +215,57 @@ function statusOf(item) {
   return "safe";
 }
 
+// --- Akan Dibeli ↔ Stok ---------------------------------------------------
+// Bulatkan supaya 0.1 + 0.2 tidak jadi 0.30000000000000004.
+function roundQty(n) {
+  return Math.round(Number(n) * 1000) / 1000;
+}
+
+function newAutoEntry(item, status) {
+  return {
+    id: uid(),
+    itemId: item.id,
+    itemName: item.name,
+    status,
+    source: "auto",
+    qty: "",
+    unit: item.type === "qty" ? item.unit || "" : "",
+    place: "",
+    notes: "",
+    addedAt: new Date().toISOString(),
+    bought: false,
+    boughtBy: null,
+    boughtAt: null,
+  };
+}
+
+// Menyelaraskan daftar Akan Dibeli dengan status satu barang (fungsi murni):
+// - stok aman     → entri OTOMATIS yang belum dibeli untuk barang itu dihapus
+//                   (entri yang ditambahkan manual tetap dibiarkan);
+// - menipis/habis → masuk otomatis kalau belum ada entri aktif.
+// Mengembalikan array yang SAMA bila tidak ada perubahan.
+function syncToBuyFor(item, list) {
+  const status = statusOf(item);
+  if (status === "safe") {
+    const next = list.filter((e) => !(e.itemId === item.id && !e.bought && e.source === "auto"));
+    return next.length === list.length ? list : next;
+  }
+  const active = list.find((e) => e.itemId === item.id && !e.bought);
+  if (active) {
+    if (active.source === "auto" && active.status !== status) {
+      return list.map((e) => (e.id === active.id ? { ...e, status } : e));
+    }
+    return list;
+  }
+  return [newAutoEntry(item, status), ...list];
+}
+
+// Angka stok untuk dibaca orang: 2.5 → "2,5".
+function fmtQty(n) {
+  const r = roundQty(n);
+  return Number.isFinite(r) ? String(r).replace(".", ",") : "0";
+}
+
 function daysUntil(dateStr) {
   if (!dateStr) return null;
   const today = new Date();
@@ -212,8 +277,15 @@ function daysUntil(dateStr) {
 function advanceDate(dateStr, every, unit) {
   if (!dateStr) return "";
   const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "";
   if (unit === "bulan") {
+    // 31 Jan + 1 bulan = 28/29 Feb (bukan 3 Maret): tanggalnya dipepetkan
+    // ke hari terakhir bulan tujuan kalau bulan itu lebih pendek.
+    const day = d.getDate();
+    d.setDate(1);
     d.setMonth(d.getMonth() + every);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, last));
   } else {
     d.setDate(d.getDate() + every * 7);
   }
@@ -268,7 +340,19 @@ function buildActivityFeed(history, toBuy, tasks, { days, kasTx, kasCats } = {})
   for (const h of history || []) {
     if (!h.timestamp) continue;
     let kind, text;
-    if (h.action === "add") {
+    if (h.action === "buy") {
+      kind = "tobuyBought";
+      const who = h.user || "Seseorang";
+      text = h.newLevel
+        ? `${who} membeli ${h.itemName} (stok jadi ${LEVEL_LABEL[h.newLevel] || h.newLevel})`
+        : `${who} membeli ${h.itemName} ${fmtQty(h.amount)}${h.unit ? " " + h.unit : ""} (stok ${fmtQty(h.oldQty)} → ${fmtQty(h.newQty)})`;
+    } else if (h.action === "unbuy") {
+      kind = "stockUpdate";
+      const who = h.user || "Seseorang";
+      text = h.newLevel
+        ? `${who} membatalkan pembelian ${h.itemName} (stok kembali ${LEVEL_LABEL[h.newLevel] || h.newLevel})`
+        : `${who} membatalkan pembelian ${h.itemName} (stok ${fmtQty(h.oldQty)} → ${fmtQty(h.newQty)})`;
+    } else if (h.action === "add") {
       kind = "stockAdd";
       text = `${h.user || "Seseorang"} menambahkan ${h.itemName} ke stok`;
     } else if (h.action === "delete") {
@@ -291,7 +375,9 @@ function buildActivityFeed(history, toBuy, tasks, { days, kasTx, kasCats } = {})
         : `${e.itemName} otomatis masuk Akan Dibeli (stok menipis)`;
       items.push({ id: `tb-add-${e.id}`, kind: "tobuyAdd", text, timestamp: e.addedAt, ref: { type: "tobuy", id: e.id } });
     }
-    if (e.bought && e.boughtAt) {
+    // Pembelian yang ikut menambah stok sudah tercatat di riwayat stok
+    // (lengkap dengan jumlahnya), jadi tidak dicatat dua kali.
+    if (e.bought && e.boughtAt && !e.applied) {
       items.push({
         id: `tb-bought-${e.id}`,
         kind: "tobuyBought",
@@ -1035,6 +1121,15 @@ export default function App() {
   );
 
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', item? }
+  const [detailItemId, setDetailItemId] = useState(null);
+  const [taskDetailId, setTaskDetailId] = useState(null);
+  // Pindah dari satu jendela ke jendela lain (mis. detail → edit): jendela
+  // pertama turun dulu sebentar, baru jendela berikutnya naik, supaya dua
+  // lapisan gelapnya tidak menumpuk jadi terlalu gelap.
+  const swapSheet = (closeFn, openFn) => {
+    closeFn();
+    setTimeout(openFn, 170);
+  };
   const [toBuyModal, setToBuyModal] = useState(null); // { mode: 'add'|'edit', entry? }
   const [taskModal, setTaskModal] = useState(null); // { mode: 'add'|'edit', task? }
   const [thresholdModal, setThresholdModal] = useState(false);
@@ -1198,11 +1293,6 @@ export default function App() {
     await storageSet("stock-history", next);
   };
 
-  const pushHistory = async (entry, currentHistory) => {
-    const next = [{ id: uid(), timestamp: new Date().toISOString(), ...entry }, ...currentHistory].slice(0, 200);
-    await persistHistory(next);
-  };
-
   const persistItems = async (next) => {
     setItems(next);
     await storageSet("stock-items", next);
@@ -1241,29 +1331,42 @@ export default function App() {
     await persistPlaces(places.filter((p) => p !== name));
   };
 
-  // If an item's status becomes low/out, add it to the "Akan Dibeli" list
-  // (unless it already has an active, unchecked entry there).
-  const checkToBuy = async (item, currentToBuy) => {
-    const status = statusOf(item);
-    if (status !== "low" && status !== "out") return;
-    const hasActive = currentToBuy.some((e) => e.itemId === item.id && !e.bought);
-    if (hasActive) return;
-    const entry = {
-      id: uid(),
-      itemId: item.id,
-      itemName: item.name,
-      status,
-      source: "auto",
-      qty: "",
-      unit: "",
-      place: "",
-      notes: "",
-      addedAt: new Date().toISOString(),
-      bought: false,
-      boughtBy: null,
-      boughtAt: null,
-    };
-    await persistToBuy([entry, ...currentToBuy]);
+  // --- Simpan stok sekaligus ----------------------------------------------
+  // Semua perubahan stok, daftar Akan Dibeli, dan riwayat diterapkan ke layar
+  // SEKALIGUS, lalu disimpan ke cloud bersamaan. Jadi tidak ada saat di mana
+  // stok sudah berubah tapi daftarnya belum (misalnya saat koneksi lambat
+  // atau offline), dan ketukan berikutnya selalu membaca data terbaru.
+  const itemsRef = useRef(items);
+  const toBuyRef = useRef(toBuy);
+  const historyRef = useRef(history);
+  itemsRef.current = items;
+  toBuyRef.current = toBuy;
+  historyRef.current = history;
+
+  const commitStock = ({ items: nextItems, toBuy: nextToBuy, history: nextHistory }) => {
+    const writes = [];
+    if (nextItems && nextItems !== itemsRef.current) {
+      itemsRef.current = nextItems;
+      setItems(nextItems);
+      writes.push(storageSet("stock-items", nextItems));
+    }
+    if (nextToBuy && nextToBuy !== toBuyRef.current) {
+      toBuyRef.current = nextToBuy;
+      setToBuy(nextToBuy);
+      writes.push(storageSet("stock-tobuy", nextToBuy));
+    }
+    if (nextHistory && nextHistory !== historyRef.current) {
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
+      writes.push(storageSet("stock-history", nextHistory));
+    }
+    return Promise.all(writes);
+  };
+
+  const withHistory = (entries, base) => {
+    const list = Array.isArray(entries) ? entries : [entries];
+    const stamped = list.map((h, i) => ({ id: uid(), timestamp: new Date(Date.now() + i).toISOString(), ...h }));
+    return [...stamped.reverse(), ...base].slice(0, 200);
   };
 
   const handleAdd = async (data) => {
@@ -1287,30 +1390,29 @@ export default function App() {
         id: uid(),
         type: "qty",
         name: data.name.trim(),
-        qty: Number(data.qty),
+        qty: roundQty(Number(data.qty) || 0),
         unit: data.unit.trim() || "pcs",
-        minQty: data.minQty === "" ? 0 : Number(data.minQty),
+        minQty: data.minQty === "" ? 0 : roundQty(Number(data.minQty) || 0),
         notes: data.notes ? data.notes.trim() : "",
         lastUpdatedBy: userName,
         lastUpdatedAt: now,
       };
       histEntry = { itemId: newItem.id, itemName: newItem.name, user: userName, action: "add", newQty: newItem.qty, unit: newItem.unit };
     }
-    const next = [...items, newItem];
-    await persistItems(next);
-    await pushHistory(histEntry, history);
-    await checkToBuy(newItem, toBuy);
+    const done = commitStock({
+      items: [...itemsRef.current, newItem],
+      toBuy: syncToBuyFor(newItem, toBuyRef.current),
+      history: withHistory(histEntry, historyRef.current),
+    });
     setSaving(false);
     setModal(null);
+    await done;
   };
 
   const handleEdit = async (id, data) => {
+    const current = itemsRef.current.find((i) => i.id === id);
+    if (!current) return;
     setSaving(true);
-    const current = items.find((i) => i.id === id);
-    if (!current) {
-      setSaving(false);
-      return;
-    }
     const now = new Date().toISOString();
     let updated;
     let histEntry = null;
@@ -1329,13 +1431,13 @@ export default function App() {
       }
     } else {
       const oldQty = current.qty;
-      const newQty = Number(data.qty);
+      const newQty = roundQty(Number(data.qty) || 0);
       updated = {
         ...current,
         name: data.name.trim(),
         qty: newQty,
         unit: data.unit.trim() || "pcs",
-        minQty: data.minQty === "" ? 0 : Number(data.minQty),
+        minQty: data.minQty === "" ? 0 : roundQty(Number(data.minQty) || 0),
         notes: data.notes ? data.notes.trim() : "",
         lastUpdatedBy: userName,
         lastUpdatedAt: now,
@@ -1344,70 +1446,204 @@ export default function App() {
         histEntry = { itemId: id, itemName: updated.name, user: userName, action: "update", oldQty, newQty, unit: updated.unit };
       }
     }
-    const next = items.map((i) => (i.id === id ? updated : i));
-    await persistItems(next);
-    if (histEntry) await pushHistory(histEntry, history);
-    await checkToBuy(updated, toBuy);
+    // Nama/satuan di Akan Dibeli ikut diperbarui untuk entri yang belum dibeli.
+    let nextToBuy = toBuyRef.current;
+    if (updated.name !== current.name || updated.unit !== current.unit) {
+      nextToBuy = nextToBuy.map((e) =>
+        e.itemId === id && !e.bought ? { ...e, itemName: updated.name, unit: updated.type === "qty" ? updated.unit : e.unit } : e
+      );
+    }
+    const done = commitStock({
+      items: itemsRef.current.map((i) => (i.id === id ? updated : i)),
+      toBuy: syncToBuyFor(updated, nextToBuy),
+      history: histEntry ? withHistory(histEntry, historyRef.current) : undefined,
+    });
     setSaving(false);
     setModal(null);
+    await done;
   };
 
   const handleQuickAdjust = async (id, delta) => {
-    const current = items.find((i) => i.id === id);
+    const current = itemsRef.current.find((i) => i.id === id);
     if (!current) return;
     const oldQty = current.qty;
-    const newQty = Math.max(0, Number((oldQty + delta).toFixed(3)));
+    const newQty = Math.max(0, roundQty(oldQty + delta));
     if (newQty === oldQty) return;
     const updated = { ...current, qty: newQty, lastUpdatedBy: userName, lastUpdatedAt: new Date().toISOString() };
-    const next = items.map((i) => (i.id === id ? updated : i));
-    await persistItems(next);
-    await pushHistory({ itemId: id, itemName: current.name, user: userName, action: "update", oldQty, newQty, unit: current.unit }, history);
-    await checkToBuy(updated, toBuy);
+    await commitStock({
+      items: itemsRef.current.map((i) => (i.id === id ? updated : i)),
+      toBuy: syncToBuyFor(updated, toBuyRef.current),
+      history: withHistory({ itemId: id, itemName: current.name, user: userName, action: "update", oldQty, newQty, unit: current.unit }, historyRef.current),
+    });
   };
 
   const handleLevelChange = async (id, newLevel) => {
-    const current = items.find((i) => i.id === id);
+    const current = itemsRef.current.find((i) => i.id === id);
     if (!current || current.level === newLevel) return;
     const oldLevel = current.level;
     const updated = { ...current, level: newLevel, lastUpdatedBy: userName, lastUpdatedAt: new Date().toISOString() };
-    const next = items.map((i) => (i.id === id ? updated : i));
-    await persistItems(next);
-    await pushHistory({ itemId: id, itemName: current.name, user: userName, action: "update", oldLevel, newLevel }, history);
-    await checkToBuy(updated, toBuy);
+    await commitStock({
+      items: itemsRef.current.map((i) => (i.id === id ? updated : i)),
+      toBuy: syncToBuyFor(updated, toBuyRef.current),
+      history: withHistory({ itemId: id, itemName: current.name, user: userName, action: "update", oldLevel, newLevel }, historyRef.current),
+    });
   };
 
   const handleDeleteItem = async (id) => {
-    const current = items.find((i) => i.id === id);
+    const current = itemsRef.current.find((i) => i.id === id);
     if (!current) return;
-    const next = items.filter((i) => i.id !== id);
-    await persistItems(next);
-    await pushHistory({ itemId: id, itemName: current.name, user: userName, action: "delete", oldQty: current.qty, unit: current.unit }, history);
-    const nextToBuy = toBuy.filter((e) => !(e.itemId === id && !e.bought));
-    if (nextToBuy.length !== toBuy.length) await persistToBuy(nextToBuy);
+    const nextToBuy = toBuyRef.current.filter((e) => !(e.itemId === id && !e.bought));
+    await commitStock({
+      items: itemsRef.current.filter((i) => i.id !== id),
+      toBuy: nextToBuy.length !== toBuyRef.current.length ? nextToBuy : undefined,
+      history: withHistory({ itemId: id, itemName: current.name, user: userName, action: "delete", oldQty: current.qty, unit: current.unit }, historyRef.current),
+    });
   };
 
-  const handleToggleBought = async (entryId) => {
-    const next = toBuy.map((e) => {
-      if (e.id !== entryId) return e;
-      if (e.bought) return { ...e, bought: false, boughtBy: null, boughtAt: null };
-      return { ...e, bought: true, boughtBy: userName, boughtAt: new Date().toISOString() };
+  // --- Beli → stok bertambah ----------------------------------------------
+  // purchases: [{ entryId, qty? }]. Dipakai oleh centang di Akan Dibeli,
+  // sheet "Sudah dibeli", dan scan struk di Kas Rumah.
+  //   - barang berjumlah: stok + qty, dicatat applied {kind:'qty', amount}
+  //   - barang kira-kira: stok jadi "Banyak", dicatat applied {kind:'level', prevLevel}
+  //   - barang lain (tidak terhubung ke stok): cukup ditandai dibeli
+  // Kalau setelah dibeli stok masih di batas minimum, barangnya otomatis
+  // masuk lagi ke Akan Dibeli (dengan tempat beli yang sama).
+  const applyPurchases = async (purchases) => {
+    const now = new Date().toISOString();
+    let nextItems = itemsRef.current;
+    let nextToBuy = toBuyRef.current;
+    const newHist = [];
+
+    for (const p of purchases || []) {
+      const entry = nextToBuy.find((e) => e.id === p.entryId);
+      if (!entry || entry.bought) continue;
+      const item = entry.itemId ? nextItems.find((i) => i.id === entry.itemId) : null;
+      let applied = null;
+      let updated = null;
+
+      if (item && item.type === "level") {
+        applied = { kind: "level", prevLevel: item.level };
+        updated = { ...item, level: "banyak", lastUpdatedBy: userName, lastUpdatedAt: now };
+        newHist.push({ itemId: item.id, itemName: item.name, user: userName, action: "buy", oldLevel: item.level, newLevel: "banyak" });
+      } else if (item) {
+        const amount = roundQty(Math.max(0, Number(String(p.qty ?? "").replace(",", ".")) || 0));
+        if (amount > 0) {
+          const newQty = roundQty((Number(item.qty) || 0) + amount);
+          applied = { kind: "qty", amount };
+          updated = { ...item, qty: newQty, lastUpdatedBy: userName, lastUpdatedAt: now };
+          newHist.push({ itemId: item.id, itemName: item.name, user: userName, action: "buy", oldQty: item.qty, newQty, amount, unit: item.unit });
+        }
+      }
+
+      nextToBuy = nextToBuy.map((e) => (e.id === entry.id ? { ...e, bought: true, boughtBy: userName, boughtAt: now, applied } : e));
+      if (updated) {
+        nextItems = nextItems.map((i) => (i.id === updated.id ? updated : i));
+        const before = new Set(nextToBuy.map((e) => e.id));
+        nextToBuy = syncToBuyFor(updated, nextToBuy);
+        if (entry.place) {
+          nextToBuy = nextToBuy.map((e) => (!before.has(e.id) && e.itemId === updated.id ? { ...e, place: entry.place } : e));
+        }
+      }
+    }
+
+    await commitStock({
+      items: nextItems,
+      toBuy: nextToBuy,
+      history: newHist.length ? withHistory(newHist, historyRef.current) : undefined,
     });
-    await persistToBuy(next);
+  };
+
+  // Batal centang: stok dikembalikan persis seperti sebelum dibeli.
+  const unbuyEntry = async (entryId) => {
+    const entry = toBuyRef.current.find((e) => e.id === entryId);
+    if (!entry || !entry.bought) return;
+    const item = entry.itemId ? itemsRef.current.find((i) => i.id === entry.itemId) : null;
+    const now = new Date().toISOString();
+    let nextToBuy = toBuyRef.current.map((e) => (e.id === entry.id ? { ...e, bought: false, boughtBy: null, boughtAt: null, applied: null } : e));
+    let nextItems;
+    let nextHistory;
+
+    if (item && entry.applied) {
+      let updated;
+      let hist;
+      if (entry.applied.kind === "level" && item.type === "level") {
+        updated = { ...item, level: entry.applied.prevLevel || item.level, lastUpdatedBy: userName, lastUpdatedAt: now };
+        hist = { itemId: item.id, itemName: item.name, user: userName, action: "unbuy", oldLevel: item.level, newLevel: updated.level };
+      } else if (entry.applied.kind === "qty" && item.type === "qty") {
+        const newQty = Math.max(0, roundQty((Number(item.qty) || 0) - (Number(entry.applied.amount) || 0)));
+        updated = { ...item, qty: newQty, lastUpdatedBy: userName, lastUpdatedAt: now };
+        hist = { itemId: item.id, itemName: item.name, user: userName, action: "unbuy", oldQty: item.qty, newQty, unit: item.unit };
+      }
+      if (updated) {
+        nextItems = itemsRef.current.map((i) => (i.id === item.id ? updated : i));
+        nextHistory = withHistory(hist, historyRef.current);
+        // Entri ini aktif lagi — entri otomatis lain untuk barang yang sama
+        // (yang masuk karena stok masih kurang) tidak perlu dobel.
+        nextToBuy = nextToBuy.filter((e) => !(e.id !== entry.id && e.itemId === item.id && !e.bought && e.source === "auto"));
+        // Lalu cek ulang: kalau ternyata stoknya sudah aman, entri otomatis
+        // tidak perlu ada di daftar.
+        nextToBuy = syncToBuyFor(updated, nextToBuy);
+      }
+    }
+
+    await commitStock({ items: nextItems, toBuy: nextToBuy, history: nextHistory });
+  };
+
+  // Sheet "Sudah dibeli" untuk barang berjumlah.
+  const [buyEntryId, setBuyEntryId] = useState(null);
+  // Kalau entrinya hilang/sudah dibeli dari perangkat lain selagi sheet
+  // terbuka, sheet ditutup dan tidak akan muncul sendiri lagi nanti.
+  useEffect(() => {
+    if (buyEntryId && !toBuy.some((e) => e.id === buyEntryId && !e.bought)) setBuyEntryId(null);
+  }, [buyEntryId, toBuy]);
+
+  // Cegah ketukan ganda yang tak sengaja pada centang yang sama.
+  const lastToggleRef = useRef({ id: null, at: 0 });
+
+  // Satu pintu untuk centang di mana pun (halaman Beli, Beranda, detail).
+  const requestToggleBought = (entryId) => {
+    const nowMs = Date.now();
+    if (lastToggleRef.current.id === entryId && nowMs - lastToggleRef.current.at < 450) return;
+    lastToggleRef.current = { id: entryId, at: nowMs };
+
+    const entry = toBuyRef.current.find((e) => e.id === entryId);
+    if (!entry) return;
+    if (pendingEdit && entry.itemId && pendingEdit.itemId === entry.itemId) {
+      setBlockedNotice(pendingEdit.itemName);
+      return;
+    }
+    if (entry.bought) {
+      unbuyEntry(entry.id);
+      return;
+    }
+    const item = entry.itemId ? itemsRef.current.find((i) => i.id === entry.itemId) : null;
+    if (item && item.type === "qty") {
+      setBuyEntryId(entry.id);
+      return;
+    }
+    applyPurchases([{ entryId: entry.id }]);
   };
 
   const handleDeleteToBuyEntry = async (id) => {
-    await persistToBuy(toBuy.filter((e) => e.id !== id));
+    await commitStock({ toBuy: toBuyRef.current.filter((e) => e.id !== id) });
   };
 
-  const handleAddManualToBuy = async ({ name, qty, unit, place, notes }) => {
+  const handleAddManualToBuy = async ({ itemId, name, qty, unit, place, notes }) => {
+    const item = itemId ? itemsRef.current.find((i) => i.id === itemId) : null;
+    // Barang dari daftar stok yang sudah ada di daftar (belum dibeli) tidak
+    // ditambahkan dua kali.
+    if (item && toBuyRef.current.some((e) => e.itemId === item.id && !e.bought)) {
+      setToBuyModal(null);
+      return;
+    }
     const entry = {
       id: uid(),
-      itemId: null,
-      itemName: name.trim(),
+      itemId: item ? item.id : null,
+      itemName: item ? item.name : name.trim(),
       status: null,
       source: "manual",
       qty: qty || "",
-      unit: unit || "",
+      unit: item ? (item.type === "qty" ? item.unit || "" : unit || "") : unit || "",
       place: place || "",
       notes: notes ? notes.trim() : "",
       addedAt: new Date().toISOString(),
@@ -1416,25 +1652,25 @@ export default function App() {
       boughtBy: null,
       boughtAt: null,
     };
-    await persistToBuy([entry, ...toBuy]);
     setToBuyModal(null);
+    await commitStock({ toBuy: [entry, ...toBuyRef.current] });
   };
 
   const handleEditToBuyEntry = async (entryId, { name, qty, unit, place, notes }) => {
-    const next = toBuy.map((e) =>
+    const next = toBuyRef.current.map((e) =>
       e.id === entryId
         ? {
             ...e,
-            itemName: e.source === "manual" ? name.trim() : e.itemName,
+            itemName: e.itemId ? e.itemName : name.trim(),
             qty: qty || "",
-            unit: unit || "",
+            unit: e.itemId && itemsRef.current.some((i) => i.id === e.itemId && i.type === "qty") ? e.unit : unit || "",
             place: place || "",
             notes: notes ? notes.trim() : "",
           }
         : e
     );
-    await persistToBuy(next);
     setToBuyModal(null);
+    await commitStock({ toBuy: next });
   };
 
   const handleAddTask = async ({ title, planDate, deadline, notes, recurrence }) => {
@@ -1624,17 +1860,22 @@ export default function App() {
     return { list: needAttention.slice(0, 3), total: needAttention.length };
   }, [items]);
 
+  // Baris yang baru dicentang di Beranda tetap terlihat sebentar dengan
+  // centangnya sebelum keluar dari daftar.
+  const toBuyLinger = useRecentlyToggled(toBuy, "bought");
   const toBuyPreview = useMemo(() => {
     const pending = toBuy
-      .filter((e) => !e.bought)
+      .filter((e) => !e.bought || toBuyLinger.includes(e.id))
       .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt));
-    return { list: pending.slice(0, 3), total: pending.length };
-  }, [toBuy]);
+    const total = pending.filter((e) => !e.bought).length;
+    return { list: pending.slice(0, 3), total };
+  }, [toBuy, toBuyLinger]);
 
+  const taskLinger = useRecentlyToggled(tasks, "done");
   const agendaPreview = useMemo(() => {
     const rank = { overdue: 0, soon: 1, normal: 2, none: 3 };
     const active = tasks
-      .filter((t) => !t.done)
+      .filter((t) => !t.done || taskLinger.includes(t.id))
       .sort((a, b) => {
         const ua = taskUrgency(a, dueThreshold),
           ub = taskUrgency(b, dueThreshold);
@@ -1643,8 +1884,8 @@ export default function App() {
         const db = b.deadline ? daysUntil(b.deadline) : Infinity;
         return da - db;
       });
-    return { list: active.slice(0, 3), total: active.length };
-  }, [tasks, dueThreshold]);
+    return { list: active.slice(0, 3), total: active.filter((t) => !t.done).length };
+  }, [tasks, dueThreshold, taskLinger]);
 
   // Masih mengecek status login ke Firebase (sekejap saat pertama buka app)
   if (authUser === undefined) {
@@ -1690,6 +1931,10 @@ export default function App() {
   }
 
   const stokIndex = TAB_ORDER.indexOf(view);
+  const taskDetail = taskDetailId ? tasks.find((t) => t.id === taskDetailId) || null : null;
+  const detailItem = detailItemId ? items.find((i) => i.id === detailItemId) || null : null;
+  const buyEntry = buyEntryId ? toBuy.find((e) => e.id === buyEntryId && !e.bought) || null : null;
+  const buyItem = buyEntry && buyEntry.itemId ? items.find((i) => i.id === buyEntry.itemId && i.type === "qty") || null : null;
 
   return (
     <div style={{ color: COLORS.ink, fontFamily: APP_FONT }}>
@@ -1732,6 +1977,7 @@ export default function App() {
               onViewChange={(v) => {
                 kasViewRef.current = v;
               }}
+              onApplyPurchases={applyPurchases}
             />
           </Screen>
         )}
@@ -1745,11 +1991,9 @@ export default function App() {
               setSearch={setAgendaSearch}
               filter={agendaFilter}
               setFilter={setAgendaFilter}
-              onAddTask={() => setTaskModal({ mode: "add" })}
-              onEditTask={(task) => setTaskModal({ mode: "edit", task })}
-              onDeleteTask={(task) => setConfirmDelete({ type: "task", id: task.id, label: task.title })}
+              onAddTask={(date) => setTaskModal({ mode: "add", initialDate: typeof date === "string" ? date : "" })}
+              onOpenTask={(task) => setTaskDetailId(task.id)}
               onToggleDone={handleToggleTaskDone}
-              userName={userName}
               onOpenUserMenu={() => setShowUserMenu(true)}
               onSwitchApp={closeApp}
               notifSlot={notifBellOnDark}
@@ -1918,7 +2162,7 @@ export default function App() {
                           badgeColor={COLORS.low}
                           onOpen={() => setView("tobuy")}
                           rows={toBuyPreview.list.map((entry) => (
-                            <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => handleToggleBought(entry.id)} onClick={() => goToToBuyEntry(entry)} />
+                            <ToBuyPreviewRow key={entry.id} entry={entry} onToggle={() => requestToggleBought(entry.id)} onClick={() => goToToBuyEntry(entry)} />
                           ))}
                           moreButton={
                             toBuyPreview.total > 3 && (
@@ -1979,12 +2223,12 @@ export default function App() {
                   filter={stockFilter}
                   setFilter={setStockFilter}
                   onBack={() => attemptNavigate(() => setView("dashboard"))}
-                  onEditItem={(item) => attemptNavigate(() => setModal({ mode: "edit", item }))}
-                  onDeleteItem={(item) => attemptNavigate(() => setConfirmDelete({ type: "item", id: item.id, label: item.name }))}
+                  onOpenDetail={(item) => attemptNavigate(() => setDetailItemId(item.id))}
                   onAdjust={beginOrUpdatePendingQty}
                   onLevelChange={setPendingLevelEdit}
                   pendingEdit={pendingEdit}
                   onConfirmPending={confirmPendingEdit}
+                  onCancelPending={() => setPendingEdit(null)}
                   onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
                   onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
                   onSwitchApp={() => attemptNavigate(closeApp)}
@@ -1995,14 +2239,15 @@ export default function App() {
 
                 <ToBuyPage
                   toBuy={toBuy}
+                  items={items}
+                  places={places}
                   search={tobuySearch}
                   setSearch={setTobuySearch}
                   filter={tobuyFilter}
                   setFilter={setTobuyFilter}
                   onBack={() => setView("dashboard")}
                   onEditEntry={(entry) => setToBuyModal({ mode: "edit", entry })}
-                  onDeleteEntry={(entry) => setConfirmDelete({ type: "tobuy", id: entry.id, label: entry.itemName })}
-                  onToggle={handleToggleBought}
+                  onToggle={requestToggleBought}
                   onOpenUserMenu={() => setShowUserMenu(true)}
                   onSwitchApp={closeApp}
                   notifSlot={view === "tobuy" ? notifBell : null}
@@ -2037,7 +2282,7 @@ export default function App() {
       <AnimatePresence>
         {modal && (
           <ItemFormModal
-            key="item-form"
+            key={`item-form-${modal.item ? modal.item.id : "new"}`}
             mode={modal.mode}
             item={modal.item}
             saving={saving}
@@ -2122,14 +2367,62 @@ export default function App() {
       <AnimatePresence>
         {toBuyModal && (
           <ToBuyFormModal
-            key="tobuy-form"
+            key={`tobuy-form-${toBuyModal.entry ? toBuyModal.entry.id : "new-" + (toBuyModal.preselectItemId || "")}`}
             mode={toBuyModal.mode}
             entry={toBuyModal.entry}
+            items={items}
+            toBuy={toBuy}
+            preselectItemId={toBuyModal.preselectItemId}
             places={places}
             onAddPlace={addCustomPlace}
             onDeletePlace={deleteCustomPlace}
             onClose={() => setToBuyModal(null)}
             onSubmit={(data) => (toBuyModal.mode === "add" ? handleAddManualToBuy(data) : handleEditToBuyEntry(toBuyModal.entry.id, data))}
+            onDelete={
+              toBuyModal.mode === "edit"
+                ? () => {
+                    const e = toBuyModal.entry;
+                    swapSheet(
+                      () => setToBuyModal(null),
+                      () => setConfirmDelete({ type: "tobuy", id: e.id, label: e.itemName })
+                    );
+                  }
+                : undefined
+            }
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {detailItem && (
+          <ItemDetailSheet
+            key={`item-detail-${detailItem.id}`}
+            item={detailItem}
+            activeEntry={toBuy.find((e) => e.itemId === detailItem.id && !e.bought) || null}
+            onClose={() => setDetailItemId(null)}
+            onEdit={() => swapSheet(() => setDetailItemId(null), () => setModal({ mode: "edit", item: detailItem }))}
+            onDelete={() =>
+              swapSheet(
+                () => setDetailItemId(null),
+                () => setConfirmDelete({ type: "item", id: detailItem.id, label: detailItem.name })
+              )
+            }
+            onAddToBuy={() => swapSheet(() => setDetailItemId(null), () => setToBuyModal({ mode: "add", preselectItemId: detailItem.id }))}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {buyEntry && buyItem && (
+          <BuySheet
+            key={`buy-sheet-${buyEntry.id}`}
+            entry={buyEntry}
+            item={buyItem}
+            onClose={() => setBuyEntryId(null)}
+            onConfirm={async (amount) => {
+              setBuyEntryId(null);
+              await applyPurchases([{ entryId: buyEntry.id, qty: amount }]);
+            }}
           />
         )}
       </AnimatePresence>
@@ -2137,11 +2430,34 @@ export default function App() {
       <AnimatePresence>
         {taskModal && (
           <TaskFormModal
-            key="task-form"
+            key={`task-form-${taskModal.task ? taskModal.task.id : "new-" + (taskModal.initialDate || "")}`}
             mode={taskModal.mode}
             task={taskModal.task}
+            initialDate={taskModal.initialDate}
             onClose={() => setTaskModal(null)}
             onSubmit={(data) => (taskModal.mode === "add" ? handleAddTask(data) : handleEditTask(taskModal.task.id, data))}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {taskDetail && (
+          <TaskDetailSheet
+            key={`task-detail-${taskDetail.id}`}
+            task={taskDetail}
+            threshold={dueThreshold}
+            onClose={() => setTaskDetailId(null)}
+            onToggle={() => {
+              setTaskDetailId(null);
+              handleToggleTaskDone(taskDetail.id);
+            }}
+            onEdit={() => swapSheet(() => setTaskDetailId(null), () => setTaskModal({ mode: "edit", task: taskDetail }))}
+            onDelete={() =>
+              swapSheet(
+                () => setTaskDetailId(null),
+                () => setConfirmDelete({ type: "task", id: taskDetail.id, label: taskDetail.title })
+              )
+            }
           />
         )}
       </AnimatePresence>
@@ -2591,10 +2907,10 @@ function SectionCard({ icon: Icon, iconBg, iconFg, title, subtitle, badge, badge
           <div style={{ fontSize: 12.5, color: iconFg, marginTop: 1 }}>{subtitle}</div>
         </div>
       </button>
-      {rows && React.Children.count(rows) > 0 && (
-        <AnimatedList className="flex flex-col gap-2" style={{ marginTop: 14 }}>
+      {rows && (
+        <CollapseList spacing={8} spacingSide="top" style={{ marginTop: 6 }}>
           {rows}
-        </AnimatedList>
+        </CollapseList>
       )}
       {moreButton}
     </div>
@@ -2636,7 +2952,7 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
   return (
     <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
       <CheckCircle
-        checked={false}
+        checked={!!entry.bought}
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -2666,7 +2982,7 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
   return (
     <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
       <CheckCircle
-        checked={false}
+        checked={!!task.done}
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -2726,7 +3042,97 @@ function FilterTile(props) {
 
 /* ---------------- Stock page ---------------- */
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
+// Warna teks status yang lebih pekat supaya tetap terbaca di atas putih.
+const STATUS_TEXT = { safe: "#2F7A4E", low: "#B0621F", out: "#B83A2E" };
+const CARD_SHADOW = "0 1px 2px rgba(43,42,37,0.04), 0 6px 18px rgba(43,42,37,0.05)";
+const LEVEL_ORDER = ["habis", "sedikit", "setengah", "banyak"];
+
+function stockStatusLine(item, status) {
+  const label = STATUS_META[status].label;
+  if (item.type === "level") return LEVEL_LABEL[item.level] || label;
+  if (Number(item.minQty) > 0) return `${label} · min ${fmtQty(item.minQty)} ${item.unit || ""}`.trim();
+  return label;
+}
+
+// Isi bar: batas minimum selalu di tengah (50%), penuh = 2× minimum.
+function gaugeFill(qty, min) {
+  if (!(min > 0)) return 0;
+  return Math.max(0, Math.min(1, (Number(qty) || 0) / (min * 2)));
+}
+
+function LetterAvatar({ name, status, size = 42, radius = 14, fontSize = 19 }) {
+  const meta = STATUS_META[status];
+  return (
+    <motion.div
+      aria-hidden="true"
+      className="flex items-center justify-center shrink-0"
+      initial={false}
+      animate={{ backgroundColor: meta.bg, color: STATUS_TEXT[status] }}
+      transition={{ duration: DUR.fast, ease: EASE.standard }}
+      style={{ width: size, height: size, borderRadius: radius, fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize }}
+    >
+      {(name || "?").trim().charAt(0).toUpperCase() || "?"}
+    </motion.div>
+  );
+}
+
+function Gauge({ qty, min, status, height = 6 }) {
+  const fill = gaugeFill(qty, min);
+  return (
+    <div className="relative" style={{ height, borderRadius: 99, background: "#F1EEE5" }}>
+      <motion.div
+        className="absolute left-0 top-0 bottom-0"
+        style={{ borderRadius: 99, originX: 0 }}
+        initial={false}
+        animate={{ width: `${fill * 100}%`, backgroundColor: STATUS_META[status].fg }}
+        transition={{ width: SPRING.snappy, backgroundColor: { duration: DUR.fast } }}
+      />
+      <div
+        aria-hidden="true"
+        className="absolute"
+        style={{ left: "50%", top: -3, width: 2, height: height + 6, marginLeft: -1, borderRadius: 2, background: "#D6D1C3" }}
+      />
+    </div>
+  );
+}
+
+// Empat ruas seperti baterai: Habis → Sedikit → Setengah → Banyak. Ruas
+// terisi sampai tingkat yang sekarang; warnanya mengikuti status.
+function LevelBattery({ level, onChange, label, readOnly }) {
+  const idx = LEVEL_ORDER.indexOf(level);
+  const status = (LEVEL_OPTIONS.find((o) => o.key === level) || {}).status || "safe";
+  const fillColor = STATUS_META[status].fg;
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="grid"
+      style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 4, background: COLORS.soft, borderRadius: 14, padding: 3 }}
+    >
+      {LEVEL_ORDER.map((key, i) => {
+        const filled = i <= idx;
+        const Comp = readOnly ? motion.div : motion.button;
+        return (
+          <Comp
+            key={key}
+            type={readOnly ? undefined : "button"}
+            onClick={readOnly ? undefined : () => onChange(key)}
+            aria-pressed={readOnly ? undefined : key === level}
+            className="no-tx flex items-center justify-center"
+            initial={false}
+            animate={{ backgroundColor: filled ? fillColor : "rgba(255,255,255,0)", color: filled ? "#FFFFFF" : COLORS.inkSoft }}
+            transition={{ duration: DUR.fast, ease: EASE.standard, delay: filled ? i * 0.03 : 0 }}
+            style={{ height: readOnly ? 34 : 40, border: "none", borderRadius: 11, fontSize: 12.5, fontWeight: filled ? 600 : 500, fontFamily: "inherit" }}
+          >
+            {LEVEL_LABEL[key]}
+          </Comp>
+        );
+      })}
+    </div>
+  );
+}
+
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onOpenDetail, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onCancelPending, onBlockedAttempt, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -2752,6 +3158,8 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         return a.name.localeCompare(b.name, "id");
       });
   }, [items, search, filter]);
+
+  const displayList = filteredSorted;
 
   const guardedSetFilter = (f) => {
     if (pendingEdit) {
@@ -2781,53 +3189,40 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
       {/* Header: elemen biasa (bukan sticky di dalam area scroll), jadi gak
           pernah ikut ketarik pas list-nya di-bounce/overscroll. */}
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar
-          title="Stok Rumah"
-          onBack={onBack}
-          onOpenUserMenu={onOpenUserMenu}
-          onSwitchApp={onSwitchApp}
-          notifSlot={notifSlot}
-        />
+        <TopBar title="Stok Rumah" onBack={onBack} onOpenUserMenu={onOpenUserMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
 
-        {/* Empat kartu filter: angka besar berwarna sesuai maknanya, label
-            abu-abu di bawahnya. Yang aktif jadi navy penuh. */}
         <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
           <FilterTile group="stok" label="Semua" value={counts.total} color={COLORS.navy} active={filter === "all"} onClick={() => guardedSetFilter("all")} />
           <FilterTile group="stok" label="Aman" value={counts.total - counts.low - counts.out} color={COLORS.safe} active={filter === "safe"} onClick={() => guardedSetFilter("safe")} />
-          <FilterTile group="stok" label="Menipis" value={counts.low} color={COLORS.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
-          <FilterTile group="stok" label="Habis" value={counts.out} color={COLORS.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
+          <FilterTile group="stok" label="Menipis" value={counts.low} color={STATUS_TEXT.low} active={filter === "low"} onClick={() => guardedSetFilter("low")} />
+          <FilterTile group="stok" label="Habis" value={counts.out} color={STATUS_TEXT.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
         </div>
 
-        <div
-          className="flex items-center gap-2.5"
-          style={{ background: COLORS.card, borderRadius: 999, padding: "12px 18px", boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}
-        >
+        <div className="flex items-center gap-2.5" style={{ background: COLORS.card, borderRadius: 999, padding: "0 18px", height: 46, boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}>
           <Search size={18} color={COLORS.inkSoft} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari item stok..."
+            aria-label="Cari item stok"
             className="flex-1 bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 14, outline: "none", border: "none" }}
+            style={{ color: COLORS.ink, outline: "none", border: "none" }}
           />
         </div>
       </div>
 
-      {/* Area list: satu-satunya yang scroll & bounce, terpisah dari header.
-          Ganti filter = berganti silang cepat; tambah/hapus/pindah urutan item
-          = baris bergerak halus ke tempatnya. */}
       <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pb-32">
-          {filteredSorted.length === 0 ? (
-            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pt-1 pb-32">
+          {displayList.length === 0 ? (
+            <div className="py-14 text-center rounded-[20px]" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <Package size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
               <div style={{ color: COLORS.inkSoft }} className="text-sm">
-                {items.length === 0 ? "Belum ada item. Tambahkan yang pertama." : "Tidak ada item yang cocok."}
+                {items.length === 0 ? "Belum ada item. Tekan + untuk menambahkan." : "Tidak ada item yang cocok."}
               </div>
             </div>
           ) : (
             <AnimatedList className="flex flex-col gap-2.5">
-              {filteredSorted.map((item) => {
+              {displayList.map((item) => {
                 const isPending = pendingEdit && pendingEdit.itemId === item.id;
                 const isBlocked = !!pendingEdit && !isPending;
                 return (
@@ -2839,8 +3234,8 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
                     onAdjust={(d) => (isBlocked ? onBlockedAttempt() : onAdjust(item, d))}
                     onLevelChange={(lvl) => (isBlocked ? onBlockedAttempt() : onLevelChange(item, lvl))}
                     onConfirmPending={onConfirmPending}
-                    onEdit={() => onEditItem(item)}
-                    onDelete={() => onDeleteItem(item)}
+                    onCancelPending={onCancelPending}
+                    onOpen={() => onOpenDetail(item)}
                     highlighted={item.id === highlightId}
                   />
                 );
@@ -2853,366 +3248,560 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
   );
 }
 
-function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConfirmPending, onEdit, onDelete, highlighted }) {
-  const status = statusOf(item);
-  const meta = STATUS_META[status];
+function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConfirmPending, onCancelPending, onOpen, highlighted }) {
   const isLevel = item.type === "level";
   const isPending = !!pendingDraft;
   const displayQty = isPending && pendingDraft.kind === "qty" ? pendingDraft.draft : item.qty;
   const displayLevel = isPending && pendingDraft.kind === "level" ? pendingDraft.draft : item.level;
-  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
+  // Warna & tulisan status mengikuti nilai yang sedang ditampilkan, jadi
+  // perubahannya langsung terasa sebelum disimpan.
+  const shown = isLevel ? { ...item, level: displayLevel } : { ...item, qty: displayQty };
+  const status = statusOf(shown);
+  const min = Number(item.minQty) || 0;
+  const canDec = (Number(displayQty) || 0) > 0;
+
+  const pendingText = isPending
+    ? isLevel
+      ? `${LEVEL_LABEL[item.level] || item.level} → ${LEVEL_LABEL[displayLevel] || displayLevel}`
+      : `${fmtQty(item.qty)} → ${fmtQty(displayQty)} ${item.unit || ""}`.trim()
+    : "";
+
   return (
     <motion.div
       id={`stock-item-${item.id}`}
-      className="rounded-2xl overflow-hidden flex"
-      style={{ background: COLORS.card, borderWidth: 1, borderStyle: "solid" }}
+      className="relative flex flex-col"
+      style={{ background: COLORS.card, borderRadius: 20, padding: "12px 12px 14px 14px", gap: 10, boxShadow: CARD_SHADOW }}
       initial={false}
-      animate={{
-        ...glow.animate,
-        borderColor: isPending ? COLORS.low : COLORS.border,
-        opacity: blocked ? 0.55 : 1,
-      }}
-      transition={{ ...glow.transition, borderColor: { duration: DUR.fast }, opacity: { duration: DUR.fast } }}
+      animate={{ opacity: blocked ? 0.55 : 1 }}
+      transition={{ duration: DUR.fast }}
     >
-      <motion.div
-        style={{ width: 4 }}
-        initial={false}
-        animate={{ backgroundColor: isPending ? COLORS.low : meta.fg }}
-        transition={{ duration: DUR.fast }}
-      />
-      <div className="flex-1 p-3">
-        <div className="min-w-0">
-          <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
-            {item.name}
-          </div>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: meta.bg, color: meta.fg, fontSize: 11 }}>
-              {meta.label}
+      <CardRings radius={20} ring={isPending} ringRgb={HIGHLIGHT_RGB} highlighted={highlighted} glowRgb={HIGHLIGHT_RGB} />
+
+      <div className="flex items-center" style={{ gap: 12 }}>
+        <button type="button" onClick={onOpen} className="flex-1 min-w-0 flex items-center text-left" style={{ gap: 12 }} title={`Detail ${item.name}`}>
+          <LetterAvatar name={item.name} status={status} />
+          <span className="flex-1 min-w-0">
+            <span className="block truncate" style={{ fontSize: 15, fontWeight: 600, color: COLORS.ink }}>
+              {item.name}
             </span>
-            {!isLevel && item.minQty > 0 && (
-              <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-                min {item.minQty} {item.unit}
-              </span>
-            )}
-            <AnimatePresence initial={false}>
-              {isPending && (
-                <motion.span
-                  key="pending"
-                  className="px-1.5 py-0.5 rounded-full font-medium"
-                  style={{ background: COLORS.lowBg, color: COLORS.low, fontSize: 11 }}
-                  initial={{ opacity: 0, scale: 0.85 }}
-                  animate={{ opacity: 1, scale: 1, transition: SPRING.press }}
-                  exit={{ opacity: 0, scale: 0.85, transition: { duration: DUR.micro } }}
-                >
-                  Belum disetujui
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
+            <motion.span
+              className="block truncate"
+              initial={false}
+              animate={{ color: STATUS_TEXT[status] }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, marginTop: 1 }}
+            >
+              {stockStatusLine(shown, status)}
+            </motion.span>
+          </span>
+        </button>
 
-        <div className="mt-2.5 flex items-center gap-2">
-          <div className="flex-1 min-w-0">
-            {isLevel ? (
-              <div className="flex items-center gap-1 flex-wrap">
-                {LEVEL_OPTIONS.map((opt) => {
-                  const active = displayLevel === opt.key;
-                  const optMeta = STATUS_META[opt.status];
-                  return (
-                    <button
-                      key={opt.key}
-                      onClick={() => onLevelChange(opt.key)}
-                      className="px-2.5 py-1 rounded-full font-medium"
-                      style={{
-                        background: active ? optMeta.fg : COLORS.bg,
-                        color: active ? "#fff" : COLORS.inkSoft,
-                        border: `1px solid ${active ? optMeta.fg : COLORS.border}`,
-                        fontSize: 11,
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2.5">
-                <button
-                  onClick={() => onAdjust(-1)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{ border: `1.5px solid ${COLORS.border}` }}
-                >
-                  <Minus size={13} color={COLORS.ink} />
-                </button>
-                <div className="text-center" style={{ minWidth: 48 }}>
-                  <motion.span
-                    style={{ display: "inline-block", fontWeight: 700, fontSize: 15 }}
-                    initial={false}
-                    animate={{ color: isPending ? COLORS.low : COLORS.ink }}
-                    transition={{ duration: DUR.fast }}
-                  >
-                    <RollingNumber value={displayQty} />
-                  </motion.span>
-                  <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-                    {item.unit}
-                  </span>
-                </div>
-                <button
-                  onClick={() => onAdjust(1)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{ border: `1.5px solid ${COLORS.border}` }}
-                >
-                  <Plus size={13} color={COLORS.ink} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          <AnimatePresence initial={false}>
-            {isPending && (
-              <motion.button
-                key="confirm"
-                onClick={onConfirmPending}
-                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white"
-                style={{ background: COLORS.safe, boxShadow: "0 3px 10px rgba(107,143,113,0.4)" }}
-                title="Setujui perubahan"
-                initial={{ opacity: 0, scale: 0.5, x: 12 }}
-                animate={{ opacity: 1, scale: 1, x: 0, transition: SPRING.press }}
-                exit={{ opacity: 0, scale: 0.5, transition: { duration: DUR.micro } }}
+        {!isLevel && (
+          <motion.div
+            className="flex items-center shrink-0"
+            initial={false}
+            animate={{ backgroundColor: isPending ? COLORS.lowBg : COLORS.soft }}
+            transition={{ duration: DUR.fast }}
+            style={{ borderRadius: 999, padding: 2 }}
+          >
+            <button
+              type="button"
+              aria-label={`Kurangi ${item.name}`}
+              onClick={() => canDec && onAdjust(-1)}
+              className="flex items-center justify-center"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 999,
+                border: "none",
+                background: canDec ? "#FFFFFF" : "transparent",
+                boxShadow: canDec ? "0 1px 4px rgba(43,42,37,0.12)" : "none",
+                color: canDec ? COLORS.ink : "#B8B4A8",
+              }}
+            >
+              <Minus size={16} strokeWidth={2.4} />
+            </button>
+            <div className="text-center" style={{ minWidth: 48, padding: "0 2px" }}>
+              <motion.span
+                style={{ display: "inline-block", fontWeight: 700, fontSize: 17 }}
+                initial={false}
+                animate={{ color: isPending ? STATUS_TEXT.low : COLORS.ink }}
+                transition={{ duration: DUR.fast }}
               >
-                <Check size={16} />
-              </motion.button>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {item.notes && (
-          <div className="mt-2 italic" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-            {item.notes}
-          </div>
+                <RollingNumber value={fmtQty(displayQty)} />
+              </motion.span>
+              <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11.5 }}>
+                {item.unit}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-label={`Tambah ${item.name}`}
+              onClick={() => onAdjust(1)}
+              className="flex items-center justify-center"
+              style={{ width: 40, height: 40, borderRadius: 999, border: "none", background: "#FFFFFF", boxShadow: "0 1px 4px rgba(43,42,37,0.12)", color: COLORS.ink }}
+            >
+              <Plus size={16} strokeWidth={2.4} />
+            </button>
+          </motion.div>
         )}
+      </div>
 
-        <div className="flex items-end justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
-          <div className="flex items-start gap-1.5 min-w-0">
-            <Clock size={11} color={COLORS.inkSoft} className="mt-0.5 shrink-0" />
-            <div className="leading-tight" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-              <div>Terakhir diperbarui</div>
-              <div className="truncate">
-                {item.lastUpdatedBy || "?"} &middot; {fmtDateTime(item.lastUpdatedAt)}
-              </div>
+      {isLevel ? (
+        <LevelBattery level={displayLevel} onChange={onLevelChange} label={`Sisa ${item.name}`} />
+      ) : (
+        min > 0 && <Gauge qty={displayQty} min={min} status={status} />
+      )}
+
+      <Collapse open={isPending}>
+        <div className="flex items-center" style={{ gap: 6, background: "#FDF4EA", borderRadius: 14, padding: "4px 4px 4px 12px" }}>
+          <div className="flex-1 min-w-0" style={{ color: "#7A4514", lineHeight: 1.2 }}>
+            <div style={{ fontSize: 11.5, opacity: 0.8 }}>Belum disimpan</div>
+            <div className="truncate" style={{ fontSize: 13.5, fontWeight: 600 }}>
+              {pendingText}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={onEdit}
-              className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ border: `1px solid ${COLORS.border}` }}
-              title="Edit"
-            >
-              <Pencil size={12} color={COLORS.ink} />
-            </button>
-            <button
-              onClick={onDelete}
-              className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ border: `1px solid ${COLORS.out}55` }}
-              title="Hapus"
-            >
-              <Trash2 size={12} color={COLORS.out} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onCancelPending}
+            style={{ height: 40, padding: "0 10px", borderRadius: 12, border: "none", background: "transparent", color: "#7A4514", fontSize: 13, fontWeight: 500 }}
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={onConfirmPending}
+            className="flex items-center"
+            style={{ height: 40, padding: "0 16px", borderRadius: 12, border: "none", background: COLORS.safe, color: "#FFFFFF", fontSize: 13.5, fontWeight: 600, gap: 6 }}
+          >
+            <Check size={16} strokeWidth={2.6} />
+            Simpan
+          </button>
         </div>
-      </div>
+      </Collapse>
     </motion.div>
   );
 }
 
-function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
-  const [type, setType] = useState(item?.type || "qty");
-  const [name, setName] = useState(item?.name || "");
-  const [qty, setQty] = useState(item && item.type !== "level" ? String(item.qty) : "");
-  const [unit, setUnit] = useState(item?.unit || "pcs");
-  const [minQty, setMinQty] = useState(item?.minQty ? String(item.minQty) : "");
-  const [level, setLevel] = useState(item?.level || "banyak");
-  const [notes, setNotes] = useState(item?.notes || "");
-  const [error, setError] = useState("");
-
-  const submit = () => {
-    if (!name.trim()) return setError("Nama item wajib diisi.");
-    if (type === "qty" && (qty === "" || isNaN(Number(qty)) || Number(qty) < 0)) {
-      return setError("Jumlah harus angka valid.");
-    }
-    setError("");
-    onSubmit(type === "level" ? { type, name, level, notes } : { type, name, qty, unit, minQty, notes });
-  };
+// Sentuh kartu → detail barang.
+function ItemDetailSheet({ item, activeEntry, onClose, onEdit, onDelete, onAddToBuy }) {
+  const status = statusOf(item);
+  const isLevel = item.type === "level";
+  const min = Number(item.minQty) || 0;
+  const qty = Number(item.qty) || 0;
+  let gaugeNote = "";
+  if (!isLevel && min > 0) {
+    if (qty < min) gaugeNote = `Kurang ${fmtQty(min - qty)} ${item.unit} dari batas minimum`;
+    else if (qty === min) gaugeNote = "Pas di batas minimum — sebaiknya dibeli";
+    else gaugeNote = `${fmtQty(qty - min)} ${item.unit} di atas minimum`;
+  }
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="flex items-center justify-between mb-4">
-        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
-          {mode === "add" ? "Tambah item" : "Edit item"}
+    <Sheet onClose={onClose} font={APP_FONT} color={COLORS.ink}>
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        <div className="flex items-center" style={{ gap: 14 }}>
+          <LetterAvatar name={item.name} status={status} size={52} radius={17} fontSize={24} />
+          <div className="flex-1 min-w-0">
+            <div className="truncate" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 24, lineHeight: 1.1 }}>
+              {item.name}
+            </div>
+            <div style={{ fontSize: 13, color: STATUS_TEXT[status], marginTop: 2 }}>{STATUS_META[status].label}</div>
+          </div>
+          <button
+            type="button"
+            aria-label="Tutup"
+            title="Tutup"
+            onClick={onClose}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.inkSoft }}
+          >
+            <X size={17} strokeWidth={2.2} />
+          </button>
         </div>
-        <button onClick={onClose}>
-          <X size={18} color={COLORS.inkSoft} />
-        </button>
-      </div>
 
-      <div className="flex flex-col gap-3">
-        {mode === "add" && (
-          <Field label="Tipe item">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setType("qty")}
-                className="flex-1 py-2 rounded-lg text-xs font-medium"
-                style={{
-                  background: type === "qty" ? COLORS.primary : COLORS.card,
-                  color: type === "qty" ? "#fff" : COLORS.ink,
-                  border: `1px solid ${type === "qty" ? COLORS.primary : COLORS.border}`,
-                }}
-              >
-                Stok dengan jumlah
-              </button>
-              <button
-                onClick={() => setType("level")}
-                className="flex-1 py-2 rounded-lg text-xs font-medium"
-                style={{
-                  background: type === "level" ? COLORS.primary : COLORS.card,
-                  color: type === "level" ? "#fff" : COLORS.ink,
-                  border: `1px solid ${type === "level" ? COLORS.primary : COLORS.border}`,
-                }}
-              >
-                Tanpa hitungan pasti
-              </button>
-            </div>
-            {type === "level" && (
-              <p className="text-xs mt-1.5" style={{ color: COLORS.inkSoft }}>
-                Untuk item yang sekali beli tahan lama & gak digudangin, mis. bumbu jarang, alat rumah tangga.
-              </p>
-            )}
-          </Field>
-        )}
-
-        <Field label="Nama item">
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="mis. Beras"
-            className="w-full px-3 py-2.5 rounded-lg text-sm"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-        </Field>
-
-        {type === "level" ? (
-          <Field label="Sisa saat ini">
-            <div className="flex gap-2 flex-wrap">
-              {LEVEL_OPTIONS.map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => setLevel(opt.key)}
-                  className="px-3 py-2 rounded-lg text-xs font-medium"
-                  style={{
-                    background: level === opt.key ? STATUS_META[opt.status].fg : COLORS.card,
-                    color: level === opt.key ? "#fff" : COLORS.ink,
-                    border: `1px solid ${level === opt.key ? STATUS_META[opt.status].fg : COLORS.border}`,
-                  }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </Field>
+        {isLevel ? (
+          <div>
+            <div style={{ fontSize: 12, color: COLORS.inkSoft, marginBottom: 6 }}>Sisa sekarang</div>
+            <LevelBattery level={item.level} readOnly label={`Sisa ${item.name}`} />
+          </div>
         ) : (
           <>
-            <div className="flex gap-3">
-              <Field label="Jumlah" className="flex-1">
-                <input
-                  type="number"
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                  placeholder="0"
-                  className="w-full px-3 py-2.5 rounded-lg text-sm"
-                  style={{ border: `1px solid ${COLORS.border}` }}
-                />
-              </Field>
-              <Field label="Satuan" className="flex-1">
-                <input
-                  list="unit-suggestions"
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="pcs"
-                  className="w-full px-3 py-2.5 rounded-lg text-sm"
-                  style={{ border: `1px solid ${COLORS.border}` }}
-                />
-                <datalist id="unit-suggestions">
-                  {UNIT_SUGGESTIONS.map((u) => (
-                    <option key={u} value={u} />
-                  ))}
-                </datalist>
-              </Field>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+              <div style={{ background: COLORS.soft, borderRadius: 16, padding: "12px 14px" }}>
+                <div style={{ fontSize: 12, color: COLORS.inkSoft }}>Sisa sekarang</div>
+                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
+                  {fmtQty(qty)} <span style={{ fontSize: 13, fontWeight: 500, color: COLORS.inkSoft }}>{item.unit}</span>
+                </div>
+              </div>
+              <div style={{ background: COLORS.soft, borderRadius: 16, padding: "12px 14px" }}>
+                <div style={{ fontSize: 12, color: COLORS.inkSoft }}>Batas minimum</div>
+                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
+                  {min > 0 ? fmtQty(min) : "–"} {min > 0 && <span style={{ fontSize: 13, fontWeight: 500, color: COLORS.inkSoft }}>{item.unit}</span>}
+                </div>
+              </div>
             </div>
-            <Field label="Batas minimum (opsional)">
-              <input
-                type="number"
-                value={minQty}
-                onChange={(e) => setMinQty(e.target.value)}
-                placeholder="Kosongkan jika tidak perlu"
-                className="w-full px-3 py-2.5 rounded-lg text-sm"
-                style={{ border: `1px solid ${COLORS.border}` }}
-              />
-            </Field>
+            {min > 0 && (
+              <div>
+                <Gauge qty={qty} min={min} status={status} height={8} />
+                <div className="flex justify-between" style={{ fontSize: 11.5, color: COLORS.inkSoft, marginTop: 6 }}>
+                  <span>{gaugeNote}</span>
+                  <span>min</span>
+                </div>
+              </div>
+            )}
           </>
         )}
 
-        <Field label="Catatan (opsional)">
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="mis. merk favorit, dibeli di mana biasanya"
-            rows={2}
-            className="w-full px-3 py-2.5 rounded-lg text-sm resize-none"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-        </Field>
+        <div className="flex flex-col" style={{ gap: 8, fontSize: 13, color: COLORS.inkSoft }}>
+          <div className="flex items-center" style={{ gap: 8 }}>
+            <Clock size={15} className="shrink-0" />
+            <span className="truncate">
+              Diperbarui {item.lastUpdatedBy || "?"} · {fmtDateTime(item.lastUpdatedAt)}
+            </span>
+          </div>
+          {item.notes && (
+            <div className="flex items-start" style={{ gap: 8 }}>
+              <StickyNote size={15} className="shrink-0" style={{ marginTop: 2 }} />
+              <span>{item.notes}</span>
+            </div>
+          )}
+          {activeEntry ? (
+            <div className="flex items-center" style={{ gap: 8, color: COLORS.iconBuyText }}>
+              <ShoppingCart size={15} className="shrink-0" />
+              <span>Sudah ada di Akan Dibeli{activeEntry.place ? ` · ${activeEntry.place}` : ""}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onAddToBuy}
+              className="flex items-center self-start"
+              style={{ gap: 8, height: 40, padding: "0 14px", marginLeft: -2, borderRadius: 12, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.navy, fontSize: 13.5, fontWeight: 600 }}
+            >
+              <ShoppingCart size={15} />
+              Tambah ke Akan Dibeli
+            </button>
+          )}
+        </div>
 
-        {error && (
-          <div className="text-xs" style={{ color: COLORS.out }}>
-            {error}
+        <div className="flex flex-col" style={{ gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex items-center justify-center"
+            style={{ height: 48, borderRadius: 14, border: "none", background: COLORS.navy, color: "#FFFFFF", fontSize: 14.5, fontWeight: 600, gap: 8 }}
+          >
+            <Pencil size={16} />
+            Edit barang
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex items-center justify-center"
+            style={{ height: 48, borderRadius: 14, border: "none", background: COLORS.outBg, color: STATUS_TEXT.out, fontSize: 14.5, fontWeight: 600, gap: 8 }}
+          >
+            <Trash2 size={16} />
+            Hapus
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+const QUICK_UNITS = ["pcs", "kg", "liter", "botol", "pack"];
+
+function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
+  const [type, setType] = useState(item?.type || "qty");
+  const [name, setName] = useState(item?.name || "");
+  const [qty, setQty] = useState(item && item.type !== "level" ? fmtQty(item.qty).replace(",", ".") : "1");
+  const [unit, setUnit] = useState(item?.unit || "pcs");
+  const [minQty, setMinQty] = useState(item && item.type !== "level" ? fmtQty(item.minQty || 0).replace(",", ".") : "1");
+  const [level, setLevel] = useState(item?.level || "banyak");
+  const [notes, setNotes] = useState(item?.notes || "");
+  const [showNotes, setShowNotes] = useState(!!item?.notes);
+  const [customUnit, setCustomUnit] = useState(!!item && item.type !== "level" && !QUICK_UNITS.includes(item.unit));
+  const [unitTouched, setUnitTouched] = useState(false);
+  const [error, setError] = useState("");
+
+  const qtyNum = parseFloat(String(qty).replace(",", "."));
+  const minNum = parseFloat(String(minQty).replace(",", "."));
+
+  const submit = () => {
+    if (!name.trim()) return setError("Nama barang wajib diisi.");
+    if (type === "qty" && (!Number.isFinite(qtyNum) || qtyNum < 0)) return setError("Jumlah harus angka yang valid.");
+    if (type === "qty" && String(minQty).trim() !== "" && (!Number.isFinite(minNum) || minNum < 0)) return setError("Batas minimum harus angka yang valid.");
+    setError("");
+    onSubmit(
+      type === "level"
+        ? { type, name, level, notes }
+        : { type, name, qty: String(qtyNum), unit: unit || "pcs", minQty: String(minQty).trim() === "" ? "" : String(minNum), notes }
+    );
+  };
+
+  const label = name.trim() || "barang ini";
+  const info =
+    type === "level"
+      ? `Masuk otomatis ke Akan Dibeli kalau sisa ${label} tinggal Sedikit atau Habis.`
+      : Number.isFinite(minNum) && minNum > 0
+      ? `Masuk otomatis ke Akan Dibeli kalau sisa ${label} ${fmtQty(minNum)} ${unit || "pcs"} atau kurang.`
+      : `Masuk otomatis ke Akan Dibeli kalau ${label} habis.`;
+
+  const inputStyle = { height: 48, borderRadius: 14, border: `1.5px solid ${COLORS.border}`, padding: "0 14px", color: COLORS.ink, "--inp-focus": COLORS.navy, background: "#FFFFFF" };
+
+  return (
+    <Sheet onClose={onClose} font={APP_FONT} color={COLORS.ink}>
+      <SheetHeader title={mode === "add" ? "Tambah barang" : "Edit barang"} onClose={onClose} closeBg={COLORS.soft} closeColor={COLORS.inkSoft} />
+
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        <label className="flex flex-col" style={{ gap: 6 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.inkSoft }}>Nama barang</span>
+          <input autoFocus={mode === "add"} value={name} onChange={(e) => setName(e.target.value)} placeholder="mis. Beras" className="inp w-full" style={inputStyle} />
+        </label>
+
+        {mode === "add" && (
+          <div>
+            <FieldLabel color={COLORS.inkSoft}>Cara menghitung</FieldLabel>
+            <Segmented
+              ariaLabel="Cara menghitung"
+              height={46}
+              value={type}
+              onChange={setType}
+              activeBg={COLORS.navy}
+              inkSoft={COLORS.inkSoft}
+              trackBg={COLORS.soft}
+              options={[
+                { value: "qty", label: "Pakai jumlah", sub: "kg, pcs, liter…" },
+                { value: "level", label: "Kira-kira", sub: "Banyak … Habis" },
+              ]}
+            />
           </div>
         )}
+
+        <AutoHeight swapKey={type}>
+          <FadeSwap swapKey={type}>
+            {type === "level" ? (
+              <div>
+                <FieldLabel color={COLORS.inkSoft}>Sisa sekarang</FieldLabel>
+                <LevelBattery level={level} onChange={setLevel} label="Sisa sekarang" />
+              </div>
+            ) : (
+              <div className="flex flex-col" style={{ gap: 16 }}>
+                <div className="flex" style={{ gap: 10 }}>
+                  <div className="flex-1 min-w-0">
+                    <FieldLabel color={COLORS.inkSoft}>Jumlah sekarang</FieldLabel>
+                    <Stepper value={qty} onChange={setQty} ariaLabel="Jumlah" trackBg={COLORS.soft} ink={COLORS.ink} inkSoft={COLORS.inkSoft} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <FieldLabel color={COLORS.inkSoft}>Batas minimum</FieldLabel>
+                    <Stepper value={minQty} onChange={setMinQty} ariaLabel="Minimum" trackBg={COLORS.soft} ink={COLORS.ink} inkSoft={COLORS.inkSoft} />
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel color={COLORS.inkSoft}>Satuan</FieldLabel>
+                  <div className="flex flex-wrap" style={{ gap: 6 }}>
+                    {QUICK_UNITS.map((u) => (
+                      <Chip
+                        key={u}
+                        active={!customUnit && unit === u}
+                        onClick={() => {
+                          setCustomUnit(false);
+                          setUnit(u);
+                        }}
+                        activeBg={COLORS.navy}
+                        ink={COLORS.ink}
+                        inkSoft={COLORS.inkSoft}
+                        border={COLORS.border}
+                        style={{ padding: "0 12px" }}
+                      >
+                        {u}
+                      </Chip>
+                    ))}
+                    <Chip
+                      dashed={!customUnit}
+                      active={customUnit}
+                      onClick={() => {
+                        if (!customUnit) {
+                          setCustomUnit(true);
+                          setUnitTouched(true);
+                          if (QUICK_UNITS.includes(unit)) setUnit("");
+                        }
+                      }}
+                      activeBg={COLORS.navy}
+                      ink={COLORS.ink}
+                      inkSoft={COLORS.inkSoft}
+                      border={COLORS.border}
+                      style={{ padding: "0 12px" }}
+                    >
+                      {customUnit && unit ? unit : "+ lainnya"}
+                    </Chip>
+                  </div>
+                  <Collapse open={customUnit}>
+                    <div style={{ paddingTop: 8 }}>
+                      <input
+                        autoFocus={unitTouched}
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        placeholder="mis. gram, sachet, rim"
+                        aria-label="Satuan lain"
+                        className="inp w-full"
+                        style={{ ...inputStyle, height: 44 }}
+                      />
+                    </div>
+                  </Collapse>
+                </div>
+              </div>
+            )}
+          </FadeSwap>
+        </AutoHeight>
+
+        <div className="flex items-center" style={{ gap: 10, background: "#F0F2F8", borderRadius: 14, padding: "12px 14px", fontSize: 12.5, color: COLORS.navyText, lineHeight: 1.4 }}>
+          <ShoppingCart size={18} className="shrink-0" />
+          <span>{info}</span>
+        </div>
+
+        <div>
+          {!showNotes ? (
+            <button type="button" onClick={() => setShowNotes(true)} style={{ height: 40, padding: "0 4px", border: "none", background: "transparent", color: COLORS.navy, fontSize: 13.5, fontWeight: 600 }}>
+              + Tambah catatan
+            </button>
+          ) : null}
+          <Collapse open={showNotes}>
+            <div>
+              <FieldLabel color={COLORS.inkSoft}>Catatan</FieldLabel>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="mis. merk favorit, dibeli di mana biasanya"
+                rows={2}
+                className="inp w-full resize-none"
+                style={{ ...inputStyle, height: "auto", padding: "10px 14px" }}
+              />
+            </div>
+          </Collapse>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.div
+              key="err"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, color: STATUS_TEXT.out, overflow: "hidden" }}
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <button
+          type="button"
           onClick={submit}
           disabled={saving}
-          className="w-full py-2.5 rounded-lg text-sm font-medium text-white mt-1"
-          style={{ background: COLORS.primary, opacity: saving ? 0.6 : 1 }}
+          style={{ height: 52, borderRadius: 16, border: "none", background: COLORS.navy, color: "#FFFFFF", fontSize: 15, fontWeight: 600, opacity: saving ? 0.6 : 1 }}
         >
-          {saving ? "Menyimpan..." : mode === "add" ? "Tambahkan" : "Simpan perubahan"}
+          {saving ? "Menyimpan..." : mode === "add" ? "Tambahkan ke stok" : "Simpan perubahan"}
         </button>
       </div>
-    </Overlay>
+    </Sheet>
   );
 }
 
 /* ---------------- Akan Dibeli page ---------------- */
 
-function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEditEntry, onDeleteEntry, onToggle, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
+// Baris yang baru dicentang/dibatalkan tetap tampil sebentar (±0,8 detik)
+// dengan tanda centangnya, baru kemudian keluar dari daftar — supaya
+// perubahannya terlihat, tidak hilang mendadak.
+// Catatan: `list` harus array dari state (identitasnya stabil antar render),
+// bukan hasil .filter() yang dibuat ulang tiap render.
+function useRecentlyToggled(list, field) {
+  const [prev, setPrev] = useState(list);
+  const [ids, setIds] = useState([]);
+  if (list !== prev) {
+    const before = new Map(prev.map((e) => [e.id, !!e[field]]));
+    const changed = list.filter((e) => before.has(e.id) && before.get(e.id) !== !!e[field]).map((e) => e.id);
+    setPrev(list);
+    if (changed.length) setIds((cur) => [...cur.filter((id) => !changed.includes(id)), ...changed]);
+  }
+  useEffect(() => {
+    if (!ids.length) return;
+    const t = setTimeout(() => setIds([]), 800);
+    return () => clearTimeout(t);
+  }, [ids]);
+  return ids;
+}
+
+function toBuyMeta(entry, item) {
+  const parts = [];
+  const amount = entry.qty ? `${entry.qty}${entry.unit ? " " + entry.unit : ""}` : "";
+  if (entry.bought) {
+    parts.push(`${entry.boughtBy || "?"} · ${fmtClock(entry.boughtAt)}`);
+    if (entry.applied && entry.applied.kind === "qty") parts.push(`stok +${fmtQty(entry.applied.amount)} ${item ? item.unit : entry.unit || ""}`.trim());
+    else if (entry.applied && entry.applied.kind === "level") parts.push("stok jadi Banyak");
+    else if (amount) parts.push(amount);
+    return parts.join(" · ");
+  }
+  if (item) {
+    parts.push(amount || "Jumlah belum diisi");
+    if (item.type === "level") parts.push(`sisa ${(LEVEL_LABEL[item.level] || "").toLowerCase()}`);
+    else parts.push(Number(item.qty) > 0 ? `stok sisa ${fmtQty(item.qty)} ${item.unit}` : "stok habis");
+  } else {
+    if (amount) parts.push(amount);
+    if (entry.notes) parts.push(entry.notes);
+  }
+  return parts.join(" · ");
+}
+
+function ToBuyPage({ toBuy, items, places, search, setSearch, filter, setFilter, onBack, onEditEntry, onToggle, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
   const pendingCount = toBuy.filter((e) => !e.bought).length;
   const boughtCount = toBuy.filter((e) => e.bought).length;
+  const lingering = useRecentlyToggled(toBuy, "bought");
+  const itemMap = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
-  const filtered = useMemo(() => {
+  const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return toBuy
-      .filter((e) => (filter === "pending" ? !e.bought : e.bought))
-      .filter((e) => e.itemName.toLowerCase().includes(q))
-      .sort((a, b) => {
-        const da = filter === "pending" ? a.addedAt : a.boughtAt;
-        const db = filter === "pending" ? b.addedAt : b.boughtAt;
-        return new Date(db) - new Date(da);
+    const list = toBuy
+      .filter((e) => (filter === "pending" ? !e.bought : e.bought) || lingering.includes(e.id))
+      .filter((e) => e.itemName.toLowerCase().includes(q));
+
+    if (filter === "pending") {
+      // Dikelompokkan per tempat beli, urut sesuai daftar tempat; yang belum
+      // punya tempat di paling bawah.
+      const byPlace = new Map();
+      list
+        .slice()
+        .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt))
+        .forEach((e) => {
+          const key = e.place || "";
+          if (!byPlace.has(key)) byPlace.set(key, []);
+          byPlace.get(key).push(e);
+        });
+      const order = (k) => {
+        if (!k) return 1e6;
+        const i = places.indexOf(k);
+        return i === -1 ? 1e5 : i;
+      };
+      return [...byPlace.entries()]
+        .sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0], "id"))
+        .map(([k, rows]) => ({ key: `p-${k}`, title: k ? k.toUpperCase() : "TEMPAT BELUM DIPILIH", muted: !k, rows }));
+    }
+
+    // Sudah dibeli: per hari pembelian, terbaru di atas.
+    const byDay = new Map();
+    list
+      .slice()
+      .sort((a, b) => new Date(b.boughtAt || 0) - new Date(a.boughtAt || 0))
+      .forEach((e) => {
+        const key = e.boughtAt ? activityDayLabel(e.boughtAt) : "Baru saja";
+        if (!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key).push(e);
       });
-  }, [toBuy, search, filter]);
+    return [...byDay.entries()].map(([k, rows]) => ({ key: `d-${k}`, title: k.toUpperCase(), muted: false, rows }));
+  }, [toBuy, search, filter, places, lingering]);
 
   useEffect(() => {
     if (!highlightId) return;
-    // Tunggu halaman/daftarnya selesai bergeser dulu, baru digulir ke item.
     const t1 = setTimeout(() => {
       const el = document.getElementById(`tobuy-item-${highlightId}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
@@ -3225,53 +3814,73 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEdit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
+  const isEmpty = groups.length === 0;
+
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar
-          title="Akan Dibeli"
-          onBack={onBack}
-          onOpenUserMenu={onOpenUserMenu}
-          onSwitchApp={onSwitchApp}
-          notifSlot={notifSlot}
-        />
+        <TopBar title="Akan Dibeli" onBack={onBack} onOpenUserMenu={onOpenUserMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
 
-        {/* Format kartu filter dibuat sama persis dengan halaman Stok. */}
         <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-          <FilterTile group="tobuy" label="Perlu Dibeli" value={pendingCount} color={COLORS.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
+          <FilterTile group="tobuy" label="Perlu Dibeli" value={pendingCount} color={STATUS_TEXT.low} active={filter === "pending"} onClick={() => setFilter("pending")} />
           <FilterTile group="tobuy" label="Sudah Dibeli" value={boughtCount} color={COLORS.safe} active={filter === "bought"} onClick={() => setFilter("bought")} />
         </div>
 
-        <div
-          className="flex items-center gap-2.5"
-          style={{ background: COLORS.card, borderRadius: 999, padding: "12px 18px", boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}
-        >
+        <div className="flex items-center gap-2.5" style={{ background: COLORS.card, borderRadius: 999, padding: "0 18px", height: 46, boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}>
           <Search size={18} color={COLORS.inkSoft} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari di daftar ini..."
+            aria-label="Cari di daftar Akan Dibeli"
             className="flex-1 bg-transparent"
-            style={{ color: COLORS.ink, fontSize: 14, outline: "none", border: "none" }}
+            style={{ color: COLORS.ink, outline: "none", border: "none" }}
           />
         </div>
       </div>
 
       <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pb-32">
-          {filtered.length === 0 ? (
-            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pt-1 pb-32">
+          {isEmpty ? (
+            <div className="py-14 text-center rounded-[20px]" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <ShoppingCart size={26} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
               <div style={{ color: COLORS.inkSoft }} className="text-sm">
                 {filter === "pending" ? "Gak ada yang perlu dibeli." : "Belum ada yang dibeli."}
               </div>
             </div>
           ) : (
-            <AnimatedList className="flex flex-col gap-2">
-              {filtered.map((e) => (
-                <ToBuyRow key={e.id} entry={e} onToggle={() => onToggle(e.id)} onEdit={() => onEditEntry(e)} onDelete={() => onDeleteEntry(e)} highlighted={e.id === highlightId} />
-              ))}
-            </AnimatedList>
+            <>
+              <CollapseList spacing={16}>
+                {groups.map((g) => (
+                  <section key={g.key} className="flex flex-col" style={{ gap: 8 }}>
+                    <div style={{ padding: "0 4px", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: g.muted ? COLORS.inkSoft : COLORS.iconBuyText }}>
+                      {g.title} · <RollingNumber value={g.rows.length} />
+                    </div>
+                    <div style={{ background: COLORS.card, borderRadius: 20, boxShadow: CARD_SHADOW }}>
+                      <CollapseList>
+                        {g.rows.map((e, i) => (
+                          <ToBuyRow
+                            key={e.id}
+                            entry={e}
+                            item={e.itemId ? itemMap.get(e.itemId) : null}
+                            first={i === 0}
+                            onToggle={() => onToggle(e.id)}
+                            onOpen={() => onEditEntry(e)}
+                            highlighted={e.id === highlightId}
+                          />
+                        ))}
+                      </CollapseList>
+                    </div>
+                  </section>
+                ))}
+              </CollapseList>
+              {filter === "pending" && (
+                <div style={{ fontSize: 12, color: COLORS.inkSoft, padding: "0 4px", lineHeight: 1.5 }}>
+                  Label <b style={{ color: STATUS_TEXT.low }}>Menipis</b>/<b style={{ color: STATUS_TEXT.out }}>Habis</b> = masuk otomatis dari stok.{" "}
+                  <b style={{ color: COLORS.navyText }}>Nyetok</b> = kamu tambahkan sendiri dari daftar stok. Tanpa label = barang lain.
+                </div>
+              )}
+            </>
           )}
         </FadeSwap>
       </motion.div>
@@ -3279,104 +3888,218 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEdit
   );
 }
 
-function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
-  const detailParts = [];
-  if (entry.qty) detailParts.push(`${entry.qty}${entry.unit ? " " + entry.unit : ""}`);
-  if (entry.place) detailParts.push(entry.place);
-
-  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
+function ToBuyChip({ entry, item }) {
+  if (entry.bought || !item) return null;
+  if (entry.source === "auto") {
+    const s = statusOf(item);
+    if (s === "safe") return null;
+    return (
+      <span className="shrink-0" style={{ fontSize: 11, fontWeight: 600, color: STATUS_TEXT[s], background: STATUS_META[s].bg, borderRadius: 999, padding: "4px 9px" }}>
+        {STATUS_META[s].label}
+      </span>
+    );
+  }
   return (
-    <motion.div
-      id={`tobuy-item-${entry.id}`}
-      className="rounded-2xl p-3"
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
-      initial={false}
-      animate={glow.animate}
-      transition={glow.transition}
-    >
-      <div className="flex items-start gap-2.5">
-        <CheckCircle
-          checked={entry.bought}
-          onClick={onToggle}
-          color={COLORS.safe}
-          borderColor={COLORS.border}
-          style={{ marginTop: 2 }}
-          title={entry.bought ? "Batal tandai dibeli" : "Tandai sudah dibeli"}
-        />
-        <div className="min-w-0 flex-1">
-          <div
-            className="font-semibold truncate"
-            style={{
-              color: entry.bought ? COLORS.inkSoft : COLORS.ink,
-              textDecoration: entry.bought ? "line-through" : "none",
-              fontSize: 13,
-            }}
-          >
-            {entry.itemName}
-          </div>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            {!entry.bought && (
-              <span className="px-1.5 py-0.5 rounded-full font-medium" style={{ background: COLORS.lowBg, color: COLORS.low, fontSize: 11 }}>
-                Perlu Dibeli
-              </span>
-            )}
-            {detailParts.length > 0 && (
-              <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-                {detailParts.join(" · ")}
-              </span>
-            )}
-          </div>
-          {entry.notes && (
-            <div className="mt-1 italic" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-              {entry.notes}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-end justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
-        <div className="flex items-start gap-1.5 min-w-0">
-          <Clock size={11} color={entry.bought ? COLORS.safe : COLORS.inkSoft} className="mt-0.5 shrink-0" />
-          <div className="leading-tight" style={{ color: entry.bought ? COLORS.safe : COLORS.inkSoft, fontSize: 11 }}>
-            <div>{entry.bought ? "Sudah dibeli" : "Ditambahkan"}</div>
-            <div className="truncate">
-              {entry.bought ? `${entry.boughtBy || "?"} · ${fmtDateTime(entry.boughtAt)}` : fmtDateTime(entry.addedAt)}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Edit">
-            <Pencil size={12} color={COLORS.ink} />
-          </button>
-          <button
-            onClick={onDelete}
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ border: `1px solid ${COLORS.out}55` }}
-            title="Hapus"
-          >
-            <Trash2 size={12} color={COLORS.out} />
-          </button>
-        </div>
-      </div>
-    </motion.div>
+    <span className="shrink-0" style={{ fontSize: 11, fontWeight: 600, color: COLORS.navyText, background: COLORS.navySoft, borderRadius: 999, padding: "4px 9px" }}>
+      Nyetok
+    </span>
   );
 }
 
-function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClose, onSubmit }) {
-  const isManualEditable = mode === "add" || (entry && entry.source === "manual");
+function ToBuyRow({ entry, item, first, onToggle, onOpen, highlighted }) {
+  return (
+    <div id={`tobuy-item-${entry.id}`} className="relative">
+      {!first && <div aria-hidden="true" style={{ height: 1, background: "#F1EEE5", marginLeft: 48 }} />}
+      <div className="relative flex items-center" style={{ gap: 4, padding: "6px 12px 6px 4px" }}>
+        <CardRings radius={16} highlighted={highlighted} glowRgb={HIGHLIGHT_RGB} />
+        <CheckCircle
+          hit
+          checked={entry.bought}
+          onClick={onToggle}
+          size={24}
+          borderWidth={2}
+          color={COLORS.safe}
+          borderColor="#D6D1C3"
+          title={entry.bought ? `Batalkan ${entry.itemName} sudah dibeli` : `Tandai ${entry.itemName} sudah dibeli`}
+        />
+        <button type="button" onClick={onOpen} className="flex-1 min-w-0 flex items-center text-left" style={{ gap: 8, minHeight: 44 }}>
+          <span className="flex-1 min-w-0">
+            <motion.span
+              className="block truncate"
+              initial={false}
+              animate={{ color: entry.bought ? COLORS.inkSoft : COLORS.ink }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 15, fontWeight: 600, textDecoration: entry.bought ? "line-through" : "none", textDecorationColor: "#C9C4B6" }}
+            >
+              {entry.itemName}
+            </motion.span>
+            <span className="block truncate" style={{ fontSize: 12.5, color: COLORS.inkSoft, marginTop: 1 }}>
+              {toBuyMeta(entry, item)}
+            </span>
+          </span>
+          <ToBuyChip entry={entry} item={item} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Centang barang berjumlah → isi berapa yang dibeli, stok langsung bertambah.
+function BuySheet({ entry, item, onClose, onConfirm }) {
+  const initial = parseFloat(String(entry.qty || "").replace(",", "."));
+  const [amount, setAmount] = useState(Number.isFinite(initial) && initial > 0 ? String(initial) : "1");
+  const [saving, setSaving] = useState(false);
+  const amt = parseFloat(String(amount).replace(",", "."));
+  const valid = Number.isFinite(amt) && amt > 0;
+  const now = Number(item.qty) || 0;
+  const after = roundQty(now + (valid ? amt : 0));
+  const min = Number(item.minQty) || 0;
+  const nowStatus = statusOf(item);
+  const afterStatus = statusOf({ ...item, qty: after });
+
+  let note = "";
+  let noteColor = COLORS.safe;
+  if (min > 0 && afterStatus === "safe") note = `Di atas minimum ${fmtQty(min)} ${item.unit} — ${item.name} kembali aman.`;
+  else if (min > 0) {
+    note = `Masih di batas minimum ${fmtQty(min)} ${item.unit} — ${item.name} akan masuk lagi ke Akan Dibeli.`;
+    noteColor = STATUS_TEXT.low;
+  } else if (afterStatus === "safe") note = `${item.name} kembali tersedia.`;
+
+  const confirm = async () => {
+    if (!valid || saving) return;
+    setSaving(true);
+    await onConfirm(amt);
+  };
+
+  return (
+    <Sheet onClose={onClose} font={APP_FONT} color={COLORS.ink}>
+      <div className="flex flex-col" style={{ gap: 18 }}>
+        <div className="flex items-center" style={{ gap: 12 }}>
+          <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: 999, background: COLORS.safeBg, color: COLORS.safe }}>
+            <Check size={20} strokeWidth={2.6} />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 22, lineHeight: 1.1 }}>
+              {item.name} sudah dibeli
+            </div>
+            <div style={{ fontSize: 13, color: COLORS.inkSoft, marginTop: 2 }}>Berapa yang dibeli?</div>
+          </div>
+        </div>
+
+        <Stepper
+          size="lg"
+          value={amount}
+          onChange={setAmount}
+          min={0}
+          unit={item.unit}
+          ariaLabel="Jumlah dibeli"
+          trackBg={COLORS.soft}
+          ink={COLORS.ink}
+          inkSoft={COLORS.inkSoft}
+          numberStyle={{ fontFamily: "'Baloo 2', cursive", lineHeight: 1.1 }}
+        />
+
+        <div>
+          <div className="flex items-center" style={{ gap: 12, border: `1px solid ${COLORS.border}`, borderRadius: 18, padding: "14px 16px" }}>
+            <div className="flex-1">
+              <div style={{ fontSize: 12, color: COLORS.inkSoft }}>Stok sekarang</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: STATUS_TEXT[nowStatus] }}>
+                {fmtQty(now)} {item.unit}
+              </div>
+            </div>
+            <ChevronRight size={18} color={COLORS.inkSoft} />
+            <div className="flex-1 text-right">
+              <div style={{ fontSize: 12, color: COLORS.inkSoft }}>Setelah dibeli</div>
+              <motion.div
+                initial={false}
+                animate={{ color: STATUS_TEXT[afterStatus] }}
+                transition={{ duration: DUR.fast }}
+                style={{ fontSize: 18, fontWeight: 700 }}
+              >
+                <RollingNumber value={fmtQty(after)} /> {item.unit}
+              </motion.div>
+            </div>
+          </div>
+          {note && (
+            <FadeSwap swapKey={noteColor}>
+              <div style={{ fontSize: 12.5, color: noteColor, padding: "8px 4px 0" }}>{note}</div>
+            </FadeSwap>
+          )}
+        </div>
+
+        <div className="flex" style={{ gap: 8 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ flex: 1, height: 50, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.ink, fontSize: 14.5, fontWeight: 500 }}
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={!valid || saving}
+            style={{ flex: 2, height: 50, borderRadius: 14, border: "none", background: COLORS.safe, color: "#FFFFFF", fontSize: 14.5, fontWeight: 600, opacity: valid ? 1 : 0.5 }}
+          >
+            Simpan & tambah stok
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+function ToBuyFormModal({ mode, entry, items, toBuy, preselectItemId, places, onAddPlace, onDeletePlace, onClose, onSubmit, onDelete }) {
+  const linkedItem = entry && entry.itemId ? items.find((i) => i.id === entry.itemId) : null;
+  const [source, setSource] = useState(() => {
+    if (mode === "edit") return entry && entry.itemId ? "stok" : "lain";
+    if (preselectItemId) return "stok";
+    return items.length > 0 ? "stok" : "lain";
+  });
+  const [pickedId, setPickedId] = useState(preselectItemId || null);
+  const [query, setQuery] = useState("");
   const [name, setName] = useState(entry?.itemName || "");
   const [qty, setQty] = useState(entry?.qty || "");
   const [unit, setUnit] = useState(entry?.unit || "");
   const [place, setPlace] = useState(entry?.place || "");
   const [notes, setNotes] = useState(entry?.notes || "");
+  const [showNotes, setShowNotes] = useState(!!entry?.notes);
   const [addingPlace, setAddingPlace] = useState(false);
   const [placeDraft, setPlaceDraft] = useState("");
   const [error, setError] = useState("");
 
+  const activeIds = useMemo(() => new Set(toBuy.filter((e) => !e.bought && e.itemId).map((e) => e.itemId)), [toBuy]);
+  const picked = source === "stok" ? (mode === "edit" ? linkedItem : items.find((i) => i.id === pickedId)) : null;
+
+  const stockList = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const rank = { out: 0, low: 1, safe: 2 };
+    return items
+      .filter((i) => i.name.toLowerCase().includes(q))
+      .slice()
+      .sort((a, b) => {
+        const la = activeIds.has(a.id) ? 1 : 0;
+        const lb = activeIds.has(b.id) ? 1 : 0;
+        if (la !== lb) return la - lb;
+        const sa = rank[statusOf(a)];
+        const sb = rank[statusOf(b)];
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name, "id");
+      });
+  }, [items, query, activeIds]);
+
   const submit = () => {
-    if (isManualEditable && !name.trim()) return setError("Nama item wajib diisi.");
+    if (mode === "add" && source === "stok" && !picked) return setError("Pilih barang dari daftar stok dulu.");
+    if ((mode === "add" && source === "lain" && !name.trim()) || (mode === "edit" && !entry.itemId && !name.trim())) return setError("Nama barang wajib diisi.");
     setError("");
-    onSubmit({ name, qty, unit, place, notes });
+    onSubmit({
+      itemId: mode === "add" && source === "stok" ? picked.id : undefined,
+      name: source === "stok" && picked ? picked.name : name,
+      qty: String(qty).trim(),
+      unit: source === "stok" && picked ? (picked.type === "qty" ? picked.unit : unit) : unit,
+      place,
+      notes,
+    });
   };
 
   const saveCustomPlace = async () => {
@@ -3386,135 +4109,264 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
     setAddingPlace(false);
   };
 
+  const inputStyle = { height: 46, borderRadius: 14, border: `1.5px solid ${COLORS.border}`, padding: "0 14px", color: COLORS.ink, "--inp-focus": COLORS.navy, background: "#FFFFFF" };
+  const pickedUnit = picked && picked.type === "qty" ? picked.unit : null;
+
   return (
-    <Overlay onClose={onClose}>
-      <div className="flex items-center justify-between mb-4">
-        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
-          {mode === "add" ? "Tambah manual" : "Edit item beli"}
-        </div>
-        <button onClick={onClose}>
-          <X size={18} color={COLORS.inkSoft} />
-        </button>
-      </div>
+    <Sheet onClose={onClose} font={APP_FONT} color={COLORS.ink}>
+      <SheetHeader title={mode === "add" ? "Tambah ke Akan Dibeli" : "Edit item beli"} onClose={onClose} closeBg={COLORS.soft} closeColor={COLORS.inkSoft} />
 
-      <div className="flex flex-col gap-3">
-        <Field label="Nama item">
-          {isManualEditable ? (
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="mis. Lampu bohlam"
-              className="w-full px-3 py-2.5 rounded-lg text-sm"
-              style={{ border: `1px solid ${COLORS.border}` }}
-            />
-          ) : (
-            <div className="text-sm py-2.5" style={{ color: COLORS.ink }}>
-              {entry.itemName}
+      <div className="flex flex-col" style={{ gap: 14 }}>
+        {mode === "add" ? (
+          <Segmented
+            ariaLabel="Sumber barang"
+            height={42}
+            fontSize={13.5}
+            value={source}
+            onChange={(v) => {
+              setSource(v);
+              setError("");
+            }}
+            activeBg={COLORS.navy}
+            inkSoft={COLORS.inkSoft}
+            trackBg={COLORS.soft}
+            options={[
+              { value: "stok", label: "Dari daftar stok" },
+              { value: "lain", label: "Barang lain" },
+            ]}
+          />
+        ) : (
+          <div className="flex items-center" style={{ gap: 10 }}>
+            {linkedItem ? (
+              <>
+                <LetterAvatar name={linkedItem.name} status={statusOf(linkedItem)} />
+                <div className="flex-1 min-w-0">
+                  <div className="truncate" style={{ fontSize: 15, fontWeight: 600 }}>
+                    {linkedItem.name}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: COLORS.inkSoft }}>Terhubung ke daftar stok</div>
+                </div>
+              </>
+            ) : (
+              <label className="flex flex-col flex-1" style={{ gap: 6 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.inkSoft }}>Nama barang</span>
+                <input value={name} onChange={(e) => setName(e.target.value)} className="inp w-full" style={inputStyle} />
+              </label>
+            )}
+          </div>
+        )}
+
+        {mode === "add" && (
+          <AutoHeight swapKey={source}>
+            <FadeSwap swapKey={source}>
+              {source === "stok" ? (
+                <div className="flex flex-col" style={{ gap: 10 }}>
+                  <label className="flex items-center" style={{ gap: 10, background: COLORS.soft, borderRadius: 14, padding: "0 14px", height: 44, color: COLORS.inkSoft }}>
+                    <Search size={16} />
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Cari barang stok..."
+                      aria-label="Cari barang stok"
+                      className="flex-1 bg-transparent"
+                      style={{ border: "none", outline: "none", color: COLORS.ink }}
+                    />
+                  </label>
+                  <div className="overflow-y-auto" style={{ maxHeight: 232, border: "1px solid #EFECE3", borderRadius: 16, overscrollBehavior: "contain" }}>
+                    {stockList.length === 0 ? (
+                      <div style={{ padding: "18px 14px", fontSize: 13, color: COLORS.inkSoft, textAlign: "center" }}>
+                        {items.length === 0 ? "Daftar stok masih kosong." : "Tidak ada yang cocok."}
+                      </div>
+                    ) : (
+                      stockList.map((it, i) => {
+                        const listed = activeIds.has(it.id);
+                        const selected = pickedId === it.id;
+                        const s = statusOf(it);
+                        const sub =
+                          (it.type === "level" ? LEVEL_LABEL[it.level] : `Sisa ${fmtQty(it.qty)} ${it.unit}`) +
+                          " · " +
+                          (listed ? "sudah ada di Akan Dibeli" : STATUS_META[s].label);
+                        return (
+                          <React.Fragment key={it.id}>
+                            {i > 0 && <div aria-hidden="true" style={{ height: 1, background: "#F1EEE5" }} />}
+                            <motion.button
+                              type="button"
+                              disabled={listed}
+                              onClick={() => {
+                                setPickedId(it.id);
+                                setError("");
+                                if (it.type === "qty") setUnit(it.unit);
+                              }}
+                              className="no-tx w-full flex items-center text-left"
+                              initial={false}
+                              animate={{ backgroundColor: selected ? "#F0F2F8" : "#FFFFFF" }}
+                              transition={{ duration: DUR.fast }}
+                              style={{ gap: 12, padding: "10px 14px", border: "none", opacity: listed ? 0.55 : 1, minHeight: 52 }}
+                            >
+                              <span className="flex-1 min-w-0">
+                                <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: COLORS.ink }}>
+                                  {it.name}
+                                </span>
+                                <span className="block truncate" style={{ fontSize: 12, color: listed ? COLORS.inkSoft : s === "safe" ? COLORS.inkSoft : STATUS_TEXT[s] }}>
+                                  {sub}
+                                </span>
+                              </span>
+                              <motion.span
+                                className="flex items-center justify-center shrink-0"
+                                initial={false}
+                                animate={{ opacity: selected ? 1 : 0, scale: selected ? 1 : 0.6 }}
+                                transition={SPRING.press}
+                                style={{ width: 24, height: 24, borderRadius: 999, background: COLORS.navy, color: "#FFFFFF" }}
+                              >
+                                <Check size={14} strokeWidth={3} />
+                              </motion.span>
+                            </motion.button>
+                          </React.Fragment>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <label className="flex flex-col" style={{ gap: 6 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.inkSoft }}>Nama barang</span>
+                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="mis. Lampu bohlam" className="inp w-full" style={inputStyle} />
+                </label>
+              )}
+            </FadeSwap>
+          </AutoHeight>
+        )}
+
+        <div className="flex" style={{ gap: 10 }}>
+          <label className="flex flex-col flex-1 min-w-0" style={{ gap: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.inkSoft }}>Jumlah</span>
+            <div className="relative">
+              <input
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                inputMode={pickedUnit ? "decimal" : "text"}
+                placeholder={pickedUnit ? "mis. 2" : "mis. 2"}
+                className="inp w-full"
+                style={{ ...inputStyle, paddingRight: pickedUnit ? 56 : 14 }}
+              />
+              {pickedUnit && (
+                <span className="absolute pointer-events-none" style={{ right: 14, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: COLORS.inkSoft }}>
+                  {pickedUnit}
+                </span>
+              )}
             </div>
+          </label>
+          {!pickedUnit && (
+            <label className="flex flex-col flex-1 min-w-0" style={{ gap: 6 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.inkSoft }}>Satuan</span>
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="mis. pack" className="inp w-full" style={inputStyle} />
+            </label>
           )}
-        </Field>
-
-        <div className="flex gap-3">
-          <Field label="Jumlah" className="flex-1">
-            <input
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              placeholder="mis. 2"
-              className="w-full px-3 py-2.5 rounded-lg text-sm"
-              style={{ border: `1px solid ${COLORS.border}` }}
-            />
-          </Field>
-          <Field label="Satuan" className="flex-1">
-            <input
-              value={unit}
-              onChange={(e) => setUnit(e.target.value)}
-              placeholder="mis. pack"
-              className="w-full px-3 py-2.5 rounded-lg text-sm"
-              style={{ border: `1px solid ${COLORS.border}` }}
-            />
-          </Field>
         </div>
 
-        <Field label="Tempat beli">
-          <div className="flex gap-2 flex-wrap">
+        <div>
+          <FieldLabel color={COLORS.inkSoft}>Tempat beli</FieldLabel>
+          <div className="flex flex-wrap" style={{ gap: 6 }}>
             {places.map((p) => (
               <div key={p} className="relative">
-                <button
-                  onClick={() => setPlace(p)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium"
-                  style={{
-                    background: place === p ? COLORS.primary : COLORS.card,
-                    color: place === p ? "#fff" : COLORS.ink,
-                    border: `1px solid ${place === p ? COLORS.primary : COLORS.border}`,
-                  }}
-                >
+                <Chip active={place === p} onClick={() => setPlace(place === p ? "" : p)} activeBg={COLORS.navy} ink={COLORS.ink} inkSoft={COLORS.inkSoft} border={COLORS.border}>
                   {p}
-                </button>
+                </Chip>
                 {!DEFAULT_PLACES.includes(p) && (
                   <button
+                    type="button"
                     onClick={() => {
                       if (place === p) setPlace("");
                       onDeletePlace(p);
                     }}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
-                    style={{ background: COLORS.out, color: "#fff" }}
-                    title="Hapus dari daftar"
+                    className="absolute flex items-center justify-center"
+                    style={{ top: -6, right: -6, width: 20, height: 20, borderRadius: 999, border: "2px solid #FFFFFF", background: COLORS.out, color: "#FFFFFF" }}
+                    title={`Hapus ${p} dari daftar tempat`}
+                    aria-label={`Hapus ${p} dari daftar tempat`}
                   >
-                    <X size={10} />
+                    <X size={10} strokeWidth={3} />
                   </button>
                 )}
               </div>
             ))}
             {!addingPlace && (
-              <button
-                onClick={() => setAddingPlace(true)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium"
-                style={{ border: `1px dashed ${COLORS.border}`, color: COLORS.inkSoft }}
-              >
+              <Chip dashed onClick={() => setAddingPlace(true)} ink={COLORS.ink} inkSoft={COLORS.inkSoft} border={COLORS.border}>
                 + Tambah tempat
-              </button>
+              </Chip>
             )}
           </div>
-          {addingPlace && (
-            <div className="flex gap-2 mt-2">
+          <Collapse open={addingPlace}>
+            <div className="flex" style={{ gap: 8, paddingTop: 8 }}>
               <input
                 autoFocus
                 value={placeDraft}
                 onChange={(e) => setPlaceDraft(e.target.value)}
                 placeholder="mis. Superindo"
-                className="flex-1 px-3 py-2 rounded-lg text-sm"
-                style={{ border: `1px solid ${COLORS.border}` }}
+                className="inp flex-1 min-w-0"
+                style={{ ...inputStyle, height: 44 }}
                 onKeyDown={(e) => e.key === "Enter" && saveCustomPlace()}
               />
-              <button onClick={saveCustomPlace} className="px-3 rounded-lg text-xs font-medium text-white" style={{ background: COLORS.primary }}>
+              <button type="button" onClick={saveCustomPlace} style={{ height: 44, padding: "0 16px", borderRadius: 14, border: "none", background: COLORS.navy, color: "#FFFFFF", fontSize: 13.5, fontWeight: 600 }}>
                 Simpan
               </button>
             </div>
+          </Collapse>
+        </div>
+
+        <div>
+          {!showNotes && (
+            <button type="button" onClick={() => setShowNotes(true)} style={{ height: 40, padding: "0 4px", border: "none", background: "transparent", color: COLORS.navy, fontSize: 13.5, fontWeight: 600 }}>
+              + Tambah catatan
+            </button>
           )}
-        </Field>
+          <Collapse open={showNotes}>
+            <div>
+              <FieldLabel color={COLORS.inkSoft}>Catatan</FieldLabel>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="mis. warna/varian tertentu"
+                rows={2}
+                className="inp w-full resize-none"
+                style={{ ...inputStyle, height: "auto", padding: "10px 14px" }}
+              />
+            </div>
+          </Collapse>
+        </div>
 
-        <Field label="Catatan (opsional)">
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="mis. warna/varian tertentu"
-            rows={2}
-            className="w-full px-3 py-2.5 rounded-lg text-sm resize-none"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-        </Field>
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.div
+              key="err"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, color: STATUS_TEXT.out, overflow: "hidden" }}
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {error && (
-          <div className="text-xs" style={{ color: COLORS.out }}>
-            {error}
-          </div>
-        )}
-        <button onClick={submit} className="w-full py-2.5 rounded-lg text-sm font-medium text-white mt-1" style={{ background: COLORS.primary }}>
-          {mode === "add" ? "Tambahkan" : "Simpan perubahan"}
-        </button>
+        <div className="flex flex-col" style={{ gap: 8 }}>
+          <button type="button" onClick={submit} style={{ height: 50, borderRadius: 14, border: "none", background: COLORS.navy, color: "#FFFFFF", fontSize: 14.5, fontWeight: 600 }}>
+            {mode === "add" ? "Tambahkan" : "Simpan perubahan"}
+          </button>
+          {mode === "edit" && onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex items-center justify-center"
+              style={{ height: 46, borderRadius: 14, border: "none", background: COLORS.outBg, color: STATUS_TEXT.out, fontSize: 14, fontWeight: 600, gap: 8 }}
+            >
+              <Trash2 size={15} />
+              Hapus dari daftar
+            </button>
+          )}
+        </div>
       </div>
-    </Overlay>
+    </Sheet>
   );
 }
 
@@ -3522,20 +4374,73 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 // Kartu filter Agenda — komponen bersama dengan warna teal.
 function AgendaTile(props) {
-  return <Tile activeBg={AG.primary} inkSoft={AG.inkSoft} shadowRgb="23,64,61" {...props} />;
+  return <Tile activeBg={AG.primary} inkSoft={AG.muted} shadowRgb="23,64,61" {...props} />;
 }
 
-function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onAddTask, onEditTask, onDeleteTask, onToggleDone, userName, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone, morphIn }) {
+const AG_CARD_SHADOW = "0 1px 2px rgba(23,64,61,0.04), 0 6px 18px rgba(23,64,61,0.05)";
+
+function fmtShortDay(dateStr) {
+  if (!dateStr) return "";
+  try {
+    return new Date(dateStr + "T00:00:00").toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
+  } catch {
+    return dateStr;
+  }
+}
+
+function recurLabel(r) {
+  if (!r) return "";
+  if (r.every === 1) return r.unit === "bulan" ? "Bulanan" : "Mingguan";
+  return `Tiap ${r.every} ${r.unit === "bulan" ? "bln" : "mgg"}`;
+}
+
+// Satu baris keterangan tanggal untuk tugas, lengkap dengan warnanya.
+function taskLine(task, threshold) {
+  if (task.done) return { text: `Selesai · ${task.doneBy || "?"} · ${fmtDateTime(task.doneAt)}`, color: AG.safe };
+  if (task.deadline) {
+    const diff = daysUntil(task.deadline);
+    if (diff < 0) return { text: `Terlambat ${Math.abs(diff)} hari · deadline ${fmtShortDay(task.deadline)}`, color: AG.outText };
+    if (diff === 0) return { text: "Deadline hari ini", color: AG.lowText };
+    if (diff === 1) return { text: `Deadline besok · ${fmtShortDay(task.deadline)}`, color: AG.lowText };
+    const soon = diff <= threshold;
+    return { text: `Deadline ${fmtShortDay(task.deadline)} · ${diff} hari lagi`, color: soon ? AG.lowText : AG.muted };
+  }
+  if (task.planDate) {
+    const diff = daysUntil(task.planDate);
+    if (diff === 0) return { text: "Rencana hari ini", color: AG.primary };
+    if (diff === 1) return { text: `Rencana besok · ${fmtShortDay(task.planDate)}`, color: AG.muted };
+    if (diff < 0) return { text: `Rencana ${fmtShortDay(task.planDate)} (sudah lewat)`, color: AG.muted };
+    return { text: `Rencana ${fmtShortDay(task.planDate)}`, color: AG.muted };
+  }
+  return { text: "Tanpa tanggal", color: AG.muted };
+}
+
+// Kelompok daftar: Terlambat → Minggu ini → Nanti → Tanpa tanggal.
+function taskGroupKey(task) {
+  const d = task.deadline ? daysUntil(task.deadline) : null;
+  if (d != null && d < 0) return "overdue";
+  const eff = d != null ? d : task.planDate ? daysUntil(task.planDate) : null;
+  if (eff == null) return "none";
+  return eff <= 6 ? "week" : "later";
+}
+
+const TASK_GROUPS = [
+  { key: "overdue", title: "TERLAMBAT", color: "#B83A2E", danger: true },
+  { key: "week", title: "MINGGU INI", color: "#A8650F" },
+  { key: "later", title: "NANTI", color: "#6B716D" },
+  { key: "none", title: "TANPA TANGGAL", color: "#6B716D" },
+];
+
+function taskSortValue(t) {
+  const v = t.deadline || t.planDate;
+  return v ? new Date(v + "T00:00:00").getTime() : Infinity;
+}
+
+function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onAddTask, onOpenTask, onToggleDone, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone, morphIn }) {
   const SUBVIEWS = ["list", "calendar"];
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
+  const lingering = useRecentlyToggled(tasks, "done");
 
-  const agendaGreeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 10) return "Selamat pagi";
-    if (h < 15) return "Selamat siang";
-    if (h < 18) return "Selamat sore";
-    return "Selamat malam";
-  }, []);
   const active = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
 
@@ -3551,38 +4456,33 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, dueThreshold]);
 
-  const filteredActive = useMemo(() => {
+  const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return active
-      .filter((t) => t.title.toLowerCase().includes(q))
-      .filter((t) => (filter === "all" ? true : taskUrgency(t, dueThreshold) === filter))
-      .sort((a, b) => {
-        const rank = { overdue: 0, soon: 1, normal: 2, none: 3 };
-        const ua = taskUrgency(a, dueThreshold),
-          ub = taskUrgency(b, dueThreshold);
-        if (rank[ua] !== rank[ub]) return rank[ua] - rank[ub];
-        const da = a.deadline ? daysUntil(a.deadline) : Infinity;
-        const db = b.deadline ? daysUntil(b.deadline) : Infinity;
-        if (da !== db) return da - db;
-        return a.title.localeCompare(b.title, "id");
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, search, filter, dueThreshold]);
+    const match = (t) => t.title.toLowerCase().includes(q);
+    const byDate = (a, b) => taskSortValue(a) - taskSortValue(b) || a.title.localeCompare(b.title, "id");
 
-  const filteredDone = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return done.filter((t) => t.title.toLowerCase().includes(q)).sort((a, b) => new Date(b.doneAt) - new Date(a.doneAt));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, search]);
+    if (filter === "done") {
+      const list = tasks
+        .filter((t) => (t.done || lingering.includes(t.id)) && match(t))
+        .sort((a, b) => new Date(b.doneAt || 0) - new Date(a.doneAt || 0));
+      return list.length ? [{ key: "done", title: "SELESAI", color: AG.safe, rows: list }] : [];
+    }
 
-  const showingDone = filter === "done";
-  const listToShow = showingDone ? filteredDone : filteredActive;
+    const list = tasks.filter((t) => (!t.done || lingering.includes(t.id)) && match(t));
+    if (filter === "soon" || filter === "overdue") {
+      const rows = list.filter((t) => taskUrgency(t, dueThreshold) === filter || lingering.includes(t.id)).sort(byDate);
+      return rows.length
+        ? [{ key: filter, title: filter === "soon" ? "HAMPIR DEADLINE" : "TERLAMBAT", color: filter === "soon" ? AG.lowText : AG.outText, danger: filter === "overdue", rows }]
+        : [];
+    }
+
+    return TASK_GROUPS.map((g) => ({ ...g, rows: list.filter((t) => taskGroupKey(t) === g.key).sort(byDate) })).filter((g) => g.rows.length > 0);
+  }, [tasks, search, filter, dueThreshold, lingering]);
 
   useEffect(() => {
     if (!highlightId) return;
     // Sorotan selalu di tab List.
     setSubView("list");
-    // Tunggu halaman/daftarnya selesai bergeser dulu, baru digulir ke item.
     const t1 = setTimeout(() => {
       const el = document.getElementById(`agenda-item-${highlightId}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
@@ -3595,66 +4495,34 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
+  const barBtn = { width: 44, height: 44, borderRadius: 999, border: "none", background: "rgba(255,255,255,0.14)", color: "#FFFFFF" };
+
   return (
-    // Kartu sambutan dikunci di atas; di bawahnya dua halaman (List dan
-    // Kalender) yang bisa digeser atau dipilih dari navigasi bawah.
     <div className="h-full flex flex-col" style={{ color: AG.ink }}>
       <Backdrop color={AG.bg} />
 
       <div className="relative shrink-0 max-w-2xl mx-auto w-full px-4">
-        {/* Kartu sambutan teal — lapisan warnanya berubah bentuk dari kartu
+        {/* Bilah teal ringkas — lapisan warnanya berubah bentuk dari kartu
             di halaman awal, isinya menyusul. */}
-        <Hero color={AG.primary} layoutId={morphId("agenda")} fadeIn={!morphIn} marginBottom={14}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
-                  {agendaGreeting}
-                  {userName ? `, ${userName}` : ""} <span>👋</span>
-                </span>
-                <h1
-                  style={{
-                    fontFamily: "'Baloo 2', cursive",
-                    fontWeight: 700,
-                    fontSize: 44,
-                    lineHeight: 1.02,
-                    letterSpacing: "-0.5px",
-                    color: "#fff",
-                    marginTop: 4,
-                  }}
-                >
-                  Agenda
-                  <br />
-                  Rumah
-                </h1>
+        <HeroBar color={AG.primary} layoutId={morphId("agenda")} fadeIn={!morphIn} marginBottom={14}>
+          <div className="flex items-center justify-between" style={{ gap: 10 }}>
+            <div className="min-w-0">
+              <div className="capitalize truncate" style={{ fontSize: 12.5, color: "rgba(255,255,255,0.72)" }}>
+                {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {notifSlot}
-                <button
-                  onClick={onSwitchApp}
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.14)" }}
-                  title="Ganti aplikasi"
-                >
-                  <LayoutGrid size={18} color="#fff" />
-                </button>
-                <button
-                  onClick={onOpenUserMenu}
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.14)" }}
-                  title="Menu"
-                >
-                  <Menu size={18} color="#fff" />
-                </button>
-              </div>
+              <h1 style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 26, lineHeight: 1.1, color: "#FFFFFF" }}>Agenda Rumah</h1>
             </div>
-            <div
-              className="inline-flex items-center gap-2 capitalize self-start"
-              style={{ background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
-            >
-              <Clock size={15} color="rgba(255,255,255,0.88)" />
-              {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            <div className="flex items-center shrink-0" style={{ gap: 6 }}>
+              {notifSlot}
+              <button onClick={onSwitchApp} className="flex items-center justify-center" style={barBtn} title="Ganti aplikasi">
+                <LayoutGrid size={18} />
+              </button>
+              <button onClick={onOpenUserMenu} className="flex items-center justify-center" style={barBtn} title="Menu">
+                <Menu size={18} />
+              </button>
             </div>
-        </Hero>
+          </div>
+        </HeroBar>
       </div>
 
       <Rise delay={0.12} className="relative flex-1 min-h-0">
@@ -3664,38 +4532,62 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
             <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3">
               <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
                 <AgendaTile group="agenda" label="Semua" value={counts.all} color={AG.primary} active={filter === "all"} onClick={() => setFilter("all")} />
-                <AgendaTile group="agenda" label="Dekat" value={counts.soon} color={AG.low} active={filter === "soon"} onClick={() => setFilter("soon")} />
-                <AgendaTile group="agenda" label="Terlambat" value={counts.overdue} color={AG.out} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+                <AgendaTile group="agenda" label="Dekat" value={counts.soon} color={AG.lowText} active={filter === "soon"} onClick={() => setFilter("soon")} />
+                <AgendaTile group="agenda" label="Terlambat" value={counts.overdue} color={AG.outText} active={filter === "overdue"} onClick={() => setFilter("overdue")} />
                 <AgendaTile group="agenda" label="Selesai" value={counts.done} color={AG.safe} active={filter === "done"} onClick={() => setFilter("done")} />
               </div>
 
-              <div className="flex items-center gap-2.5" style={{ background: AG.card, borderRadius: 999, padding: "13px 18px" }}>
-                <Search size={18} color={AG.inkSoft} />
+              <div className="flex items-center gap-2.5" style={{ background: AG.card, borderRadius: 999, padding: "0 18px", height: 46 }}>
+                <Search size={18} color={AG.muted} />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Cari tugas..."
+                  aria-label="Cari tugas"
                   className="flex-1 bg-transparent"
-                  style={{ color: AG.ink, fontSize: 14.5, outline: "none", border: "none" }}
+                  style={{ color: AG.ink, outline: "none", border: "none" }}
                 />
               </div>
             </div>
 
             <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-              <FadeSwap swapKey={filter} className="max-w-2xl mx-auto w-full px-4 pb-32">
-                {listToShow.length === 0 ? (
+              <FadeSwap swapKey={filter} className="max-w-2xl mx-auto w-full px-4 pt-1 pb-32">
+                {groups.length === 0 ? (
                   <div className="py-10 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, marginBottom: 12 }}>
-                    <ListTodo size={26} color={AG.inkSoft} style={{ margin: "0 auto 8px" }} />
-                    <div style={{ color: AG.inkSoft }} className="text-sm">
-                      {tasks.length === 0 ? "Belum ada tugas." : showingDone ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
+                    <ListTodo size={26} color={AG.muted} style={{ margin: "0 auto 8px" }} />
+                    <div style={{ color: AG.muted }} className="text-sm">
+                      {tasks.length === 0 ? "Belum ada tugas. Tekan + untuk menambahkan." : filter === "done" ? "Belum ada yang selesai." : "Gak ada tugas yang cocok."}
                     </div>
                   </div>
                 ) : (
-                  <AnimatedList className="flex flex-col gap-2">
-                    {listToShow.map((t) => (
-                      <TaskRow key={t.id} task={t} threshold={dueThreshold} onToggle={() => onToggleDone(t.id)} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} highlighted={t.id === highlightId} />
+                  <CollapseList spacing={16}>
+                    {groups.map((g) => (
+                      <section key={g.key} className="flex flex-col" style={{ gap: 8 }}>
+                        <div style={{ padding: "0 4px", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: g.color }}>
+                          {g.title} · <RollingNumber value={g.rows.length} />
+                        </div>
+                        <motion.div
+                          initial={false}
+                          animate={{ boxShadow: g.danger ? "0 0 0 1.5px #F3C9C2, 0 6px 18px rgba(185,58,46,0.08)" : AG_CARD_SHADOW }}
+                          style={{ background: AG.card, borderRadius: 20 }}
+                        >
+                          <CollapseList>
+                            {g.rows.map((t, i) => (
+                              <TaskRow
+                                key={t.id}
+                                task={t}
+                                threshold={dueThreshold}
+                                first={i === 0}
+                                onToggle={() => onToggleDone(t.id)}
+                                onOpen={() => onOpenTask(t)}
+                                highlighted={t.id === highlightId}
+                              />
+                            ))}
+                          </CollapseList>
+                        </motion.div>
+                      </section>
                     ))}
-                  </AnimatedList>
+                  </CollapseList>
                 )}
               </FadeSwap>
             </motion.div>
@@ -3703,8 +4595,8 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
 
           {/* Halaman Kalender */}
           <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-            <div className="max-w-2xl mx-auto w-full px-4 pb-32">
-              <CalendarView tasks={tasks} dueThreshold={dueThreshold} onToggleDone={onToggleDone} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
+            <div className="max-w-2xl mx-auto w-full px-4 pt-1 pb-32">
+              <CalendarView tasks={tasks} dueThreshold={dueThreshold} lingering={lingering} onToggleDone={onToggleDone} onOpenTask={onOpenTask} onAddTask={onAddTask} />
             </div>
           </motion.div>
         </TabPager>
@@ -3715,7 +4607,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
         tabs={AGENDA_TABS}
         active={subView}
         onChange={setSubView}
-        onAdd={onAddTask}
+        onAdd={() => onAddTask()}
         color={AG.primary}
         accent={AG.accent}
         shadowRgb="23,64,61"
@@ -3754,9 +4646,9 @@ function projectedOccurrences(task) {
   return out;
 }
 
-function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteTask, onAddTask }) {
-  const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+function CalendarView({ tasks, dueThreshold, lingering = [], onToggleDone, onOpenTask, onAddTask }) {
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -3781,7 +4673,6 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
     active.forEach((t) => {
       if (t.planDate) touch(t.planDate).plan.push(t);
       if (t.deadline) touch(t.deadline).deadline.push(t);
-      // Jadwal berulang berikutnya — tampil lebih redup sebagai pengingat.
       projectedOccurrences(t).forEach((o) => {
         if (o.planDate) touch(o.planDate).planAhead.push({ ...t, ...o, projected: true });
         if (o.deadline) touch(o.deadline).deadlineAhead.push({ ...t, ...o, projected: true });
@@ -3809,23 +4700,35 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
   const todayStr = toDateStr(new Date());
   const monthLabel = cursor.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
 
-  // Jumlah tugas yang jatuh pada bulan yang sedang dilihat.
-  const monthTaskCount = useMemo(() => {
+  const goToday = () => {
+    const t = new Date();
+    const delta = (t.getFullYear() - year) * 12 + (t.getMonth() - month);
+    if (delta !== 0) {
+      setMonthDir(delta > 0 ? 1 : -1);
+      setCursor(new Date(t.getFullYear(), t.getMonth(), 1));
+    }
+    setSelectedDate(todayStr);
+  };
+
+  // Ringkasan bulan yang sedang dilihat.
+  const monthSummary = useMemo(() => {
     const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
     const seen = new Set();
+    let late = 0;
     active.forEach((t) => {
-      if ((t.planDate || "").startsWith(prefix) || (t.deadline || "").startsWith(prefix)) seen.add(t.id);
+      if ((t.planDate || "").startsWith(prefix) || (t.deadline || "").startsWith(prefix)) {
+        seen.add(t.id);
+        if ((t.deadline || "").startsWith(prefix) && daysUntil(t.deadline) < 0) late++;
+      }
     });
-    return seen.size;
+    return { count: seen.size, late };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, year, month]);
 
-  const selectedTasks = active
-    .filter((t) => t.planDate === selectedDate || t.deadline === selectedDate)
+  const selectedTasks = tasks
+    .filter((t) => (!t.done || lingering.includes(t.id)) && (t.planDate === selectedDate || t.deadline === selectedDate))
     .sort((a, b) => a.title.localeCompare(b.title, "id"));
 
-  // Jadwal berulang yang belum aktif pada tanggal ini — ditampilkan terpisah
-  // di bawah, tanpa tombol aksi.
   const selectedProjected = useMemo(() => {
     const info = dateMap[selectedDate];
     if (!info) return [];
@@ -3838,205 +4741,198 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
     });
   }, [dateMap, selectedDate]);
 
+  const selectedLabel = new Date(selectedDate + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short" });
+  const totalSelected = selectedTasks.length + selectedProjected.length;
+
   return (
     <div>
-      {/* Kartu kalender putih */}
-      <div style={{ background: AG.card, borderRadius: 24, padding: 18 }}>
-        <div className="flex items-center justify-between gap-2 mb-4">
-          <button
-            onClick={() => goMonth(-1)}
-            className="flex items-center justify-center shrink-0"
-            style={{ width: 40, height: 40, borderRadius: 14, background: AG.soft }}
-            title="Bulan sebelumnya"
-          >
-            <ChevronLeft size={19} color={AG.primary} />
-          </button>
-          <div className="text-center min-w-0">
-            <div className="capitalize" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 20, color: AG.ink }}>
-              <RollingNumber value={monthLabel} />
-            </div>
-            <div style={{ fontSize: 12.5, color: AG.inkSoft, marginTop: 1 }}>
-              <RollingNumber value={monthTaskCount} /> tugas bulan ini
-            </div>
+      <div style={{ background: AG.card, borderRadius: 22, padding: "14px 12px 12px", boxShadow: AG_CARD_SHADOW }}>
+        <div className="flex items-center justify-between" style={{ gap: 8, padding: "0 4px 10px" }}>
+          <div className="min-w-0 capitalize whitespace-nowrap" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 21, lineHeight: 1.1 }}>
+            <RollingNumber value={monthLabel} />
           </div>
-          <button
-            onClick={() => goMonth(1)}
-            className="flex items-center justify-center shrink-0"
-            style={{ width: 40, height: 40, borderRadius: 14, background: AG.primary }}
-            title="Bulan berikutnya"
-          >
-            <ChevronRight size={19} color="#fff" />
-          </button>
+          <div className="flex items-center shrink-0" style={{ gap: 6 }}>
+            <button
+              type="button"
+              onClick={goToday}
+              style={{ height: 36, padding: "0 12px", borderRadius: 999, border: `1px solid ${AG.border}`, background: "#FFFFFF", fontSize: 12.5, fontWeight: 600, color: AG.primary }}
+            >
+              Hari ini
+            </button>
+            <button
+              type="button"
+              onClick={() => goMonth(-1)}
+              className="flex items-center justify-center"
+              style={{ width: 40, height: 40, borderRadius: 13, border: "none", background: AG.soft, color: AG.primary }}
+              title="Bulan sebelumnya"
+              aria-label="Bulan sebelumnya"
+            >
+              <ChevronLeft size={19} />
+            </button>
+            <button
+              type="button"
+              onClick={() => goMonth(1)}
+              className="flex items-center justify-center"
+              style={{ width: 40, height: 40, borderRadius: 13, border: "none", background: AG.primary, color: "#FFFFFF" }}
+              title="Bulan berikutnya"
+              aria-label="Bulan berikutnya"
+            >
+              <ChevronRight size={19} />
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-7 mb-1">
+        <div style={{ fontSize: 12, color: AG.muted, padding: "0 4px 12px", marginTop: -4 }}>
+          <RollingNumber value={monthSummary.count} /> tugas bulan ini
+          {monthSummary.late > 0 && <span style={{ color: AG.outText }}> · {monthSummary.late} terlambat</span>}
+        </div>
+
+        <div className="grid grid-cols-7" style={{ paddingBottom: 4 }}>
           {["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"].map((d, i) => (
-            <div
-              key={d}
-              className="text-center uppercase"
-              style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", color: i === 0 || i === 6 ? AG.out : AG.inkSoft }}
-            >
+            <div key={d} className="text-center uppercase" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", color: i === 0 || i === 6 ? AG.outText : AG.muted }}>
               {d}
             </div>
           ))}
         </div>
 
         <div className="relative overflow-hidden">
-        <AnimatePresence initial={false} mode="popLayout" custom={monthDir}>
-        <motion.div
-          key={`${year}-${month}`}
-          className="grid grid-cols-7 gap-y-1"
-          custom={monthDir}
-          variants={{
-            enter: (d) => ({ x: d > 0 ? 36 : -36, opacity: 0 }),
-            // Bulan baru masuk sedikit setelah bulan lama pergi, supaya
-            // angka tanggal keduanya tidak sempat bertumpuk.
-            center: { x: 0, opacity: 1, transition: { ...SPRING.snappy, opacity: { duration: DUR.fast, delay: 0.08 } } },
-            exit: (d) => ({ x: d > 0 ? -36 : 36, opacity: 0, transition: { duration: 0.12, ease: EASE.in } }),
-          }}
-          initial="enter"
-          animate="center"
-          exit="exit"
-        >
-          {cells.map((c, i) => {
-            const info = dateMap[c.dateStr];
-            const isToday = c.dateStr === todayStr;
-            const isSelected = c.dateStr === selectedDate;
-            const weekend = i % 7 === 0 || i % 7 === 6;
-            const deadlineColor =
-              info && info.deadline.length > 0
-                ? info.deadline.some((t) => taskUrgency(t, dueThreshold) === "overdue")
-                  ? AG.out
-                  : AG.low
-                : null;
-            // Tanggal berdeadline diberi latar merah muda supaya menonjol
-            // walaupun sedang tidak dipilih.
-            const softBg = !isSelected && c.inMonth && deadlineColor === AG.out ? AG.outBg : "transparent";
-            return (
-              <button
-                key={i}
-                onClick={() => c.inMonth && setSelectedDate(c.dateStr)}
-                disabled={!c.inMonth}
-                className="aspect-square flex flex-col items-center justify-center gap-1"
-                style={{
-                  borderRadius: 14,
-                  background: isSelected ? AG.primary : softBg,
-                  boxShadow: isSelected ? "0 6px 14px -6px rgba(23,64,61,0.6)" : "none",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 15,
-                    fontWeight: isSelected || isToday ? 700 : 500,
-                    color: !c.inMonth
-                      ? "#CFCCC2"
-                      : isSelected
-                      ? "#fff"
-                      : deadlineColor === AG.out
-                      ? AG.out
-                      : weekend
-                      ? AG.out
-                      : AG.ink,
-                  }}
-                >
-                  {c.dayNum}
-                </span>
-                {info && c.inMonth && (
-                  <span className="flex gap-1" style={{ height: 6 }}>
-                    {info.plan.length > 0 && (
-                      <span style={{ width: 6, height: 6, borderRadius: 999, background: isSelected ? "#fff" : AG.low }} />
-                    )}
-                    {deadlineColor && (
-                      <span style={{ width: 6, height: 6, borderRadius: 999, background: isSelected ? "#fff" : deadlineColor }} />
-                    )}
-                    {info.plan.length === 0 && (info.planAhead || []).length > 0 && (
-                      <span style={{ width: 6, height: 6, borderRadius: 999, background: isSelected ? "rgba(255,255,255,0.6)" : AG.primary }} />
-                    )}
-                    {!deadlineColor && (info.deadlineAhead || []).length > 0 && (
-                      <span
-                        style={{ width: 6, height: 6, borderRadius: 999, border: `1.5px solid ${isSelected ? "#fff" : AG.low}` }}
+          <AnimatePresence initial={false} mode="popLayout" custom={monthDir}>
+            <motion.div
+              key={`${year}-${month}`}
+              className="grid grid-cols-7"
+              style={{ gap: 3 }}
+              custom={monthDir}
+              variants={{
+                enter: (d) => ({ x: d > 0 ? 36 : -36, opacity: 0 }),
+                // Bulan baru masuk sedikit setelah bulan lama pergi, supaya
+                // angka tanggal keduanya tidak sempat bertumpuk.
+                center: { x: 0, opacity: 1, transition: { ...SPRING.snappy, opacity: { duration: DUR.fast, delay: 0.08 } } },
+                exit: (d) => ({ x: d > 0 ? -36 : 36, opacity: 0, transition: { duration: 0.12, ease: EASE.in } }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+            >
+              {cells.map((c, i) => {
+                const info = c.inMonth ? dateMap[c.dateStr] : null;
+                const isToday = c.dateStr === todayStr;
+                const isSelected = c.inMonth && c.dateStr === selectedDate;
+                const weekend = i % 7 === 0 || i % 7 === 6;
+                const hasOverdue = !!info && info.deadline.some((t) => daysUntil(t.deadline) < 0);
+                const hasPlan = !!info && info.plan.length > 0;
+                const hasDeadline = !!info && info.deadline.length > 0;
+                const hasAhead = !!info && ((info.planAhead || []).length > 0 || (info.deadlineAhead || []).length > 0);
+                const numColor = !c.inMonth ? "#C9C5BA" : isSelected ? "#FFFFFF" : isToday ? AG.primary : hasOverdue || weekend ? AG.outText : AG.ink;
+                return (
+                  <button
+                    key={c.dateStr}
+                    type="button"
+                    onClick={() => c.inMonth && setSelectedDate(c.dateStr)}
+                    disabled={!c.inMonth}
+                    aria-label={new Date(c.dateStr + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "long" })}
+                    aria-pressed={isSelected}
+                    className="no-tx relative flex flex-col items-center justify-center"
+                    style={{
+                      height: 46,
+                      gap: 3,
+                      padding: 0,
+                      border: "none",
+                      borderRadius: 14,
+                      background: hasOverdue ? AG.outBg : "transparent",
+                      boxShadow: isToday && !isSelected ? `inset 0 0 0 1.5px ${AG.primary}` : "none",
+                    }}
+                  >
+                    {isSelected && (
+                      <motion.span
+                        layoutId={`cal-sel-${year}-${month}`}
+                        className="absolute inset-0"
+                        style={{ borderRadius: 14, background: AG.primary, boxShadow: "0 6px 14px -6px rgba(23,64,61,0.6)" }}
+                        transition={SPRING.snappy}
                       />
                     )}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </motion.div>
-        </AnimatePresence>
+                    <motion.span
+                      className="relative"
+                      initial={false}
+                      animate={{ color: numColor }}
+                      transition={{ duration: DUR.fast }}
+                      style={{ fontSize: 14.5, fontWeight: isSelected || isToday ? 700 : 500, lineHeight: 1 }}
+                    >
+                      {c.dayNum}
+                    </motion.span>
+                    <span className="relative flex" style={{ gap: 3, height: 5 }}>
+                      {hasPlan && <span style={{ width: 5, height: 5, borderRadius: 99, background: isSelected ? "#FFFFFF" : AG.accent }} />}
+                      {hasDeadline && <span style={{ width: 5, height: 5, borderRadius: 99, background: isSelected ? "#FFFFFF" : AG.outText }} />}
+                      {hasAhead && (
+                        <span style={{ width: 5, height: 5, borderRadius: 99, boxShadow: `inset 0 0 0 1.5px ${isSelected ? "#FFFFFF" : AG.primary}` }} />
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </motion.div>
+          </AnimatePresence>
         </div>
 
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${AG.border}` }}>
-          {[
-            { label: "Rencana", color: AG.low, bg: AG.lowBg },
-            { label: "Deadline", color: AG.out, bg: AG.outBg },
-            { label: "Berulang", color: AG.primary, bg: AG.safeBg },
-          ].map((l) => (
-            <span
-              key={l.label}
-              className="flex items-center gap-1.5 font-medium"
-              style={{ background: l.bg, color: AG.ink, fontSize: 12.5, padding: "7px 13px", borderRadius: 999 }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: l.color }} />
-              {l.label}
-            </span>
-          ))}
+        <div className="flex flex-wrap items-center" style={{ gap: 14, marginTop: 10, padding: "10px 4px 0", borderTop: `1px solid ${AG.border}`, fontSize: 12, color: AG.muted }}>
+          <span className="flex items-center" style={{ gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: AG.accent }} />
+            Rencana
+          </span>
+          <span className="flex items-center" style={{ gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: AG.outText }} />
+            Deadline
+          </span>
+          <span className="flex items-center" style={{ gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, boxShadow: `inset 0 0 0 1.5px ${AG.primary}` }} />
+            Berulang
+          </span>
         </div>
       </div>
 
-      {/* Judul tanggal terpilih */}
-      <div className="flex items-center justify-between gap-2" style={{ marginTop: 20, marginBottom: 12 }}>
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 18, color: AG.ink }}>
-            {new Date(selectedDate + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short", year: "numeric" })}
-          </span>
-          <span className="shrink-0" style={{ fontSize: 12.5, color: AG.inkSoft }}>
-            {selectedTasks.length + selectedProjected.length} tugas
-          </span>
+      <div className="flex items-center justify-between" style={{ gap: 8, margin: "18px 4px 10px" }}>
+        <div className="min-w-0">
+          <div className="capitalize truncate" style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 18, lineHeight: 1.15 }}>
+            <FadeSwap swapKey={selectedDate}>{selectedLabel}</FadeSwap>
+          </div>
+          <div style={{ fontSize: 12.5, color: AG.muted }}>
+            <RollingNumber value={totalSelected} /> tugas
+          </div>
         </div>
-        {onAddTask && (
-          <button
-            onClick={onAddTask}
-            className="flex items-center gap-1 font-semibold shrink-0"
-            style={{ background: AG.primary, color: "#fff", fontSize: 13, padding: "9px 16px", borderRadius: 999 }}
-          >
-            <Plus size={15} /> Tambah
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onAddTask(selectedDate)}
+          className="flex items-center shrink-0"
+          style={{ gap: 6, height: 40, padding: "0 16px", borderRadius: 999, border: "none", background: AG.primary, color: "#FFFFFF", fontSize: 13, fontWeight: 600 }}
+        >
+          <Plus size={15} /> Tambah
+        </button>
       </div>
 
       <FadeSwap swapKey={selectedDate}>
-        {selectedTasks.length === 0 && selectedProjected.length === 0 ? (
-          <div
-            className="py-8 text-center"
-            style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, color: AG.inkSoft }}
-          >
+        {totalSelected === 0 ? (
+          <div className="py-8 text-center" style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, color: AG.muted }}>
             <span className="text-sm">Gak ada tugas di tanggal ini.</span>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            <AnimatedList className="flex flex-col gap-2">
-              {selectedTasks.map((t) => (
-                <TaskRow
-                  key={t.id}
-                  task={t}
-                  threshold={dueThreshold}
-                  onToggle={() => onToggleDone(t.id)}
-                  onEdit={() => onEditTask(t)}
-                  onDelete={() => onDeleteTask(t)}
-                />
-              ))}
-            </AnimatedList>
-
+          <div className="flex flex-col" style={{ gap: 12 }}>
+            {selectedTasks.length > 0 && (
+              <div style={{ background: AG.card, borderRadius: 20, boxShadow: AG_CARD_SHADOW }}>
+                <CollapseList>
+                  {selectedTasks.map((t, i) => (
+                    <TaskRow key={t.id} task={t} threshold={dueThreshold} first={i === 0} onToggle={() => onToggleDone(t.id)} onOpen={() => onOpenTask(t)} />
+                  ))}
+                </CollapseList>
+              </div>
+            )}
             {selectedProjected.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, color: AG.inkSoft, marginTop: 6 }}>
-                  Jadwal berulang berikutnya
+              <div className="flex flex-col" style={{ gap: 8 }}>
+                <div style={{ padding: "0 4px", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: AG.muted }}>JADWAL BERULANG BERIKUTNYA</div>
+                <div style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}` }}>
+                  {selectedProjected.map((t, i) => (
+                    <ProjectedTaskRow key={`${t.id}-${t.occurrence}`} task={t} first={i === 0} />
+                  ))}
                 </div>
-                {selectedProjected.map((t) => (
-                  <ProjectedTaskRow key={`${t.id}-${t.occurrence}`} task={t} />
-                ))}
-              </>
+              </div>
             )}
           </div>
         )}
@@ -4045,39 +4941,25 @@ function CalendarView({ tasks, dueThreshold, onToggleDone, onEditTask, onDeleteT
   );
 }
 
-// Baris jadwal berulang yang belum aktif. Sengaja tanpa tombol centang,
-// edit, atau hapus — jadwal ini baru benar-benar ada setelah jadwal
-// sebelumnya diselesaikan, jadi di sini fungsinya cuma mengingatkan.
-function ProjectedTaskRow({ task }) {
+// Baris jadwal berulang yang belum aktif. Sengaja tanpa tombol centang —
+// jadwal ini baru benar-benar ada setelah jadwal sebelumnya diselesaikan,
+// jadi di sini fungsinya cuma mengingatkan.
+function ProjectedTaskRow({ task, first }) {
   return (
-    <div
-      className="rounded-2xl p-3"
-      style={{ background: AG.card, borderRadius: 20, border: `1px dashed ${AG.border}`, opacity: 0.8 }}
-    >
-      <div className="flex items-start gap-2.5">
-        <span
-          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
-          style={{ border: `1.5px dashed ${COLORS.border}` }}
-        >
-          <Repeat size={10} color={COLORS.inkSoft} />
+    <div>
+      {!first && <div aria-hidden="true" style={{ height: 1, background: "#F0EDE5", marginLeft: 48 }} />}
+      <div className="flex items-center" style={{ gap: 4, padding: "8px 14px 8px 4px", opacity: 0.85 }}>
+        <span className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44 }}>
+          <span className="flex items-center justify-center" style={{ width: 24, height: 24, borderRadius: 999, border: `1.5px dashed ${AG.border}` }}>
+            <Repeat size={11} color={AG.muted} />
+          </span>
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold truncate" style={{ color: COLORS.inkSoft, fontSize: 13 }}>
+        <div className="flex-1 min-w-0">
+          <div className="truncate" style={{ fontSize: 15, fontWeight: 600, color: AG.muted }}>
             {task.title}
           </div>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            <span
-              className="px-1.5 py-0.5 rounded-full font-medium"
-              style={{ background: COLORS.bg, color: COLORS.inkSoft, fontSize: 11 }}
-            >
-              Berulang
-            </span>
-            {task.planDate && (
-              <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>Rencana: {fmtDate(task.planDate)}</span>
-            )}
-          </div>
-          <div className="text-[11px] mt-1.5" style={{ color: COLORS.inkSoft }}>
-            Aktif setelah jadwal sebelumnya dicentang selesai.
+          <div className="truncate" style={{ fontSize: 12.5, color: AG.muted, marginTop: 1 }}>
+            Aktif setelah jadwal sebelumnya dicentang selesai
           </div>
         </div>
       </div>
@@ -4085,319 +4967,394 @@ function ProjectedTaskRow({ task }) {
   );
 }
 
-function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
-  const urgency = taskUrgency(task, threshold);
-  const meta = URGENCY_META[urgency];
-  // Warna garis tepi kiri menandakan tingkat mendesaknya tugas.
-  const barColor = task.done ? AG.safe : urgency === "overdue" ? AG.out : urgency === "soon" ? AG.low : AG.primary;
-
-  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
+function RecurChip({ recurrence }) {
+  if (!recurrence) return null;
   return (
-    <motion.div
-      id={`agenda-item-${task.id}`}
-      className="relative overflow-hidden"
-      style={{ background: AG.card, borderRadius: 20, paddingLeft: 6 }}
-      initial={false}
-      animate={glow.animate}
-      transition={glow.transition}
-    >
-      <motion.span
-        className="absolute left-0 top-0 bottom-0"
-        style={{ width: 6 }}
-        initial={false}
-        animate={{ backgroundColor: barColor }}
-        transition={{ duration: DUR.fast }}
-      />
-      <div style={{ padding: "16px 16px 0 12px" }}>
-        <div className="flex items-start gap-3">
-          <CheckCircle
-            checked={task.done}
-            onClick={onToggle}
-            size={26}
-            borderWidth={2}
-            color={AG.safe}
-            borderColor={AG.border}
-            style={{ marginTop: 1 }}
-            title={task.done ? "Batal selesai" : "Tandai selesai"}
-          />
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <div
-                className="font-bold min-w-0"
-                style={{
-                  color: task.done ? AG.inkSoft : AG.ink,
-                  textDecoration: task.done ? "line-through" : "none",
-                  fontSize: 16.5,
-                  lineHeight: 1.25,
-                }}
-              >
-                {task.title}
-              </div>
-              {task.recurrence && (
-                <span
-                  className="shrink-0 flex items-center gap-1 font-semibold"
-                  style={{ background: AG.safeBg, color: AG.primary, fontSize: 11.5, padding: "5px 10px", borderRadius: 999 }}
-                >
-                  <Repeat size={11} /> Tiap {task.recurrence.every} {task.recurrence.unit === "bulan" ? "Bulan" : "Minggu"}
-                </span>
-              )}
-              {!task.recurrence && !task.done && (urgency === "overdue" || urgency === "soon") && (
-                <span
-                  className="shrink-0 flex items-center gap-1 font-semibold"
-                  style={{ background: meta.bg, color: meta.fg, fontSize: 11.5, padding: "5px 10px", borderRadius: 999 }}
-                >
-                  {urgency === "overdue" && <AlertTriangle size={11} />}
-                  {deadlineLabel(task)}
-                </span>
-              )}
-            </div>
-
-            {task.recurrence && !task.done && (urgency === "overdue" || urgency === "soon") && (
-              <span
-                className="inline-flex items-center gap-1 font-semibold"
-                style={{ background: meta.bg, color: meta.fg, fontSize: 11.5, padding: "5px 10px", borderRadius: 999, marginTop: 8 }}
-              >
-                {urgency === "overdue" && <AlertTriangle size={11} />}
-                {deadlineLabel(task)}
-              </span>
-            )}
-
-            {/* Tanggal ditampilkan berpasangan: label kecil huruf besar di atas,
-                tanggalnya tebal di bawah — seperti pada rancangan. */}
-            {(task.planDate || task.deadline) && (
-              <div className="flex gap-7" style={{ marginTop: 12 }}>
-                {task.planDate && (
-                  <div>
-                    <div className="uppercase" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: AG.label }}>
-                      Rencana
-                    </div>
-                    <div style={{ fontSize: 14.5, fontWeight: 700, color: AG.ink, marginTop: 2 }}>{fmtDate(task.planDate)}</div>
-                  </div>
-                )}
-                {task.deadline && (
-                  <div>
-                    <div className="uppercase" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: AG.label }}>
-                      Deadline
-                    </div>
-                    <div
-                      style={{ fontSize: 14.5, fontWeight: 700, marginTop: 2, color: !task.done && urgency === "overdue" ? AG.out : AG.ink }}
-                    >
-                      {fmtDate(task.deadline)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {task.notes && (
-              <div className="italic" style={{ color: AG.inkSoft, fontSize: 13, marginTop: 10 }}>
-                {task.notes}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div
-          className="flex items-end justify-between gap-2"
-          style={{ marginTop: 14, paddingTop: 12, paddingBottom: 12, borderTop: `1px solid ${AG.border}` }}
-        >
-          <div className="leading-tight min-w-0" style={{ color: AG.inkSoft, fontSize: 12.5 }}>
-            <div>{task.done ? "Selesai" : "Dibuat"}</div>
-            <div className="truncate" style={{ marginTop: 2 }}>
-              {task.done ? `${task.doneBy || "?"} · ${fmtDateTime(task.doneAt)}` : `${task.createdBy || "?"} · ${fmtDateTime(task.createdAt)}`}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onEdit}
-              className="flex items-center justify-center"
-              style={{ width: 40, height: 34, borderRadius: 12, background: AG.safeBg }}
-              title="Edit"
-            >
-              <Pencil size={15} color={AG.primary} />
-            </button>
-            <button
-              onClick={onDelete}
-              className="flex items-center justify-center"
-              style={{ width: 40, height: 34, borderRadius: 12, background: AG.outBg }}
-              title="Hapus"
-            >
-              <Trash2 size={15} color={AG.out} />
-            </button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+    <span className="flex items-center shrink-0" style={{ gap: 4, fontSize: 11, fontWeight: 600, color: AG.primary, background: AG.safeBg, borderRadius: 999, padding: "4px 9px" }}>
+      <Repeat size={11} strokeWidth={2.4} />
+      {recurLabel(recurrence)}
+    </span>
   );
 }
 
-function TaskFormModal({ mode, task, onClose, onSubmit }) {
+function TaskRow({ task, threshold, first, onToggle, onOpen, highlighted }) {
+  const line = taskLine(task, threshold);
+  return (
+    <div id={`agenda-item-${task.id}`} className="relative">
+      {!first && <div aria-hidden="true" style={{ height: 1, background: "#F0EDE5", marginLeft: 48 }} />}
+      <div className="relative flex items-center" style={{ gap: 4, padding: "8px 14px 8px 4px" }}>
+        <CardRings radius={16} highlighted={!!highlighted} glowRgb={HIGHLIGHT_RGB} />
+        <CheckCircle
+          hit
+          checked={task.done}
+          onClick={onToggle}
+          size={24}
+          borderWidth={2}
+          color={AG.safe}
+          borderColor="#D9D5CA"
+          title={task.done ? `Batalkan ${task.title} selesai` : `Tandai ${task.title} selesai`}
+        />
+        <button type="button" onClick={onOpen} className="flex-1 min-w-0 flex items-center text-left" style={{ gap: 8, minHeight: 44 }}>
+          <span className="flex-1 min-w-0">
+            <motion.span
+              className="block truncate"
+              initial={false}
+              animate={{ color: task.done ? AG.muted : AG.ink }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 15, fontWeight: 600, textDecoration: task.done ? "line-through" : "none", textDecorationColor: "#C9C5BA" }}
+            >
+              {task.title}
+            </motion.span>
+            <span className="block truncate" style={{ fontSize: 12.5, color: line.color, marginTop: 1 }}>
+              {line.text}
+            </span>
+          </span>
+          <RecurChip recurrence={task.recurrence} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Sentuh tugas → detail, dengan aksi selesai / edit / hapus.
+function TaskDetailSheet({ task, threshold, onClose, onToggle, onEdit, onDelete }) {
+  const line = taskLine(task, threshold);
+  const nextDate = task.recurrence ? advanceDate(task.planDate || task.deadline, task.recurrence.every, task.recurrence.unit) : "";
+  const box = (label, dot, value, color) => (
+    <div style={{ background: AG.soft, borderRadius: 16, padding: "12px 14px" }}>
+      <div className="flex items-center" style={{ gap: 6, fontSize: 12, color: AG.muted }}>
+        <span style={{ width: 7, height: 7, borderRadius: 99, background: dot }} />
+        {label}
+      </div>
+      <div style={{ fontSize: 15.5, fontWeight: 700, marginTop: 3, color: color || AG.ink }}>{value}</div>
+    </div>
+  );
+  const overdue = !task.done && task.deadline && daysUntil(task.deadline) < 0;
+
+  return (
+    <Sheet onClose={onClose} font={APP_FONT} color={AG.ink}>
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        <div className="flex items-start" style={{ gap: 12 }}>
+          <div className="flex-1 min-w-0">
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 23, lineHeight: 1.15 }}>{task.title}</div>
+            <div style={{ fontSize: 13, color: line.color, marginTop: 3 }}>{line.text}</div>
+          </div>
+          <button
+            type="button"
+            aria-label="Tutup"
+            title="Tutup"
+            onClick={onClose}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: AG.soft, color: AG.muted }}
+          >
+            <X size={17} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          {box("Rencana", AG.accent, task.planDate ? fmtShortDay(task.planDate) : "–")}
+          {box("Deadline", AG.outText, task.deadline ? fmtShortDay(task.deadline) : "–", overdue ? AG.outText : undefined)}
+        </div>
+
+        <div className="flex flex-col" style={{ gap: 8, fontSize: 13, color: AG.muted }}>
+          {task.recurrence && (
+            <div className="flex items-center" style={{ gap: 8, color: AG.primary }}>
+              <Repeat size={15} className="shrink-0" />
+              <span>
+                {recurLabel(task.recurrence)}
+                {nextDate && !task.done ? ` · berikutnya ${fmtShortDay(nextDate)}` : ""}
+              </span>
+            </div>
+          )}
+          {task.notes && (
+            <div className="flex items-start" style={{ gap: 8 }}>
+              <StickyNote size={15} className="shrink-0" style={{ marginTop: 2 }} />
+              <span style={{ color: AG.ink }}>{task.notes}</span>
+            </div>
+          )}
+          <div className="flex items-center" style={{ gap: 8 }}>
+            <Clock size={15} className="shrink-0" />
+            <span className="truncate">
+              Dibuat {task.createdBy || "?"} · {fmtDateTime(task.createdAt)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col" style={{ gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex items-center justify-center"
+            style={{
+              height: 50,
+              borderRadius: 14,
+              border: task.done ? `1px solid ${AG.border}` : "none",
+              background: task.done ? "#FFFFFF" : AG.primary,
+              color: task.done ? AG.ink : "#FFFFFF",
+              fontSize: 14.5,
+              fontWeight: 600,
+              gap: 8,
+            }}
+          >
+            <Check size={17} strokeWidth={2.6} />
+            {task.done ? "Batalkan selesai" : "Tandai selesai"}
+          </button>
+          <div className="flex" style={{ gap: 8 }}>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="flex-1 flex items-center justify-center"
+              style={{ height: 46, borderRadius: 14, border: "none", background: AG.safeBg, color: AG.primary, fontSize: 14, fontWeight: 600, gap: 8 }}
+            >
+              <Pencil size={15} />
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex-1 flex items-center justify-center"
+              style={{ height: 46, borderRadius: 14, border: "none", background: AG.outBg, color: AG.outText, fontSize: 14, fontWeight: 600, gap: 8 }}
+            >
+              <Trash2 size={15} />
+              Hapus
+            </button>
+          </div>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// Tanggal cepat untuk formulir tugas.
+function addDaysStr(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+}
+function endOfWeekStr() {
+  // Minggu (hari terakhir pekan). Kalau hari ini Minggu, ya hari ini.
+  const d = new Date();
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+  return toDateStr(d);
+}
+function endOfMonthStr() {
+  const d = new Date();
+  return toDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+}
+
+// Baris pilihan tanggal: chip cepat + "Pilih" (kalender bawaan HP).
+function DateChips({ label, dotColor, labelColor, value, onChange, quick }) {
+  const quickValues = quick.map((q) => q.value);
+  const custom = value && !quickValues.includes(value);
+  return (
+    <div className="flex flex-col" style={{ gap: 8 }}>
+      <div className="flex items-center" style={{ gap: 6, fontSize: 12.5, fontWeight: 600, color: labelColor }}>
+        <span style={{ width: 7, height: 7, borderRadius: 99, background: dotColor }} />
+        {label}
+      </div>
+      <div className="flex flex-wrap" style={{ gap: 6 }}>
+        {quick.map((q) => (
+          <Chip key={q.label} active={value === q.value} onClick={() => onChange(q.value)} height={38} activeBg={AG.primary} ink={AG.ink} inkSoft={AG.muted} border={AG.border} style={{ padding: "0 12px" }}>
+            {q.label}
+          </Chip>
+        ))}
+        {/* Kolom tanggal asli dibuat transparan menutupi chip, jadi sentuhan
+            langsung membuka kalender bawaan HP di semua browser. */}
+        <div className="relative">
+          <Chip tabIndex={-1} ariaHidden active={custom} dashed={!custom} height={38} activeBg={AG.primary} ink={AG.ink} inkSoft={AG.muted} border={AG.border} style={{ padding: "0 12px", gap: 5 }}>
+            <Calendar size={14} />
+            {custom ? fmtShortDay(value) : "Pilih"}
+          </Chip>
+          <input
+            type="date"
+            aria-label={`Pilih tanggal ${label.toLowerCase()}`}
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            onClick={(e) => {
+              try {
+                e.currentTarget.showPicker();
+              } catch {
+                /* browser lama: cukup fokus bawaan */
+              }
+            }}
+            className="absolute inset-0"
+            style={{ opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskFormModal({ mode, task, initialDate, onClose, onSubmit }) {
   const [title, setTitle] = useState(task?.title || "");
-  const [planDate, setPlanDate] = useState(task?.planDate || "");
+  const [planDate, setPlanDate] = useState(task?.planDate || initialDate || "");
   const [deadline, setDeadline] = useState(task?.deadline || "");
   const [notes, setNotes] = useState(task?.notes || "");
-  const [recurEnabled, setRecurEnabled] = useState(!!task?.recurrence);
-  const [recurEvery, setRecurEvery] = useState(task?.recurrence?.every ? String(task.recurrence.every) : "1");
-  const [recurUnit, setRecurUnit] = useState(task?.recurrence?.unit || "minggu");
+  const [showNotes, setShowNotes] = useState(!!task?.notes);
+  const r = task?.recurrence;
+  const [recurMode, setRecurMode] = useState(() => {
+    if (!r) return "none";
+    if (r.every === 1) return r.unit === "bulan" ? "monthly" : "weekly";
+    return "custom";
+  });
+  const [recurEvery, setRecurEvery] = useState(r && r.every > 1 ? String(r.every) : "2");
+  const [recurUnit, setRecurUnit] = useState(r?.unit || "bulan");
   const [error, setError] = useState("");
+
+  const recurrence =
+    recurMode === "none"
+      ? null
+      : recurMode === "weekly"
+      ? { every: 1, unit: "minggu" }
+      : recurMode === "monthly"
+      ? { every: 1, unit: "bulan" }
+      : { every: Math.max(1, parseInt(recurEvery, 10) || 0), unit: recurUnit };
+
+  const anchor = planDate || deadline;
+  const nextDate = recurrence && anchor ? advanceDate(anchor, recurrence.every, recurrence.unit) : "";
 
   const submit = () => {
     if (!title.trim()) return setError("Judul tugas wajib diisi.");
-    if (recurEnabled) {
-      if (!planDate && !deadline) return setError("Tugas berulang butuh minimal Rencana atau Deadline diisi, buat patokan hitung.");
-      const n = parseInt(recurEvery, 10);
-      if (!n || n < 1) return setError("Isi angka pengulangan yang valid (minimal 1).");
+    if (recurrence) {
+      if (!planDate && !deadline) return setError("Tugas berulang butuh Rencana atau Deadline sebagai patokan.");
+      if (recurMode === "custom" && !(parseInt(recurEvery, 10) >= 1)) return setError("Isi angka pengulangan yang valid (minimal 1).");
     }
     setError("");
-    onSubmit({
-      title,
-      planDate,
-      deadline,
-      notes,
-      recurrence: recurEnabled ? { every: parseInt(recurEvery, 10), unit: recurUnit } : null,
-    });
+    onSubmit({ title, planDate, deadline, notes, recurrence });
   };
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="flex items-center justify-between mb-4">
-        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }}>
-          {mode === "add" ? "Tambah tugas" : "Edit tugas"}
-        </div>
-        <button onClick={onClose}>
-          <X size={18} color={COLORS.inkSoft} />
-        </button>
-      </div>
-      <div className="flex flex-col gap-3">
-        <Field label="Judul tugas">
-          <input
-            autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="mis. Servis AC"
-            className="w-full px-3 py-2.5 rounded-lg text-sm"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-        </Field>
-        <Field label="Rencana (opsional)">
-          <input
-            type="date"
-            value={planDate}
-            onChange={(e) => setPlanDate(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg text-sm"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-          {planDate && (
-            <button onClick={() => setPlanDate("")} className="text-xs mt-1.5 underline" style={{ color: COLORS.inkSoft }}>
-              Hapus tanggal
-            </button>
-          )}
-        </Field>
-        <Field label="Deadline (opsional)">
-          <input
-            type="date"
-            value={deadline}
-            onChange={(e) => setDeadline(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg text-sm"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-          {deadline && (
-            <button onClick={() => setDeadline("")} className="text-xs mt-1.5 underline" style={{ color: COLORS.inkSoft }}>
-              Hapus tanggal
-            </button>
-          )}
-        </Field>
-        <Field label="Ulangi tugas ini?">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setRecurEnabled(false)}
-              className="flex-1 py-2 rounded-lg text-xs font-medium"
-              style={{
-                background: !recurEnabled ? COLORS.primary : COLORS.card,
-                color: !recurEnabled ? "#fff" : COLORS.ink,
-                border: `1px solid ${!recurEnabled ? COLORS.primary : COLORS.border}`,
-              }}
-            >
-              Tidak
-            </button>
-            <button
-              onClick={() => setRecurEnabled(true)}
-              className="flex-1 py-2 rounded-lg text-xs font-medium"
-              style={{
-                background: recurEnabled ? COLORS.primary : COLORS.card,
-                color: recurEnabled ? "#fff" : COLORS.ink,
-                border: `1px solid ${recurEnabled ? COLORS.primary : COLORS.border}`,
-              }}
-            >
-              Ya
-            </button>
+    <Sheet onClose={onClose} font={APP_FONT} color={AG.ink}>
+      <SheetHeader title={mode === "add" ? "Tugas baru" : "Edit tugas"} onClose={onClose} closeBg={AG.soft} closeColor={AG.muted} />
+
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        <input
+          autoFocus={mode === "add"}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Mau mengerjakan apa?"
+          aria-label="Judul tugas"
+          className="inp fs-17 w-full"
+          style={{ height: 52, borderRadius: 14, border: `1.5px solid ${AG.border}`, padding: "0 14px", fontWeight: 600, color: AG.ink, "--inp-focus": AG.primary, background: "#FFFFFF" }}
+        />
+
+        <DateChips
+          label="Rencana dikerjakan"
+          dotColor={AG.accent}
+          labelColor={AG.lowText}
+          value={planDate}
+          onChange={setPlanDate}
+          quick={[
+            { label: "Tidak ada", value: "" },
+            { label: "Hari ini", value: addDaysStr(0) },
+            { label: "Besok", value: addDaysStr(1) },
+          ]}
+        />
+
+        <DateChips
+          label="Deadline"
+          dotColor={AG.outText}
+          labelColor={AG.outText}
+          value={deadline}
+          onChange={setDeadline}
+          quick={[
+            { label: "Tidak ada", value: "" },
+            { label: "Minggu ini", value: endOfWeekStr() },
+            { label: "Akhir bulan", value: endOfMonthStr() },
+          ]}
+        />
+
+        <div className="flex flex-col" style={{ gap: 8 }}>
+          <div className="flex items-center" style={{ gap: 6, fontSize: 12.5, fontWeight: 600, color: AG.primary }}>
+            <Repeat size={14} strokeWidth={2.2} />
+            Ulangi
           </div>
-          {recurEnabled && (
-            <div className="flex gap-2 mt-2 items-center">
-              <span className="text-xs shrink-0" style={{ color: COLORS.inkSoft }}>
-                Tiap
-              </span>
-              <input
-                type="number"
-                min="1"
-                value={recurEvery}
-                onChange={(e) => setRecurEvery(e.target.value)}
-                className="w-16 px-2 py-2 rounded-lg text-sm text-center"
-                style={{ border: `1px solid ${COLORS.border}` }}
+          <Segmented
+            ariaLabel="Ulangi tugas"
+            value={recurMode}
+            onChange={setRecurMode}
+            activeBg={AG.primary}
+            inkSoft={AG.muted}
+            trackBg={AG.soft}
+            fontSize={12.5}
+            options={[
+              { value: "none", label: "Tidak" },
+              { value: "weekly", label: "Mingguan" },
+              { value: "monthly", label: "Bulanan" },
+              { value: "custom", label: recurMode === "custom" ? `Tiap ${Math.max(1, parseInt(recurEvery, 10) || 0)} ${recurUnit === "bulan" ? "bln" : "mgg"}` : "Kustom" },
+            ]}
+          />
+          <Collapse open={recurMode === "custom"}>
+            <div className="flex items-center" style={{ gap: 10, paddingTop: 4 }}>
+              <span style={{ fontSize: 13, color: AG.muted }}>Tiap</span>
+              <Stepper value={recurEvery} onChange={setRecurEvery} min={1} ariaLabel="Jarak ulang" trackBg={AG.soft} ink={AG.ink} inkSoft={AG.muted} style={{ width: 150 }} />
+              <Segmented
+                ariaLabel="Satuan ulang"
+                value={recurUnit}
+                onChange={setRecurUnit}
+                activeBg={AG.primary}
+                inkSoft={AG.muted}
+                trackBg={AG.soft}
+                height={44}
+                style={{ flex: 1 }}
+                options={[
+                  { value: "minggu", label: "minggu" },
+                  { value: "bulan", label: "bulan" },
+                ]}
               />
-              <div className="flex gap-1.5 flex-1">
-                <button
-                  onClick={() => setRecurUnit("minggu")}
-                  className="flex-1 py-2 rounded-lg text-xs font-medium"
-                  style={{
-                    background: recurUnit === "minggu" ? COLORS.primary : COLORS.card,
-                    color: recurUnit === "minggu" ? "#fff" : COLORS.ink,
-                    border: `1px solid ${recurUnit === "minggu" ? COLORS.primary : COLORS.border}`,
-                  }}
-                >
-                  Minggu
-                </button>
-                <button
-                  onClick={() => setRecurUnit("bulan")}
-                  className="flex-1 py-2 rounded-lg text-xs font-medium"
-                  style={{
-                    background: recurUnit === "bulan" ? COLORS.primary : COLORS.card,
-                    color: recurUnit === "bulan" ? "#fff" : COLORS.ink,
-                    border: `1px solid ${recurUnit === "bulan" ? COLORS.primary : COLORS.border}`,
-                  }}
-                >
-                  Bulan
-                </button>
-              </div>
             </div>
+          </Collapse>
+          <Collapse open={!!recurrence}>
+            <div style={{ fontSize: 12, color: anchor ? AG.muted : AG.lowText, padding: "0 2px" }}>
+              {anchor
+                ? `Setelah dicentang selesai, jadwal berikutnya dibuat otomatis: ${fmtDate(nextDate)}.`
+                : "Isi Rencana atau Deadline dulu sebagai patokan hitungnya."}
+            </div>
+          </Collapse>
+        </div>
+
+        <div>
+          {!showNotes && (
+            <button type="button" onClick={() => setShowNotes(true)} style={{ height: 40, padding: "0 4px", border: "none", background: "transparent", color: AG.primary, fontSize: 13.5, fontWeight: 600 }}>
+              + Tambah catatan
+            </button>
           )}
-          {recurEnabled && !planDate && !deadline && (
-            <p className="text-xs mt-1.5" style={{ color: COLORS.low }}>
-              Isi Rencana atau Deadline dulu buat patokan hitungnya.
-            </p>
+          <Collapse open={showNotes}>
+            <div>
+              <FieldLabel color={AG.muted}>Catatan</FieldLabel>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="mis. detail tambahan"
+                rows={2}
+                className="inp w-full resize-none"
+                style={{ borderRadius: 14, border: `1.5px solid ${AG.border}`, padding: "10px 14px", color: AG.ink, "--inp-focus": AG.primary }}
+              />
+            </div>
+          </Collapse>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.div
+              key="err"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, color: AG.outText, overflow: "hidden" }}
+            >
+              {error}
+            </motion.div>
           )}
-        </Field>
-        <Field label="Catatan (opsional)">
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="mis. detail tambahan"
-            rows={2}
-            className="w-full px-3 py-2.5 rounded-lg text-sm resize-none"
-            style={{ border: `1px solid ${COLORS.border}` }}
-          />
-        </Field>
-        {error && (
-          <div className="text-xs" style={{ color: COLORS.out }}>
-            {error}
-          </div>
-        )}
-        <button onClick={submit} className="w-full py-2.5 rounded-lg text-sm font-medium text-white mt-1" style={{ background: COLORS.primary }}>
-          {mode === "add" ? "Tambahkan" : "Simpan perubahan"}
+        </AnimatePresence>
+
+        <button type="button" onClick={submit} style={{ height: 52, borderRadius: 16, border: "none", background: AG.primary, color: "#FFFFFF", fontSize: 15, fontWeight: 600 }}>
+          {mode === "add" ? "Tambahkan tugas" : "Simpan perubahan"}
         </button>
       </div>
-    </Overlay>
+    </Sheet>
   );
 }
 

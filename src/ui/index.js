@@ -18,5 +18,9 @@ export {
   Collapse,
   highlightMotion,
   corners,
+  CardRings,
+  AutoHeight,
+  CollapseList,
 } from "./Effects";
-export { Hero, HeroSurface, HeroDecor, HeroContent, morphId, CARD_CORNERS, HERO_CORNERS, HERO_HEIGHT } from "./Hero";
+export { Hero, HeroBar, HeroSurface, HeroDecor, HeroContent, morphId, CARD_CORNERS, HERO_CORNERS, HERO_BAR_CORNERS, HERO_HEIGHT } from "./Hero";
+export { Segmented, Stepper, Chip, SheetHeader, FieldLabel } from "./Controls";

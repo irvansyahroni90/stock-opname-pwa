@@ -25,13 +25,13 @@ export const HERO_HEIGHT = 244;
 
 // fadeIn: dipakai kalau aplikasi dibuka tanpa lewat kartu (notifikasi,
 // pintasan) — tidak ada kartu yang bisa melebar, jadi cukup memudar.
-export function HeroSurface({ color, layoutId, fadeIn }) {
+export function HeroSurface({ color, layoutId, fadeIn, radii = HERO_CORNERS }) {
   return (
     <motion.span
       aria-hidden="true"
       layoutId={layoutId}
       className="absolute inset-0"
-      style={{ background: color, ...HERO_CORNERS }}
+      style={{ background: color, ...radii }}
       initial={fadeIn ? { opacity: 0 } : false}
       animate={fadeIn ? { opacity: 1, transition: { duration: DUR.base, ease: EASE.standard } } : undefined}
       transition={SPRING.page}
@@ -95,6 +95,22 @@ export function Hero({ color, layoutId, fadeIn, marginBottom = 0, children }) {
         className="relative h-full flex flex-col justify-between"
         style={{ padding: "calc(env(safe-area-inset-top) + 24px) 22px 20px" }}
       >
+        {children}
+      </HeroContent>
+    </div>
+  );
+}
+
+// Versi ringkas: bilah berwarna setinggi isinya (tanggal + judul + tombol).
+// Dipakai Agenda supaya daftar & kalender dapat ruang lebih banyak. Kartu
+// dari halaman awal tetap berubah bentuk mendarat di bilah ini.
+export const HERO_BAR_CORNERS = corners(0, 0, 26, 26);
+
+export function HeroBar({ color, layoutId, fadeIn, marginBottom = 0, children }) {
+  return (
+    <div className="relative" style={{ zIndex: 1, marginLeft: -16, marginRight: -16, marginBottom }}>
+      <HeroSurface color={color} layoutId={layoutId} fadeIn={fadeIn} radii={HERO_BAR_CORNERS} />
+      <HeroContent className="relative" style={{ padding: "calc(env(safe-area-inset-top) + 18px) 16px 16px" }}>
         {children}
       </HeroContent>
     </div>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useIsPresent } from "motion/react";
 import { DUR, EASE, EXIT, SPRING } from "./motion";
 
@@ -167,4 +167,144 @@ export function corners(tl, tr, br, bl) {
     borderBottomRightRadius: br,
     borderBottomLeftRadius: bl,
   };
+}
+
+// ---------------------------------------------------------------------
+// CardRings — dua lapisan cincin di atas kartu (pointer-events: none):
+//  - ring: garis tepi berwarna, mis. saat ada perubahan belum disimpan;
+//  - glow: pendar satu kali saat kartu dituju dari beranda/notifikasi.
+// Dipisah dari kartunya supaya bayangan kartu tetap utuh dan kedua efek
+// tidak saling menimpa. Kartu induknya harus position: relative.
+// ---------------------------------------------------------------------
+export function CardRings({ radius = 20, ring = false, ringRgb = "224,138,60", ringWidth = 1.5, highlighted = false, glowRgb = "224,138,60" }) {
+  const glow = highlightMotion(highlighted, glowRgb);
+  return (
+    <>
+      <motion.span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ borderRadius: radius }}
+        initial={false}
+        animate={{ boxShadow: ring ? `0 0 0 ${ringWidth}px rgba(${ringRgb},1)` : `0 0 0 0px rgba(${ringRgb},0)` }}
+        transition={{ duration: DUR.fast, ease: EASE.standard }}
+      />
+      <motion.span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ borderRadius: radius }}
+        initial={false}
+        animate={glow.animate}
+        transition={glow.transition}
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------
+// AutoHeight — tingginya mengikuti isi. Saat `swapKey` berganti (mis.
+// "Dari daftar stok" ↔ "Barang lain"), perubahan tinggi berikutnya
+// dianimasikan pelan supaya jendelanya memanjang/memendek halus, bukan
+// melompat. Perubahan lain (mis. bagian di dalamnya yang sedang membuka
+// sendiri) diikuti langsung tanpa animasi tambahan, supaya tidak ada dua
+// animasi yang saling kejar.
+// ---------------------------------------------------------------------
+export function AutoHeight({ swapKey, children, className, style }) {
+  const innerRef = useRef(null);
+  const [state, setState] = useState({ height: "auto", animate: false });
+  const [clipping, setClipping] = useState(false);
+  const lastKey = useRef(swapKey);
+  const pendingSwap = useRef(false);
+  const swapTimer = useRef(null);
+
+  if (lastKey.current !== swapKey) {
+    lastKey.current = swapKey;
+    pendingSwap.current = true;
+  }
+
+  // Kalau pergantian isi ternyata tidak mengubah tinggi, tandanya dilepas.
+  useLayoutEffect(() => {
+    const t = setTimeout(() => (pendingSwap.current = false), 700);
+    return () => clearTimeout(t);
+  }, [swapKey]);
+
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    let prev = el.offsetHeight;
+    setState({ height: prev, animate: false });
+    const ro = new ResizeObserver(() => {
+      const h = el.offsetHeight;
+      if (h === prev) return;
+      prev = h;
+      const animate = pendingSwap.current;
+      if (animate) {
+        // Isi baru sudah terpasang; beri waktu sebentar untuk menyelesaikan
+        // perubahan tinggi dari pergantian ini, lalu kembali mengikuti biasa.
+        clearTimeout(swapTimer.current);
+        swapTimer.current = setTimeout(() => (pendingSwap.current = false), 120);
+      }
+      setState({ height: h, animate });
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clearTimeout(swapTimer.current);
+    };
+  }, []);
+
+  return (
+    <motion.div
+      className={className}
+      // Hanya dipotong selama bergerak, supaya garis fokus & bayangan di
+      // dalamnya tidak ikut terpotong saat diam.
+      style={{ ...style, overflow: clipping ? "hidden" : "visible" }}
+      initial={false}
+      animate={{ height: state.height }}
+      transition={state.animate ? SPRING.panel : { duration: 0 }}
+      onAnimationStart={() => state.animate && setClipping(true)}
+      onAnimationComplete={() => setClipping(false)}
+    >
+      <div ref={innerRef}>{children}</div>
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// CollapseList — daftar yang barisnya membuka/menutup TINGGINYA saat
+// ditambah/dihapus. Semua yang ada di bawahnya (judul kelompok, kartu lain,
+// keterangan) ikut bergeser mulus karena memang tata letaknya yang berubah
+// sedikit demi sedikit — tidak ada yang melompat atau saling menumpuk.
+// Dipakai untuk baris di dalam satu kartu (Akan Dibeli, Agenda, Kas).
+//
+// spacing: jarak antar baris (ditaruh di dalam baris supaya ikut menutup).
+// ---------------------------------------------------------------------
+export function CollapseList({ children, className, style, spacing = 0, spacingSide = "bottom" }) {
+  const items = React.Children.toArray(children).filter(Boolean);
+  const pad = spacing ? (spacingSide === "top" ? { paddingTop: spacing } : { paddingBottom: spacing }) : null;
+  return (
+    <div className={className} style={style}>
+      <AnimatePresence initial={false}>
+        {items.map((child) => (
+          <motion.div
+            key={child.key}
+            initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+            animate={{
+              height: "auto",
+              opacity: 1,
+              transition: { height: SPRING.panel, opacity: { duration: DUR.fast, delay: 0.06 } },
+              transitionEnd: { overflow: "visible" },
+            }}
+            exit={{
+              height: 0,
+              opacity: 0,
+              overflow: "hidden",
+              transition: { height: { duration: 0.3, ease: EASE.ios }, opacity: { duration: 0.16, ease: EASE.in } },
+            }}
+          >
+            {pad ? <div style={pad}>{child}</div> : child}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
 }

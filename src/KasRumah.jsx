@@ -46,6 +46,7 @@ import {
   Smartphone,
   CreditCard,
   Coins,
+  Clock3,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { storageSet, storageSubscribe } from "./firebase";
@@ -65,10 +66,16 @@ import {
   Stagger,
   StaggerItem,
   Collapse,
+  CardRings,
+  AutoHeight,
+  CollapseList,
+  Segmented,
+  Chip,
   Hero,
   highlightMotion,
   SPRING,
   DUR,
+  EASE,
 } from "./ui";
 
 // Palet khusus Kas Rumah — hijau hutan pekat dengan aksen oranye.
@@ -93,6 +100,9 @@ const COLORS = {
   border: "#E5E3D8",
   soft: "#F2F0E7",
   track: "#EFEDE4",
+  // Teks yang lebih pekat supaya tetap terbaca di atas putih.
+  muted: "#66736A",
+  expenseText: "#9A3A26",
   // Latar ikon bulat
   iconBuyBg: "#F7EADC",
   iconBuyFg: "#B9741F",
@@ -406,6 +416,7 @@ export default function KasRumahApp({
   morphIn,
   heroLayoutId,
   onViewChange,
+  onApplyPurchases,
 }) {
   // Dibuka dari notifikasi transaksi → langsung di tab Transaksi sejak awal,
   // supaya tidak sempat terlihat beranda lalu bergeser.
@@ -428,6 +439,14 @@ export default function KasRumahApp({
   const [txFilter, setTxFilter] = useState("all"); // all | income | expense | transfer
 
   const [txModal, setTxModal] = useState(null);
+  const [txDetailId, setTxDetailId] = useState(null);
+  // Pindah dari satu jendela ke jendela lain (mis. detail → edit): jendela
+  // pertama turun dulu sebentar, baru berikutnya naik, supaya dua lapisan
+  // gelapnya tidak menumpuk.
+  const swapSheet = (closeFn, openFn) => {
+    closeFn();
+    setTimeout(openFn, 170);
+  };
   const [walletModal, setWalletModal] = useState(null);
   const [transferModal, setTransferModal] = useState(false);
   const [categoryPanel, setCategoryPanel] = useState(false);
@@ -544,12 +563,19 @@ export default function KasRumahApp({
   };
 
   // Centang item di daftar "Akan Dibeli" milik Stok Rumah setelah pengguna
-  // menyetujui pencocokan hasil scan struk.
-  const handleMarkBought = async (entryIds) => {
-    if (!entryIds || !entryIds.length) return;
+  // menyetujui pencocokan hasil scan struk. Stoknya ikut bertambah sesuai
+  // jumlah di struk (logikanya milik Stok Rumah, lewat onApplyPurchases).
+  // purchases: [{ entryId, qty }]
+  const handleMarkBought = async (purchases) => {
+    if (!purchases || !purchases.length) return;
+    if (onApplyPurchases) {
+      await onApplyPurchases(purchases);
+      return;
+    }
+    const ids = purchases.map((p) => p.entryId);
     const now = new Date().toISOString();
     const next = toBuy.map((e) =>
-      entryIds.includes(e.id) && !e.bought ? { ...e, bought: true, boughtBy: userName, boughtAt: now } : e
+      ids.includes(e.id) && !e.bought ? { ...e, bought: true, boughtBy: userName, boughtAt: now } : e
     );
     setToBuy(next);
     await storageSet("stock-tobuy", next);
@@ -664,6 +690,8 @@ export default function KasRumahApp({
     );
   }
 
+  const txDetail = txDetailId ? transactions.find((t) => t.id === txDetailId) || null : null;
+
   const fabAction = () => {
     if (view === "wallets") setWalletModal({ mode: "add" });
     else setTxModal({ mode: "add", type: "expense" });
@@ -692,10 +720,7 @@ export default function KasRumahApp({
             onOpenTransfer={() => setTransferModal(true)}
             onSeeWallets={() => setView("wallets")}
             notifSlot={view === "dashboard" ? notifSlotDark || notifSlot : null}
-            onOpenTx={(tx) => {
-              setView("transactions");
-              setHighlightId(tx.id);
-            }}
+            onOpenTx={(tx) => setTxDetailId(tx.id)}
             onBackToPicker={onBackToPicker}
             heroLayoutId={view === "dashboard" ? heroLayoutId : undefined}
             morphIn={morphIn}
@@ -713,16 +738,9 @@ export default function KasRumahApp({
             onOpenMenu={() => setShowMenu(true)}
             onSwitchApp={onBackToPicker}
             notifSlot={view === "transactions" ? notifSlot : null}
-            onEdit={(tx) => (tx.type === "transfer" ? setTransferModal(tx) : setTxModal({ mode: "edit", tx }))}
-            onDelete={(tx) => setConfirmDelete({ type: "tx", id: tx.id, label: tx.note || "transaksi ini" })}
+            onOpen={(tx) => setTxDetailId(tx.id)}
             highlightId={highlightId}
             onHighlightDone={() => setHighlightId(null)}
-            onDuplicate={(tx) =>
-              setTxModal({
-                mode: "duplicate",
-                tx: { ...tx, id: undefined, date: new Date().toISOString() },
-              })
-            }
           />
 
           <WalletsPage
@@ -737,24 +755,6 @@ export default function KasRumahApp({
           />
         </TabPager>
       </div>
-
-      {/* Tombol scan tetap melayang, ditaruh di atas kapsul navigasi. */}
-      <AnimatePresence>
-        {(view === "dashboard" || view === "transactions") && (
-          <motion.button
-            key="scan"
-            onClick={() => setScanModal(true)}
-            className="fixed right-6 rounded-full flex items-center justify-center shadow-lg z-30"
-            style={{ width: 46, height: 46, background: COLORS.card, color: COLORS.primary, border: `1.5px solid ${COLORS.border}`, bottom: "calc(90px + env(safe-area-inset-bottom))" }}
-            title="Scan struk"
-            initial={{ opacity: 0, scale: 0.6 }}
-            animate={{ opacity: 1, scale: 1, transition: { ...SPRING.snappy, delay: 0.1 } }}
-            exit={{ opacity: 0, scale: 0.6, transition: { duration: DUR.micro } }}
-          >
-            <ScanLine size={20} />
-          </motion.button>
-        )}
-      </AnimatePresence>
 
       <NavBar
         id="kas-nav"
@@ -772,7 +772,7 @@ export default function KasRumahApp({
       <AnimatePresence>
         {txModal && (
           <TransactionModal
-            key="tx-modal"
+            key={`tx-modal-${txModal.mode}-${txModal.tx && txModal.tx.id ? txModal.tx.id : "new"}`}
             mode={txModal.mode}
             tx={txModal.tx}
             initialType={txModal.type}
@@ -782,6 +782,37 @@ export default function KasRumahApp({
             saving={saving}
             onClose={() => setTxModal(null)}
             onSubmit={(data) => handleSaveTx(data, txModal.mode === "edit" ? txModal.tx : null)}
+            onOpenScan={txModal.mode === "add" ? () => swapSheet(() => setTxModal(null), () => setScanModal(true)) : undefined}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {txDetail && (
+          <TxDetailSheet
+            key={`tx-detail-${txDetail.id}`}
+            tx={txDetail}
+            catById={catById}
+            walById={walById}
+            onClose={() => setTxDetailId(null)}
+            onEdit={() =>
+              swapSheet(
+                () => setTxDetailId(null),
+                () => (txDetail.type === "transfer" ? setTransferModal(txDetail) : setTxModal({ mode: "edit", tx: txDetail }))
+              )
+            }
+            onDuplicate={() =>
+              swapSheet(
+                () => setTxDetailId(null),
+                () => setTxModal({ mode: "duplicate", tx: { ...txDetail, id: undefined, date: new Date().toISOString() } })
+              )
+            }
+            onDelete={() =>
+              swapSheet(
+                () => setTxDetailId(null),
+                () => setConfirmDelete({ type: "tx", id: txDetail.id, label: txDetail.note || "transaksi ini" })
+              )
+            }
           />
         )}
       </AnimatePresence>
@@ -1106,54 +1137,13 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
               Belum ada transaksi bulan ini.
             </div>
           ) : (
-            <AnimatedList className="flex flex-col gap-2">
-            {recent.map((t) => {
-              const isIncome = t.type === "income";
-              const isTransfer = t.type === "transfer";
-              const cat = catById[t.categoryId];
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => onOpenTx && onOpenTx(t)}
-                  className="w-full flex items-center gap-3 text-left"
-                  style={{ background: COLORS.card, borderRadius: 20, padding: "13px 15px", border: `1px solid rgba(18,48,30,0.07)` }}
-                >
-                  <span
-                    className="shrink-0 flex items-center justify-center"
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 13,
-                      background: isTransfer ? COLORS.soft : isIncome ? COLORS.safeBg : COLORS.lowBg,
-                    }}
-                  >
-                    {isTransfer ? (
-                      <ArrowLeftRight size={17} color={COLORS.inkSoft} />
-                    ) : isIncome ? (
-                      <ArrowDownLeft size={17} color={COLORS.primaryLight} />
-                    ) : (
-                      <ArrowUpRight size={17} color={COLORS.accentDeep} />
-                    )}
-                  </span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block truncate" style={{ fontSize: 13.5, fontWeight: 600, color: COLORS.ink }}>
-                      {t.note || (isTransfer ? "Transfer antar dompet" : cat?.name || "Tanpa kategori")}
-                    </span>
-                    <span className="block truncate" style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 1 }}>
-                      {walById[t.walletId]?.name || "?"} · {dayLabel(t.date)}
-                    </span>
-                  </span>
-                  <span
-                    className="shrink-0"
-                    style={{ fontSize: 13.5, fontWeight: 700, color: isIncome ? COLORS.primaryLight : isTransfer ? COLORS.inkSoft : COLORS.accentDeep }}
-                  >
-                    {isIncome ? "+" : isTransfer ? "" : "-"}
-                    {fmtShortRupiah(t.amount)}
-                  </span>
-                </button>
-              );
-            })}
-            </AnimatedList>
+            <div style={{ background: COLORS.card, borderRadius: 20, boxShadow: TX_CARD_SHADOW }}>
+              <CollapseList>
+                {recent.map((t, i) => (
+                  <TransactionRow key={t.id} tx={t} catById={catById} walById={walById} first={i === 0} withDay onOpen={() => onOpenTx && onOpenTx(t)} />
+                ))}
+              </CollapseList>
+            </div>
           )}
         </div>
 
@@ -1165,7 +1155,42 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
 }
 
 // --- Halaman transaksi --------------------------------------------------
-function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete, onDuplicate, highlightId, onHighlightDone }) {
+const TX_CARD_SHADOW = "0 1px 2px rgba(18,48,30,0.04), 0 6px 18px rgba(18,48,30,0.05)";
+
+// Tampilan satu transaksi (dipakai daftar, beranda, dan detail).
+function txVisual(tx, catById, walById, withDay = false) {
+  const isIncome = tx.type === "income";
+  const isTransfer = tx.type === "transfer";
+  const hasSplit = !!(tx.splits && tx.splits.length);
+  const category = catById[tx.categoryId];
+  const wallet = walById[tx.walletId];
+  const toWallet = walById[tx.toWalletId];
+  const Icon = isTransfer ? ArrowLeftRight : hasSplit ? Split : CATEGORY_ICONS[category?.icon] || Tag;
+  const color = isTransfer ? COLORS.muted : category?.color || (isIncome ? COLORS.safe : COLORS.out);
+  const catName = hasSplit ? `${tx.splits.length} kategori` : category?.name || "Tanpa kategori";
+  const title = isTransfer ? `${wallet?.name || "?"} → ${toWallet?.name || "?"}` : tx.note || catName;
+  const clock = new Date(tx.date).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(":", ".");
+  const time = withDay ? `${dayLabel(tx.date)}, ${clock}` : clock;
+  const meta = isTransfer
+    ? `Transfer${Number(tx.fee) > 0 ? ` · biaya ${fmtRupiah(tx.fee)}` : ""} · ${time}`
+    : `${tx.note ? catName + " · " : ""}${wallet?.name || "?"} · ${time}`;
+  const sign = isIncome ? "+" : isTransfer ? "" : "−";
+  const amountColor = isTransfer ? COLORS.muted : isIncome ? COLORS.safe : COLORS.expenseText;
+  return { isIncome, isTransfer, hasSplit, category, wallet, toWallet, Icon, color, catName, title, meta, sign, amountColor };
+}
+
+function TxIcon({ Icon, color, isTransfer, size = 42, radius = 14 }) {
+  return (
+    <span
+      className="shrink-0 flex items-center justify-center"
+      style={{ width: size, height: size, borderRadius: radius, background: isTransfer ? COLORS.soft : `${color}22`, color }}
+    >
+      <Icon size={Math.round(size * 0.43)} />
+    </span>
+  );
+}
+
+function TransactionsPage({ transactions, catById, walById, search, setSearch, filter, setFilter, onBack, onOpenMenu, onSwitchApp, notifSlot, onOpen, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let income = 0,
       expense = 0,
@@ -1235,53 +1260,44 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
         <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
           <FilterTile group="kas-tx" label="Semua" value={counts.all} color={COLORS.primary} active={filter === "all"} onClick={() => setFilter("all")} />
           <FilterTile group="kas-tx" label="Masuk" value={counts.income} color={COLORS.safe} active={filter === "income"} onClick={() => setFilter("income")} />
-          <FilterTile group="kas-tx" label="Keluar" value={counts.expense} color={COLORS.accentDeep} active={filter === "expense"} onClick={() => setFilter("expense")} />
-          <FilterTile group="kas-tx" label="Transfer" value={counts.transfer} color={COLORS.inkSoft} active={filter === "transfer"} onClick={() => setFilter("transfer")} />
+          <FilterTile group="kas-tx" label="Keluar" value={counts.expense} color="#9A5F17" active={filter === "expense"} onClick={() => setFilter("expense")} />
+          <FilterTile group="kas-tx" label="Transfer" value={counts.transfer} color={COLORS.muted} active={filter === "transfer"} onClick={() => setFilter("transfer")} />
         </div>
 
         <SearchBox value={search} onChange={setSearch} placeholder="Cari transaksi..." />
       </div>
 
       <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pb-32">
+        <FadeSwap swapKey={filter} className="max-w-2xl mx-auto px-4 pt-1 pb-32">
           {groups.length === 0 ? (
-            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
+            <div className="py-14 text-center rounded-[20px]" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <Receipt size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
-              <div style={{ color: COLORS.inkSoft }} className="text-sm">
-                {transactions.length === 0 ? "Belum ada transaksi." : "Tidak ada yang cocok."}
+              <div style={{ color: COLORS.muted }} className="text-sm">
+                {transactions.length === 0 ? "Belum ada transaksi. Tekan + untuk mencatat." : "Tidak ada yang cocok."}
               </div>
             </div>
           ) : (
-            <AnimatedList>
-            {groups.map((g, gi) => (
-              <div key={g.label}>
-                <div className="flex items-center justify-between" style={{ paddingTop: gi === 0 ? 0 : 18, paddingBottom: 8 }}>
-                  <span className="uppercase" style={{ fontSize: 11, letterSpacing: 0.6, fontWeight: 700, color: COLORS.primaryLight }}>
-                    {g.label}
-                  </span>
-                  <span className="text-xs font-medium" style={{ color: g.total >= 0 ? COLORS.safe : COLORS.out }}>
-                    <RollingNumber value={`${g.total >= 0 ? "+" : "-"}${fmtShortRupiah(g.total)}`} />
-                  </span>
-                </div>
-                <AnimatedList className="flex flex-col gap-2">
-                  {g.items.map((t) => (
-                    <TransactionRow
-                      key={t.id}
-                      tx={t}
-                      category={catById[t.categoryId]}
-                      wallet={walById[t.walletId]}
-                      toWallet={walById[t.toWalletId]}
-                      catById={catById}
-                      highlighted={t.id === highlightId}
-                      onEdit={() => onEdit(t)}
-                      onDelete={() => onDelete(t)}
-                      onDuplicate={() => onDuplicate(t)}
-                    />
-                  ))}
-                </AnimatedList>
-              </div>
-            ))}
-            </AnimatedList>
+            <CollapseList spacing={16}>
+              {groups.map((g) => (
+                <section key={g.label} className="flex flex-col" style={{ gap: 8 }}>
+                  <div className="flex items-center justify-between" style={{ padding: "0 4px", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em" }}>
+                    <span className="uppercase" style={{ color: COLORS.safe }}>
+                      {g.label}
+                    </span>
+                    <span style={{ color: g.total >= 0 ? COLORS.safe : COLORS.expenseText }}>
+                      <RollingNumber value={`${g.total > 0 ? "+" : g.total < 0 ? "−" : ""}Rp ${fmtShortRupiah(g.total)}`} />
+                    </span>
+                  </div>
+                  <div style={{ background: COLORS.card, borderRadius: 20, boxShadow: TX_CARD_SHADOW }}>
+                    <CollapseList>
+                      {g.items.map((t, i) => (
+                        <TransactionRow key={t.id} tx={t} catById={catById} walById={walById} first={i === 0} highlighted={t.id === highlightId} onOpen={() => onOpen(t)} />
+                      ))}
+                    </CollapseList>
+                  </div>
+                </section>
+              ))}
+            </CollapseList>
           )}
         </FadeSwap>
       </motion.div>
@@ -1289,116 +1305,153 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
   );
 }
 
-function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, onEdit, onDelete, onDuplicate }) {
-  const isIncome = tx.type === "income";
-  const isTransfer = tx.type === "transfer";
-  const hasSplit = !!(tx.splits && tx.splits.length);
-  const [openSplit, setOpenSplit] = useState(false);
-  const Icon = isTransfer ? ArrowLeftRight : hasSplit ? Split : CATEGORY_ICONS[category?.icon] || Tag;
-  const color = isTransfer ? COLORS.low : isIncome ? COLORS.safe : category?.color || COLORS.out;
-  const amountColor = isTransfer ? COLORS.inkSoft : isIncome ? COLORS.safe : COLORS.out;
-
-  const glow = highlightMotion(highlighted, HIGHLIGHT_RGB);
+function TransactionRow({ tx, catById, walById, first, highlighted, withDay, onOpen }) {
+  const v = txVisual(tx, catById, walById, withDay);
   return (
-    <motion.div
-      id={`kas-tx-${tx.id}`}
-      className="rounded-2xl p-3"
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
-      initial={false}
-      animate={glow.animate}
-      transition={glow.transition}
-    >
-      <div className="flex items-start gap-2.5">
-        <span className="shrink-0 rounded-full flex items-center justify-center" style={{ width: 36, height: 36, background: `${color}1F` }}>
-          <Icon size={16} color={color} />
+    <div id={`kas-tx-${tx.id}`} className="relative">
+      {!first && <div aria-hidden="true" style={{ height: 1, background: "#F1EFE7", marginLeft: 68 }} />}
+      <button type="button" onClick={onOpen} className="relative w-full flex items-center text-left" style={{ gap: 12, padding: "12px 14px", minHeight: 66 }}>
+        <CardRings radius={16} highlighted={!!highlighted} glowRgb={HIGHLIGHT_RGB} />
+        <TxIcon Icon={v.Icon} color={v.color} isTransfer={v.isTransfer} />
+        <span className="flex-1 min-w-0">
+          <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: COLORS.ink }}>
+            {v.title}
+          </span>
+          <span className="block truncate" style={{ fontSize: 12, color: COLORS.muted }}>
+            {v.meta}
+          </span>
         </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
-                {isTransfer
-                  ? `${wallet?.name || "?"} → ${toWallet?.name || "?"}`
-                  : hasSplit
-                  ? `${tx.splits.length} kategori`
-                  : category?.name || "Tanpa kategori"}
-              </div>
-              {tx.note && (
-                <div className="text-xs mt-0.5 truncate" style={{ color: COLORS.inkSoft }}>
-                  {tx.note}
-                </div>
-              )}
+        <span className="shrink-0" style={{ fontSize: 14.5, fontWeight: 700, color: v.amountColor }}>
+          {v.sign}
+          {fmtShortRupiah(tx.amount)}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// Sentuh transaksi → detail: tag, rincian split, edit / duplikat / hapus.
+function TxDetailSheet({ tx, catById, walById, onClose, onEdit, onDuplicate, onDelete }) {
+  const v = txVisual(tx, catById, walById);
+  const row = (label, value) => (
+    <div className="flex items-start justify-between" style={{ gap: 12, padding: "10px 0", borderTop: `1px solid ${COLORS.soft}` }}>
+      <span style={{ fontSize: 13, color: COLORS.muted }}>{label}</span>
+      <span className="text-right min-w-0" style={{ fontSize: 13.5, fontWeight: 500, color: COLORS.ink }}>
+        {value}
+      </span>
+    </div>
+  );
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex flex-col" style={{ gap: 14 }}>
+        <div className="flex items-center" style={{ gap: 14 }}>
+          <TxIcon Icon={v.Icon} color={v.color} isTransfer={v.isTransfer} size={52} radius={17} />
+          <div className="flex-1 min-w-0">
+            <div className="truncate" style={{ fontSize: 16, fontWeight: 600 }}>
+              {v.title}
             </div>
-            <div className="font-bold shrink-0" style={{ fontSize: 14, color: amountColor }}>
-              {isIncome ? "+" : isTransfer ? "" : "-"}
-              {fmtShortRupiah(tx.amount)}
+            <div style={{ fontSize: 24, fontWeight: 700, color: v.amountColor, lineHeight: 1.2 }}>
+              {v.sign}
+              {fmtRupiah(tx.amount)}
             </div>
           </div>
+          <button
+            type="button"
+            aria-label="Tutup"
+            title="Tutup"
+            onClick={onClose}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.muted }}
+          >
+            <X size={17} strokeWidth={2.2} />
+          </button>
+        </div>
 
-          {tx.tags && tx.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {tx.tags.map((t) => (
-                <span key={t} className="px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={{ background: COLORS.bg, color: COLORS.primaryLight }}>
-                  #{t}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div className="text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>
-            {!isTransfer && `${wallet?.name || "?"} · `}
-            {fmtDateTime(tx.date)}
-          </div>
-
-          {hasSplit && (
+        <div>
+          {v.isTransfer ? (
             <>
-              <button onClick={() => setOpenSplit((v) => !v)} className="text-[11px] font-medium mt-1.5 flex items-center gap-1" style={{ color: COLORS.primary }}>
-                {openSplit ? "Sembunyikan rincian" : "Lihat rincian"}
-                <motion.span
-                  className="inline-flex"
-                  initial={false}
-                  animate={{ rotate: openSplit ? 90 : 0 }}
-                  transition={SPRING.snappy}
-                >
-                  <ChevronRight size={11} />
-                </motion.span>
-              </button>
-              <Collapse open={openSplit}>
-                <div className="flex flex-col gap-1 pt-1.5">
-                  {tx.splits.map((s, i) => (
-                    <div key={i} className="rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2" style={{ background: COLORS.bg }}>
-                      <span className="text-[11px] truncate" style={{ color: COLORS.ink }}>
-                        {catById?.[s.categoryId]?.name || "Tanpa kategori"}
-                      </span>
-                      <span className="text-[11px] font-medium shrink-0" style={{ color: COLORS.inkSoft }}>
-                        {fmtShortRupiah(s.amount)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Collapse>
+              {row("Dari", v.wallet?.name || "?")}
+              {row("Ke", v.toWallet?.name || "?")}
+              {Number(tx.fee) > 0 && row("Biaya", fmtRupiah(tx.fee))}
+            </>
+          ) : (
+            <>
+              {!v.hasSplit && row("Kategori", v.category?.name || "Tanpa kategori")}
+              {row("Dompet", v.wallet?.name || "?")}
             </>
           )}
+          {row("Tanggal", fmtDateTime(tx.date))}
+          {tx.note && !v.isTransfer && v.title !== tx.note && row("Catatan", tx.note)}
+          {tx.note && v.isTransfer && row("Catatan", tx.note)}
+          {row("Dicatat", tx.createdBy || "?")}
         </div>
-      </div>
-      <div className="flex items-center justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.border}` }}>
-        <span className="text-[11px] truncate" style={{ color: COLORS.inkSoft }}>
-          {tx.createdBy || "?"}
-        </span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {!isTransfer && (
-            <button onClick={onDuplicate} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }} title="Duplikat">
-              <Copy size={12} color={COLORS.ink} />
+
+        {v.hasSplit && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: COLORS.muted, marginBottom: 8 }}>RINCIAN SPLIT</div>
+            <div className="flex flex-col" style={{ gap: 6 }}>
+              {tx.splits.map((s, i) => {
+                const c = catById[s.categoryId];
+                const Ic = CATEGORY_ICONS[c?.icon] || Tag;
+                return (
+                  <div key={i} className="flex items-center" style={{ gap: 10, background: COLORS.soft, borderRadius: 14, padding: "8px 12px" }}>
+                    <Ic size={15} color={c?.color || COLORS.muted} />
+                    <span className="flex-1 min-w-0 truncate" style={{ fontSize: 13 }}>
+                      {c?.name || "Tanpa kategori"}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{fmtRupiah(s.amount)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {tx.tags && tx.tags.length > 0 && (
+          <div className="flex flex-wrap" style={{ gap: 6 }}>
+            {tx.tags.map((t) => (
+              <span key={t} style={{ fontSize: 12, fontWeight: 600, color: COLORS.safe, background: COLORS.safeBg, borderRadius: 999, padding: "5px 10px" }}>
+                #{t}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-col" style={{ gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex items-center justify-center"
+            style={{ height: 50, borderRadius: 14, border: "none", background: COLORS.primary, color: "#FFFFFF", fontSize: 14.5, fontWeight: 600, gap: 8 }}
+          >
+            <Pencil size={16} />
+            Edit transaksi
+          </button>
+          <div className="flex" style={{ gap: 8 }}>
+            {!v.isTransfer && (
+              <button
+                type="button"
+                onClick={onDuplicate}
+                className="flex-1 flex items-center justify-center"
+                style={{ height: 46, borderRadius: 14, border: "none", background: COLORS.safeBg, color: COLORS.safe, fontSize: 14, fontWeight: 600, gap: 8 }}
+              >
+                <Copy size={15} />
+                Duplikat
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex-1 flex items-center justify-center"
+              style={{ height: 46, borderRadius: 14, border: "none", background: COLORS.outBg, color: COLORS.expenseText, fontSize: 14, fontWeight: 600, gap: 8 }}
+            >
+              <Trash2 size={15} />
+              Hapus
             </button>
-          )}
-          <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }}>
-            <Pencil size={12} color={COLORS.ink} />
-          </button>
-          <button onClick={onDelete} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.out}55` }}>
-            <Trash2 size={12} color={COLORS.out} />
-          </button>
+          </div>
         </div>
       </div>
-    </motion.div>
+    </Overlay>
   );
 }
 
@@ -2163,18 +2216,67 @@ function AnalysisSection({ transactions, catById, walById }) {
 }
 
 // --- Modal transaksi ----------------------------------------------------
-function TransactionModal({ mode, tx, initialType, categories, wallets, allTags, saving, onClose, onSubmit }) {
+// "Hari ini, 12.20" / "Kemarin, 08.00" / "3 Okt, 19.05"
+function fmtWhen(localValue) {
+  const d = new Date(localValue);
+  if (Number.isNaN(d.getTime())) return "Pilih tanggal";
+  const time = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(":", ".");
+  const day = new Date(d);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - day) / 86400000);
+  const label = diff === 0 ? "Hari ini" : diff === 1 ? "Kemarin" : d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+  return `${label}, ${time}`;
+}
+
+// Tampilkan hitungan dengan titik ribuan: "50000+25000" → "50.000 + 25.000".
+function prettyExpr(raw) {
+  return String(raw)
+    .replace(/\s/g, "")
+    .replace(/\d+/g, (n) => Number(n).toLocaleString("id-ID"))
+    .replace(/([+\-*/×÷x])/gi, " $1 ");
+}
+
+function CategoryTile({ category, active, onClick }) {
+  const Icon = CATEGORY_ICONS[category.icon] || Tag;
+  const c = category.color || COLORS.primary;
+  return (
+    <button type="button" onClick={onClick} aria-pressed={active} className="no-tx flex flex-col items-center min-w-0" style={{ gap: 5, padding: 0, border: "none", background: "transparent" }}>
+      <motion.span
+        className="flex items-center justify-center"
+        initial={false}
+        animate={{
+          backgroundColor: active ? c : `${c}22`,
+          color: active ? "#FFFFFF" : c,
+          boxShadow: active ? `0 0 0 3px #FFFFFF, 0 0 0 5px ${c}` : `0 0 0 0px #FFFFFF, 0 0 0 0px ${c}`,
+        }}
+        transition={{ duration: DUR.fast, ease: EASE.standard }}
+        style={{ width: 52, height: 52, borderRadius: 17 }}
+      >
+        <Icon size={21} />
+      </motion.span>
+      <span className="truncate w-full text-center" style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? COLORS.ink : COLORS.muted }}>
+        {category.name}
+      </span>
+    </button>
+  );
+}
+
+function TransactionModal({ mode, tx, initialType, categories, wallets, allTags, saving, onClose, onSubmit, onOpenScan }) {
   const [type, setType] = useState(tx?.type || initialType || "expense");
   const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
   const [categoryId, setCategoryId] = useState(tx?.categoryId || "");
-  const [walletId, setWalletId] = useState(tx?.walletId || wallets[0]?.id || "");
+  // Dompet lama yang sudah dihapus tidak dipakai lagi — pindah ke dompet pertama.
+  const [walletId, setWalletId] = useState(() => (tx?.walletId && wallets.some((w) => w.id === tx.walletId) ? tx.walletId : wallets[0]?.id || ""));
   const [date, setDate] = useState(toLocalInput(tx?.date));
   const [note, setNote] = useState(tx?.note || "");
   const [tags, setTags] = useState(tx?.tags || []);
   const [tagDraft, setTagDraft] = useState("");
+  const [showTags, setShowTags] = useState(!!(tx?.tags && tx.tags.length));
   const [isSplit, setIsSplit] = useState(!!(tx?.splits && tx.splits.length));
   const [splits, setSplits] = useState(
-    tx?.splits && tx.splits.length ? tx.splits.map((s) => ({ ...s, amount: String(s.amount) })) : [{ categoryId: "", amount: "" }]
+    tx?.splits && tx.splits.length ? tx.splits.map((s) => ({ ...s, amount: String(s.amount) })) : [{ categoryId: "", amount: "" }, { categoryId: "", amount: "" }]
   );
   const [error, setError] = useState("");
 
@@ -2185,14 +2287,9 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
     setSplits((prev) => prev.map((s) => (catOptions.some((c) => c.id === s.categoryId) ? s : { ...s, categoryId: "" })));
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Nominal utama: hasil hitungan kalkulator kalau dipakai.
   const computedAmount = evalAmount(amount);
   const isExpression = amount && !/^[0-9]+$/.test(String(amount).replace(/\s/g, ""));
-
-  const splitTotal = useMemo(
-    () => splits.reduce((sum, s) => sum + (evalAmount(s.amount) || 0), 0),
-    [splits]
-  );
+  const splitTotal = useMemo(() => splits.reduce((sum, s) => sum + (evalAmount(s.amount) || 0), 0), [splits]);
 
   const addTag = (raw) => {
     const clean = String(raw).trim().replace(/^#/, "").replace(/\s+/g, "-").toLowerCase();
@@ -2200,48 +2297,29 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
     setTags((prev) => (prev.includes(clean) ? prev : [...prev, clean]));
     setTagDraft("");
   };
-
   const suggestions = (allTags || []).filter((t) => !tags.includes(t)).slice(0, 8);
 
   const updateSplit = (i, patch) => setSplits((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   const addSplitRow = () => setSplits((prev) => [...prev, { categoryId: "", amount: "" }]);
-  const removeSplitRow = (i) => setSplits((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
+  const removeSplitRow = (i) => setSplits((prev) => (prev.length <= 2 ? prev : prev.filter((_, idx) => idx !== i)));
 
   const submit = () => {
     const value = computedAmount;
-    if (!value || value <= 0) {
-      setError("Isi nominalnya dulu.");
-      return;
-    }
-    if (!walletId) {
-      setError("Pilih dompetnya dulu.");
-      return;
-    }
+    if (!value || value <= 0) return setError("Isi nominalnya dulu.");
+    if (!walletId || !wallets.some((w) => w.id === walletId)) return setError("Pilih dompetnya dulu.");
 
     let splitPayload = null;
     if (isSplit) {
-      const rows = splits
-        .map((s) => ({ categoryId: s.categoryId, amount: evalAmount(s.amount) || 0 }))
-        .filter((s) => s.amount > 0);
-      if (rows.length < 2) {
-        setError("Isi minimal dua baris pembagian.");
-        return;
-      }
-      if (rows.some((s) => !s.categoryId)) {
-        setError("Setiap baris pembagian harus punya kategori.");
-        return;
-      }
+      const rows = splits.map((s) => ({ categoryId: s.categoryId, amount: evalAmount(s.amount) || 0 })).filter((s) => s.amount > 0);
+      if (rows.length < 2) return setError("Isi minimal dua baris pembagian.");
+      if (rows.some((s) => !s.categoryId)) return setError("Setiap baris pembagian harus punya kategori.");
       const sum = rows.reduce((a, s) => a + s.amount, 0);
-      if (Math.round(sum) !== Math.round(value)) {
-        setError(`Total pembagian (${fmtRupiah(sum)}) belum sama dengan nominal (${fmtRupiah(value)}).`);
-        return;
-      }
+      if (Math.round(sum) !== Math.round(value)) return setError(`Total pembagian (${fmtRupiah(sum)}) belum sama dengan nominal (${fmtRupiah(value)}).`);
       splitPayload = rows;
     } else if (!categoryId) {
-      setError("Pilih kategorinya dulu.");
-      return;
+      return setError("Pilih kategorinya dulu.");
     }
-
+    setError("");
     onSubmit({
       type,
       amount: Math.round(value),
@@ -2254,266 +2332,292 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
     });
   };
 
+  const hint = amount
+    ? computedAmount === null
+      ? "Rumusnya belum benar"
+      : isExpression
+      ? `${prettyExpr(amount)} = ${fmtRupiah(computedAmount)}`
+      : fmtRupiah(computedAmount)
+    : "Bisa ketik hitungan, mis. 50000+25000";
+  const saveLabel = mode === "edit" ? "Simpan perubahan" : type === "income" ? "Simpan pemasukan" : "Simpan pengeluaran";
+  const fieldStyle = { height: 46, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.ink, "--inp-focus": COLORS.primary };
+  const linkBtn = { height: 36, padding: "0 2px", border: "none", background: "transparent", color: COLORS.safe, fontSize: 12.5, fontWeight: 600 };
+
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
-        {mode === "edit" ? "Edit Transaksi" : mode === "duplicate" ? "Duplikat Transaksi" : "Transaksi Baru"}
-      </div>
+      <div className="flex flex-col" style={{ gap: 14 }}>
+        {mode !== "add" && (
+          <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.muted, marginTop: -4 }}>{mode === "edit" ? "Edit transaksi" : "Duplikat transaksi"}</div>
+        )}
+        <div className="flex items-center" style={{ gap: 10 }}>
+          <Segmented
+            ariaLabel="Jenis transaksi"
+            value={type}
+            onChange={setType}
+            height={40}
+            inkSoft={COLORS.muted}
+            trackBg={COLORS.soft}
+            style={{ flex: 1 }}
+            options={[
+              { value: "expense", label: "Pengeluaran", activeBg: COLORS.expenseText },
+              { value: "income", label: "Pemasukan", activeBg: COLORS.safe },
+            ]}
+          />
+          {onOpenScan ? (
+            <button
+              type="button"
+              onClick={onOpenScan}
+              aria-label="Scan struk"
+              title="Scan struk"
+              className="flex items-center justify-center shrink-0"
+              style={{ width: 46, height: 46, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.ink }}
+            >
+              <ScanLine size={19} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Tutup"
+              title="Tutup"
+              className="flex items-center justify-center shrink-0"
+              style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.muted }}
+            >
+              <X size={17} strokeWidth={2.2} />
+            </button>
+          )}
+        </div>
 
-      <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.bg }}>
-        {[
-          { key: "expense", label: "Pengeluaran", color: COLORS.out },
-          { key: "income", label: "Pemasukan", color: COLORS.safe },
-        ].map((o) => (
-          <button
-            key={o.key}
-            onClick={() => setType(o.key)}
-            className="relative flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ color: type === o.key ? "#fff" : COLORS.inkSoft }}
-          >
-            {type === o.key && (
-              <motion.span
-                layoutId="kas-tx-type"
-                className="absolute inset-0"
-                style={{ borderRadius: 8 }}
-                initial={false}
-                animate={{ backgroundColor: o.color }}
-                transition={SPRING.snappy}
-              />
+        {/* Nominal besar */}
+        <div className="text-center" style={{ padding: "4px 0 0" }}>
+          <div style={{ fontSize: 13, color: COLORS.muted }}>Nominal</div>
+          <label className="flex items-baseline justify-center" style={{ gap: 6, cursor: "text" }}>
+            <span style={{ fontSize: 22, fontWeight: 600, color: amount ? COLORS.ink : "#B9BDB5" }}>Rp</span>
+            <input
+              autoFocus={mode === "add"}
+              inputMode="text"
+              aria-label="Nominal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, ""))}
+              placeholder="0"
+              className="fs-38"
+              style={{
+                width: `calc(${Math.max(1, String(amount).length)}ch + 8px)`,
+                maxWidth: "80%",
+                minWidth: 30,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+                color: COLORS.ink,
+                textAlign: "left",
+                padding: 0,
+              }}
+            />
+          </label>
+          <div style={{ fontSize: 12, color: amount && computedAmount === null ? COLORS.out : COLORS.muted }}>{hint}</div>
+        </div>
+
+        <AutoHeight swapKey={isSplit ? "split" : `single-${type}`}>
+          <FadeSwap swapKey={isSplit ? "split" : `single-${type}`}>
+            {isSplit ? (
+              <div className="flex flex-col" style={{ gap: 8 }}>
+                <div className="flex items-center justify-between">
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted }}>Pembagian kategori</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: computedAmount && Math.round(splitTotal) === Math.round(computedAmount) ? COLORS.safe : COLORS.expenseText }}>
+                    {fmtRupiah(splitTotal)}
+                    {computedAmount ? ` / ${fmtRupiah(computedAmount)}` : ""}
+                  </span>
+                </div>
+                {splits.map((s, i) => (
+                  <div key={i} className="flex items-center" style={{ gap: 8 }}>
+                    <select
+                      value={s.categoryId}
+                      onChange={(e) => updateSplit(i, { categoryId: e.target.value })}
+                      aria-label={`Kategori baris ${i + 1}`}
+                      className="inp flex-1 min-w-0"
+                      style={{ ...fieldStyle, padding: "0 10px" }}
+                    >
+                      <option value="">Pilih kategori</option>
+                      {catOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      inputMode="text"
+                      value={s.amount}
+                      onChange={(e) => updateSplit(i, { amount: e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, "") })}
+                      placeholder="Rp 0"
+                      aria-label={`Nominal baris ${i + 1}`}
+                      className="inp"
+                      style={{ ...fieldStyle, width: 116, padding: "0 12px", fontWeight: 600 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSplitRow(i)}
+                      disabled={splits.length <= 2}
+                      aria-label={`Hapus baris ${i + 1}`}
+                      className="flex items-center justify-center shrink-0"
+                      style={{ width: 40, height: 40, borderRadius: 12, border: "none", background: COLORS.outBg, color: COLORS.expenseText, opacity: splits.length <= 2 ? 0.35 : 1 }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addSplitRow}
+                  className="flex items-center justify-center"
+                  style={{ height: 42, gap: 6, borderRadius: 14, border: `1px dashed ${COLORS.border}`, background: "transparent", color: COLORS.primary, fontSize: 13, fontWeight: 600 }}
+                >
+                  <Plus size={14} /> Tambah baris
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col" style={{ gap: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted }}>Kategori</div>
+                {catOptions.length === 0 ? (
+                  <div style={{ fontSize: 13, color: COLORS.muted }}>Belum ada kategori. Tambahkan lewat menu → Kategori.</div>
+                ) : (
+                  <div className="grid" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, rowGap: 10 }}>
+                    {catOptions.map((c) => (
+                      <CategoryTile key={c.id} category={c} active={categoryId === c.id} onClick={() => setCategoryId(c.id)} />
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
-            <span className="relative">{o.label}</span>
-          </button>
-        ))}
-      </div>
+          </FadeSwap>
+        </AutoHeight>
 
-      <Field label="Nominal" className="mb-3">
-        <div className="flex items-center gap-2 px-3 rounded-lg" style={{ border: `1px solid ${COLORS.border}` }}>
-          <span className="text-sm font-medium" style={{ color: COLORS.inkSoft }}>
-            Rp
-          </span>
+        <div className="flex flex-col" style={{ gap: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted }}>Dompet</div>
+          <div className="flex overflow-x-auto" style={{ gap: 6, margin: "-4px -20px", padding: "4px 20px", scrollbarWidth: "none" }}>
+            {wallets.map((w) => (
+              <Chip key={w.id} active={walletId === w.id} onClick={() => setWalletId(w.id)} height={38} activeBg={COLORS.primary} ink={COLORS.ink} inkSoft={COLORS.muted} border={COLORS.border} style={{ flexShrink: 0, padding: "0 16px" }}>
+                {w.name}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex" style={{ gap: 8 }}>
+          {/* Kolom tanggal asli dibuat transparan di atas tombol, jadi sentuhan
+              langsung membuka pemilih tanggal & jam bawaan HP. */}
+          <div className="relative flex-1 min-w-0">
+            <div className="flex items-center justify-center" style={{ ...fieldStyle, gap: 6, fontSize: 13, padding: "0 10px" }}>
+              <Clock3 size={15} className="shrink-0" />
+              <span className="truncate">{fmtWhen(date)}</span>
+            </div>
+            <input
+              type="datetime-local"
+              aria-label="Tanggal & jam"
+              value={date}
+              onChange={(e) => e.target.value && setDate(e.target.value)}
+              onClick={(e) => {
+                try {
+                  e.currentTarget.showPicker();
+                } catch {
+                  /* browser lama */
+                }
+              }}
+              className="absolute inset-0"
+              style={{ opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
+            />
+          </div>
           <input
-            autoFocus
-            inputMode="text"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, ""))}
-            placeholder="0"
-            className="flex-1 py-2.5 bg-transparent font-bold"
-            style={{ color: COLORS.ink, fontSize: 18, outline: "none", border: "none" }}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Catatan"
+            aria-label="Catatan"
+            className="inp flex-1 min-w-0"
+            style={{ ...fieldStyle, padding: "0 14px" }}
           />
         </div>
-        <div className="text-xs mt-1" style={{ color: computedAmount === null && amount ? COLORS.out : COLORS.inkSoft }}>
-          {amount
-            ? computedAmount === null
-              ? "Rumusnya belum benar"
-              : isExpression
-              ? `= ${fmtRupiah(computedAmount)}`
-              : fmtRupiah(computedAmount)
-            : "Bisa ketik hitungan, mis. 50000+25000"}
-        </div>
-      </Field>
 
-      <button
-        onClick={() => setIsSplit((v) => !v)}
-        className="w-full mb-3 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5"
-        style={{
-          background: isSplit ? COLORS.primary : COLORS.bg,
-          color: isSplit ? "#fff" : COLORS.primary,
-          border: `1px solid ${isSplit ? COLORS.primary : COLORS.border}`,
-        }}
-      >
-        <Split size={13} /> {isSplit ? "Pakai satu kategori saja" : "Bagi ke beberapa kategori"}
-      </button>
-
-      <FadeSwap swapKey={isSplit ? "split" : "single"}>
-      {isSplit ? (
-        <Field label="Pembagian" className="mb-3">
-          <div className="flex flex-col gap-2">
-            {splits.map((s, i) => (
-              <div key={i} className="rounded-lg p-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}` }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <select
-                    value={s.categoryId}
-                    onChange={(e) => updateSplit(i, { categoryId: e.target.value })}
-                    className="flex-1 min-w-0 px-2 py-1.5 rounded-lg text-xs"
-                    style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card, color: COLORS.ink }}
-                  >
-                    <option value="">Pilih kategori</option>
-                    {catOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  {splits.length > 1 && (
-                    <button onClick={() => removeSplitRow(i)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.out}55` }}>
-                      <Trash2 size={12} color={COLORS.out} />
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 px-2 rounded-lg" style={{ border: `1px solid ${COLORS.border}`, background: COLORS.card }}>
-                  <span className="text-xs" style={{ color: COLORS.inkSoft }}>
-                    Rp
-                  </span>
-                  <input
-                    inputMode="text"
-                    value={s.amount}
-                    onChange={(e) => updateSplit(i, { amount: e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, "") })}
-                    placeholder="0"
-                    className="flex-1 py-1.5 bg-transparent text-sm font-semibold"
-                    style={{ color: COLORS.ink, outline: "none", border: "none" }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={addSplitRow}
-            className="w-full mt-2 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5"
-            style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.primary }}
-          >
-            <Plus size={13} /> Tambah baris
-          </button>
-
-          <div className="flex items-center justify-between mt-2 text-xs">
-            <span style={{ color: COLORS.inkSoft }}>Total pembagian</span>
-            <span
-              className="font-semibold"
-              style={{ color: computedAmount && Math.round(splitTotal) === Math.round(computedAmount) ? COLORS.safe : COLORS.out }}
+        <div>
+          <div className="flex flex-wrap" style={{ columnGap: 14 }}>
+            <button type="button" onClick={() => setShowTags((v) => !v)} style={linkBtn}>
+              {showTags ? "Sembunyikan tag" : tags.length ? `# ${tags.length} tag` : "# Tambah tag"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSplit((v) => !v);
+                setError("");
+              }}
+              style={linkBtn}
             >
-              {fmtRupiah(splitTotal)}
-              {computedAmount ? ` / ${fmtRupiah(computedAmount)}` : ""}
-            </span>
+              {isSplit ? "Pakai satu kategori" : "Bagi ke beberapa kategori"}
+            </button>
           </div>
-        </Field>
-      ) : (
-        <Field label="Kategori" className="mb-3">
-          <div className="flex flex-wrap gap-1.5">
-            {catOptions.map((c) => {
-              const Icon = CATEGORY_ICONS[c.icon] || Tag;
-              const active = categoryId === c.id;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setCategoryId(c.id)}
-                  className="px-2.5 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-medium"
-                  style={{
-                    background: active ? c.color : COLORS.bg,
-                    color: active ? "#fff" : COLORS.inkSoft,
-                    border: `1px solid ${active ? c.color : COLORS.border}`,
-                  }}
-                >
-                  <Icon size={12} />
-                  {c.name}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-      )}
-      </FadeSwap>
-
-      <Field label="Dompet" className="mb-3">
-        <div className="flex flex-wrap gap-1.5">
-          {wallets.map((w) => {
-            const active = walletId === w.id;
-            return (
-              <button
-                key={w.id}
-                onClick={() => setWalletId(w.id)}
-                className="px-2.5 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  background: active ? w.color : COLORS.bg,
-                  color: active ? "#fff" : COLORS.inkSoft,
-                  border: `1px solid ${active ? w.color : COLORS.border}`,
+          <Collapse open={showTags}>
+            <div className="flex flex-col" style={{ gap: 8, paddingTop: 6 }}>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap" style={{ gap: 6 }}>
+                  {tags.map((t) => (
+                    <span key={t} className="flex items-center" style={{ gap: 4, fontSize: 12.5, fontWeight: 600, color: "#FFFFFF", background: COLORS.primary, borderRadius: 999, padding: "4px 6px 4px 11px" }}>
+                      #{t}
+                      <button type="button" aria-label={`Hapus tag ${t}`} onClick={() => setTags((prev) => prev.filter((x) => x !== t))} className="flex items-center justify-center" style={{ width: 22, height: 22, borderRadius: 999, border: "none", background: "rgba(255,255,255,0.18)", color: "#FFFFFF" }}>
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <input
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    addTag(tagDraft);
+                  }
                 }}
-              >
-                {w.name}
-              </button>
-            );
-          })}
+                onBlur={() => tagDraft && addTag(tagDraft)}
+                placeholder="ketik lalu Enter, mis. liburan"
+                aria-label="Tag baru"
+                className="inp w-full"
+                style={{ ...fieldStyle, padding: "0 14px" }}
+              />
+              {suggestions.length > 0 && (
+                <div className="flex flex-wrap" style={{ gap: 6 }}>
+                  {suggestions.map((t) => (
+                    <Chip key={t} onClick={() => addTag(t)} height={32} ink={COLORS.muted} inkSoft={COLORS.muted} border={COLORS.border} style={{ padding: "0 11px", fontSize: 12 }}>
+                      #{t}
+                    </Chip>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Collapse>
         </div>
-      </Field>
 
-      <Field label="Tag (opsional)" className="mb-3">
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {tags.map((t) => (
-              <span
-                key={t}
-                className="px-2 py-1 rounded-full flex items-center gap-1 text-xs font-medium"
-                style={{ background: COLORS.primary, color: "#fff" }}
-              >
-                #{t}
-                <button onClick={() => setTags((prev) => prev.filter((x) => x !== t))}>
-                  <X size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        <input
-          value={tagDraft}
-          onChange={(e) => setTagDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              addTag(tagDraft);
-            }
-          }}
-          onBlur={() => tagDraft && addTag(tagDraft)}
-          placeholder="ketik lalu Enter, mis. liburan"
-          className="w-full px-3 py-2.5 rounded-lg text-sm"
-          style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-        />
-        {suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {suggestions.map((t) => (
-              <button
-                key={t}
-                onClick={() => addTag(t)}
-                className="px-2 py-1 rounded-full text-xs"
-                style={{ background: COLORS.bg, color: COLORS.inkSoft, border: `1px solid ${COLORS.border}` }}
-              >
-                #{t}
-              </button>
-            ))}
-          </div>
-        )}
-      </Field>
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.div
+              key="err"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, color: COLORS.out, overflow: "hidden" }}
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      <Field label="Tanggal & jam" className="mb-3">
-        <input
-          type="datetime-local"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="w-full px-3 py-2.5 rounded-lg text-sm"
-          style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-        />
-      </Field>
-
-      <Field label="Catatan (opsional)" className="mb-4">
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="mis. belanja mingguan"
-          className="w-full px-3 py-2.5 rounded-lg text-sm"
-          style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-        />
-      </Field>
-
-      {error && (
-        <div className="text-xs mb-3" style={{ color: COLORS.out }}>
-          {error}
-        </div>
-      )}
-
-      <div className="flex gap-2">
-        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}>
-          Batal
-        </button>
-        <button onClick={submit} disabled={saving} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary, opacity: saving ? 0.6 : 1 }}>
-          {saving ? "Menyimpan..." : "Simpan"}
+        <button
+          type="button"
+          onClick={submit}
+          disabled={saving}
+          style={{ height: 52, borderRadius: 16, border: "none", background: COLORS.primary, color: "#FFFFFF", fontSize: 15, fontWeight: 600, opacity: saving ? 0.6 : 1 }}
+        >
+          {saving ? "Menyimpan..." : saveLabel}
         </button>
       </div>
     </Overlay>
@@ -2674,7 +2778,12 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
     // Centang item di Akan Dibeli yang disetujui, lalu simpan padanan namanya.
     const accepted = Object.entries(matches).filter(([, m]) => m && m.accepted === true);
     if (accepted.length) {
-      onMarkBought(accepted.map(([, m]) => m.entryId));
+      onMarkBought(
+        accepted.map(([itemId, m]) => {
+          const it = parsed.items.find((x) => x.id === itemId);
+          return { entryId: m.entryId, qty: it && Number(it.qty) > 0 ? Number(it.qty) : 1 };
+        })
+      );
       const newAliases = { ...(aliases || {}) };
       accepted.forEach(([itemId, m]) => {
         const it = parsed.items.find((x) => x.id === itemId);
