@@ -18,6 +18,12 @@ export function Screen({ children }) {
     <motion.div
       className="fixed inset-0"
       style={{ zIndex: isPresent ? 2 : 1 }}
+      // Kalau layar yang sedang memudar pergi dipanggil balik sebelum
+      // selesai (mis. menekan kembali saat animasi buka belum tuntas), layar
+      // itu dipakai ulang — jadi harus bisa tampil lagi, bukan tetap
+      // transparan.
+      initial={false}
+      animate={{ opacity: 1, transition: { duration: 0.2, ease: EASE.standard } }}
       exit={{ opacity: 0, transition: { duration: 0.3, ease: EASE.standard } }}
     >
       {children}
