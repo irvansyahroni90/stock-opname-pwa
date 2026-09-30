@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus,
   Trash2,
@@ -7,7 +7,6 @@ import {
   X,
   Search,
   Minus,
-  RotateCcw,
   Package,
   BarChart3,
   Receipt,
@@ -19,9 +18,6 @@ import {
   ClipboardList,
   ShoppingCart,
   Check,
-  Loader2,
-  ChevronDown,
-  ChevronUp,
   ChevronRight,
   ArrowLeft,
   ArrowLeftRight,
@@ -48,9 +44,11 @@ import {
   Bell,
   Wallet,
 } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 import KasRumahApp from "./KasRumah";
 import { SharedStyles } from "./SharedStyles";
+import { Sheet, Drawer, BottomNav as NavBar, FilterTile as Tile } from "./ui";
 
 const COLORS = {
   bg: "#EDEAE1",
@@ -107,6 +105,13 @@ const AG = {
   outBg: "#FBE3E0",
 };
 
+const APP_FONT = "'Outfit', sans-serif";
+
+// Cincin sorotan saat sebuah item dituju dari beranda/notifikasi. Untuk
+// sementara berupa garis diam; versi beranimasinya menyusul di fase
+// mikro-interaksi.
+const HIGHLIGHT_RING = "0 0 0 3px rgba(224,138,60,0.55)";
+
 const UNIT_SUGGESTIONS = ["pcs", "kg", "gram", "liter", "ml", "botol", "pack", "sachet"];
 
 const LEVEL_OPTIONS = [
@@ -118,6 +123,17 @@ const LEVEL_OPTIONS = [
 const LEVEL_LABEL = Object.fromEntries(LEVEL_OPTIONS.map((o) => [o.key, o.label]));
 
 const DEFAULT_PLACES = ["Shopee", "Tokopedia", "Alfamart", "Indomaret", "Griya"];
+
+const STOK_TABS = [
+  { key: "dashboard", label: "Beranda", icon: Home },
+  { key: "stock", label: "Stok", icon: Package },
+  { key: "tobuy", label: "Beli", icon: ShoppingCart },
+];
+
+const AGENDA_TABS = [
+  { key: "list", label: "List", icon: ListTodo },
+  { key: "calendar", label: "Kalender", icon: Calendar },
+];
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -355,15 +371,6 @@ const URGENCY_META = {
   soon: { label: "Hampir Deadline", fg: COLORS.low, bg: COLORS.lowBg },
 };
 
-const CHIP_META = {
-  danger: { fg: COLORS.out, bg: COLORS.outBg },
-  warn: { fg: COLORS.low, bg: COLORS.lowBg },
-  safe: { fg: COLORS.safe, bg: COLORS.safeBg },
-  neutral: { fg: COLORS.inkSoft, bg: COLORS.bg },
-};
-
-const BACKUP_KEYS = ["stock-items", "stock-history", "stock-tobuy", "stock-places", "agenda-tasks", "agenda-due-threshold"];
-
 function loginErrorMessage(err) {
   const code = err && err.code ? err.code : "";
   if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(code)) {
@@ -378,9 +385,9 @@ function loginErrorMessage(err) {
   return "Gagal masuk. Coba lagi.";
 }
 
-// Latar halaman pilih aplikasi: matahari berlapis di kanan atas, bukit lembut
-// dan rumah kecil di kaki layar. Semuanya opasitas rendah supaya teks tetap
-// Ilustrasi samar di sudut kanan bawah tiap kartu — penanda visual supaya
+// Tinggi kartu sambutan di atas tiap aplikasi (belum termasuk area poni).
+const HERO_HEIGHT = 244;
+
 // Empat ikon kecil 2x2 di sudut kartu — murni hiasan yang menggambarkan isi
 // aplikasinya, bukan tombol.
 function CardGlyphs({ icons, tint, solid, glyphColor }) {
@@ -405,107 +412,7 @@ function CardGlyphs({ icons, tint, solid, glyphColor }) {
   );
 }
 
-// --- Transisi kartu melebar ------------------------------------------
-// Urutannya: halaman tujuan dipasang LEBIH DULU, lalu kartu terbang di
-// atasnya. Dengan begitu di belakang kartu selalu sudah ada isi — tidak
-// pernah ada momen layar kosong seperti sebelumnya.
-//
-// JavaScript hanya mengukur posisi kartu dan menyerahkan empat angka ke
-// CSS (--dx, --dy, --sx, --sy). Gerakannya sepenuhnya diurus CSS.
-const MORPH_MS = 620;
-const MORPH_CLEANUP_MS = 860;
-
-// Tinggi area aman di atas layar (poni iPhone) diukur lewat elemen bayangan.
-function readSafeTop() {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:fixed;top:0;left:0;visibility:hidden;padding-top:env(safe-area-inset-top)";
-  document.body.appendChild(probe);
-  const h = probe.clientHeight || 0;
-  document.body.removeChild(probe);
-  return h;
-}
-
-// Posisi dan ukuran kartu atas di dalam aplikasi — tempat kartu mendarat.
-// Kartu atas menempel penuh ke tepi layar, tinggi dikunci, sudut membulat
-// hanya di bawah. Bentuk inilah yang membuat serah terima kartu terbang
-// tidak berkedip: kartu mendarat tepat di atas bentuk yang identik.
-const HERO_HEIGHT = 244;
-
-function heroTargetRect() {
-  const vw = window.innerWidth;
-  const contentWidth = Math.min(vw, 672);
-  return { left: (vw - contentWidth) / 2, top: 0, width: contentWidth, height: HERO_HEIGHT + readSafeTop() };
-}
-
-// Kartu terbang: digambar pada ukuran & posisi TUJUAN, lalu CSS yang
-// membawanya dari posisi asal. Di dalamnya ada dua lapisan tulisan yang
-// bersilangan — keduanya tidak ikut membesar supaya hurufnya tetap tajam.
-function CardFlyer({ flight }) {
-  const { from, to, color, title, subtitle, greeting, dateLabel, back } = flight;
-  return (
-    <div
-      aria-hidden="true"
-      className={`flyer${back ? " is-back" : ""}`}
-      style={{
-        top: to.top,
-        left: to.left,
-        width: to.width,
-        height: to.height,
-        background: color,
-        "--dx": `${from.left - to.left}px`,
-        "--dy": `${from.top - to.top}px`,
-        "--sx": from.width / to.width,
-        "--sy": from.height / to.height,
-      }}
-    >
-      {/* Tulisan versi kartu di halaman awal */}
-      <div className="flyer-text flyer-text-from" style={{ bottom: 18, paddingLeft: 18, paddingRight: 18 }}>
-        <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 24, color: "#fff", lineHeight: 1.15 }}>
-          {title}
-        </div>
-        <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.68)", marginTop: 1 }}>{subtitle}</div>
-      </div>
-
-      {/* Tulisan versi kartu atas di halaman tujuan */}
-      <div className="flyer-text flyer-text-to" style={{ top: 26, paddingLeft: 24, paddingRight: 24 }}>
-        <div className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
-          {greeting}
-        </div>
-        <div
-          style={{
-            fontFamily: "'Baloo 2', cursive",
-            fontWeight: 700,
-            fontSize: 44,
-            lineHeight: 1.02,
-            letterSpacing: "-0.5px",
-            color: "#fff",
-            marginTop: 4,
-          }}
-        >
-          {title.split(" ")[0]}
-          <br />
-          {title.split(" ").slice(1).join(" ")}
-        </div>
-        <div
-          className="inline-flex items-center gap-2 capitalize"
-          style={{ marginTop: 20, background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
-        >
-          {dateLabel}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-let pickerIntroPlayed = false;
-
-function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returningKey }) {
-  // Animasi kartu muncul naik hanya diputar sekali per sesi.
-  const skipIntro = pickerIntroPlayed;
-  useEffect(() => {
-    pickerIntroPlayed = true;
-  }, []);
-
+function AppPicker({ userName, onPick, onLogout, notifSlot }) {
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const greeting = useMemo(() => {
@@ -570,22 +477,15 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returnin
   return (
     <div
       className="flex flex-col"
-      style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif", overflow: "hidden" }}
+      style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: APP_FONT, overflow: "hidden" }}
     >
       <SharedStyles />
-      <style>{`
-        @keyframes pickerRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        .picker-card { animation: pickerRise 450ms cubic-bezier(0.22,1,0.36,1) both; transition: transform 140ms ease; }
-        .picker-card:active { transform: scale(0.982); }
-      `}</style>
 
       <div
         className="max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0 px-5"
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 14px)", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}
       >
-        <div
-          className={`shrink-0${pickingKey ? " picker-recede" : ""}${returningKey ? " come-top" : ""}`}
-        >
+        <div className="shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm" style={{ color: COLORS.inkSoft }}>
@@ -644,39 +544,15 @@ function AppPicker({ userName, onPick, onLogout, notifSlot, pickingKey, returnin
         {/* Ketiga kartu berbagi sisa tinggi layar secara merata, jadi selalu
             muat tanpa perlu digulir — berapa pun tinggi layar HP-nya. */}
         <div className="flex flex-col gap-3 flex-1 min-h-0" style={{ marginTop: 18 }}>
-          {cards.map((c, i) => {
+          {cards.map((c) => {
             const Icon = c.icon;
             return (
               <button
                 key={c.key}
                 data-card={c.key}
-                onClick={(e) => onPick(c.key, e.currentTarget.getBoundingClientRect(), c.cardBg, { title: c.title, subtitle: c.subtitle })}
-                className={[
-                  "relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end",
-                  !skipIntro && !returningKey ? "picker-card" : "",
-                  pickingKey ? "picker-recede" : "",
-                  // Saat kembali: kartu di atas kartu yang tadi dibuka datang
-                  // dari atas, yang di bawahnya datang dari bawah.
-                  returningKey && c.key !== returningKey
-                    ? (i < cards.findIndex((x) => x.key === returningKey) ? "come-top" : "come-bottom") + " card-return"
-                    : "",
-                  // Kartu tujuan ditahan sampai kartu terbang sampai di sini,
-                  // supaya tidak pernah terlihat dua kartu sekaligus.
-                  returningKey && c.key === returningKey ? "card-hold" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                style={{
-                  background: c.cardBg,
-                  borderRadius: 26,
-                  padding: 18,
-                  // Saat kembali, jedanya diatur lewat aturan .card-return
-                  // supaya urutannya sesuai rancangan.
-                  animationDelay: returningKey ? undefined : skipIntro ? undefined : `${50 + i * 70}ms`,
-                  // Kartu yang sedang dibuka disembunyikan karena tempatnya
-                  // diambil alih kartu terbang.
-                  opacity: pickingKey === c.key ? 0 : undefined,
-                }}
+                onClick={() => onPick(c.key)}
+                className="relative w-full flex-1 min-h-0 overflow-hidden text-left flex flex-col justify-end"
+                style={{ background: c.cardBg, borderRadius: 26, padding: 18 }}
               >
                 <span
                   className="absolute rounded-full pointer-events-none"
@@ -732,7 +608,7 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div
-      style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'Outfit', sans-serif" }}
+      style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: APP_FONT }}
       className="flex items-center justify-center px-4"
     >
       <SharedStyles />
@@ -743,7 +619,6 @@ function LoginScreen({ onLogin }) {
         }
         input:focus { outline: 2px solid ${COLORS.primary}; outline-offset: 1px; }
         ::placeholder { color: #A6A296; }
-        @keyframes eyePop { 0% { transform: scale(0.6); opacity: 0.3; } 100% { transform: scale(1); opacity: 1; } }
       `}</style>
       <div className="w-full sm:max-w-xs p-5 rounded-2xl" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
         <div className="flex flex-col items-center mb-6 mt-2">
@@ -794,10 +669,7 @@ function LoginScreen({ onLogin }) {
               className="absolute"
               style={{ right: 10, top: "50%", transform: "translateY(-50%)", padding: 4 }}
             >
-              <span
-                key={showPassword ? "open" : "closed"}
-                style={{ display: "inline-flex", animation: "eyePop 180ms ease-out" }}
-              >
+              <span style={{ display: "inline-flex" }}>
                 {showPassword ? (
                   <Eye size={16} color={COLORS.primary} />
                 ) : (
@@ -851,17 +723,13 @@ export default function App() {
   const [nameDraft, setNameDraft] = useState("");
   const [askName, setAskName] = useState(false);
   // Aplikasi yang sedang dibuka: null = belum pilih (tampilkan kartu pilihan),
-  // 'stok' = Stok Rumah, 'kas' = Kas Rumah.
+  // 'stok' = Stok Rumah, 'kas' = Kas Rumah, 'agenda' = Agenda Rumah.
   const [activeApp, setActiveApp] = useState(null);
   // Data Kas Rumah untuk notifikasi gabungan (baca saja).
   const [kasTx, setKasTx] = useState([]);
   const [kasCats, setKasCats] = useState([]);
   // Transaksi Kas yang harus disorot begitu aplikasi Kas Rumah dibuka.
   const [kasHighlightId, setKasHighlightId] = useState(null);
-  // Transisi kartu melebar: menyimpan posisi kartu terakhir yang disentuh
-  // supaya bisa mengerut pulang ke tempat yang sama.
-  const cardRectRef = useRef({});
-  const cleanupRef = useRef([]);
 
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'stock' | 'tobuy'
   const [stockSearch, setStockSearch] = useState("");
@@ -873,12 +741,11 @@ export default function App() {
   const [highlightTarget, setHighlightTarget] = useState(null); // { type, id }
 
   const TAB_ORDER = ["dashboard", "stock", "tobuy"];
-  // Arah masuknya isi halaman mengikuti arah perpindahan tab.
-  const [dir, setDir] = useState(1);
-  const changeView = (next) => {
-    setDir(TAB_ORDER.indexOf(next) > TAB_ORDER.indexOf(view) ? 1 : -1);
-    setView(next);
-  };
+  const changeView = (next) => setView(next);
+
+  // Buka / tutup aplikasi dari halaman awal. Transisinya menyusul di Fase 2.
+  const openApp = (key) => setActiveApp(key);
+  const closeApp = () => setActiveApp(null);
 
   // --- Geser kiri/kanan antar tab ---------------------------------------
   const [dragX, setDragX] = useState(0);
@@ -986,103 +853,6 @@ export default function App() {
     setHighlightTarget({ type: "stock", id: pendingEdit.itemId });
   };
 
-  // Kartu mana yang sedang dibuka — dipakai halaman awal untuk menyingkirkan
-  // kartu lainnya, dan untuk menentukan arah kedatangan saat kembali.
-  const [pickingKey, setPickingKey] = useState(null);
-  const [lastOpenedKey, setLastOpenedKey] = useState(null);
-  const [flight, setFlight] = useState(null);
-  // Halaman awal dipasang tak terlihat lebih dulu supaya kartunya bisa diukur.
-  const [measuring, setMeasuring] = useState(null);
-  const [veil, setVeil] = useState(null);
-  // Riak tinta yang melebar dari tombol tambah sebelum jendela naik.
-  const [ink, setInk] = useState(null);
-  const splashInk = (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    setInk({ left: r.left, top: r.top, color: COLORS.accent });
-    setTimeout(() => setInk(null), 800);
-  };
-
-  const todayLabelShort = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const greetingNow = (() => {
-    const h = new Date().getHours();
-    if (h < 10) return "Selamat pagi";
-    if (h < 15) return "Selamat siang";
-    if (h < 18) return "Selamat sore";
-    return "Selamat malam";
-  })();
-
-  const openAppWithMorph = (key, rect, color, card) => {
-    if (!rect) {
-      setActiveApp(key);
-      return;
-    }
-    cardRectRef.current[key] = { rect, color, card };
-    setPickingKey(key);
-    setFlight({
-      from: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-      to: heroTargetRect(),
-      color,
-      title: card.title,
-      subtitle: card.subtitle,
-      greeting: `${greetingNow}${userName ? `, ${userName}` : ""}`,
-      dateLabel: todayLabelShort,
-      back: false,
-    });
-    // Halaman tujuan dipasang sesaat setelahnya, supaya gerakan menyingkir
-    // halaman awal sempat terlihat dulu.
-    const t1 = setTimeout(() => setActiveApp(key), 120);
-    const t2 = setTimeout(() => {
-      setFlight(null);
-      setPickingKey(null);
-    }, MORPH_CLEANUP_MS);
-    cleanupRef.current = [t1, t2];
-  };
-
-  // Transisi kembali mengikuti aturan berkas rancangan: JANGAN menebak posisi
-  // kartu tujuan. Halaman awal dipasang dulu dalam keadaan tak terlihat,
-  // kartunya diukur pada saat commit, baru animasinya dimulai.
-  const closeAppWithMorph = () => {
-    if (!activeApp) return;
-    setMeasuring(activeApp);
-  };
-
-  useLayoutEffect(() => {
-    if (!measuring) return;
-    const el = document.querySelector(`[data-card="${measuring}"]`);
-    const saved = cardRectRef.current[measuring];
-    if (!el || !saved) {
-      setMeasuring(null);
-      setActiveApp(null);
-      return;
-    }
-    const r = el.getBoundingClientRect();
-    const { color, card } = saved;
-    setLastOpenedKey(measuring);
-    // Acuannya sama persis dengan arah maju: elemen digambar seukuran kartu
-    // atas, dan --dx/--dy/--sx/--sy menunjuk ke kartunya. Yang membedakan
-    // hanya arah gerakannya (lihat kelas .is-back).
-    setFlight({
-      from: { top: r.top, left: r.left, width: r.width, height: r.height },
-      to: heroTargetRect(),
-      color,
-      title: card.title,
-      subtitle: card.subtitle,
-      greeting: `${greetingNow}${userName ? `, ${userName}` : ""}`,
-      dateLabel: todayLabelShort,
-      back: true,
-    });
-    setVeil(color);
-    setMeasuring(null);
-    setActiveApp(null);
-    const t1 = setTimeout(() => setVeil(null), 560);
-    const t2 = setTimeout(() => setFlight(null), 720);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [measuring]);
-
   // Pintasan dari beranda & notifikasi: buka aplikasi yang tepat, arahkan ke
   // halamannya, lalu sorot item yang dimaksud.
   const goToStockItem = (item) => {
@@ -1179,7 +949,7 @@ export default function App() {
     />
   );
 
-  // Versi untuk dipasang di atas kartu hijau beranda.
+  // Versi untuk dipasang di atas kartu berwarna gelap.
   const notifBellOnDark = (
     <NotifBell
       count={unreadCount}
@@ -1191,7 +961,6 @@ export default function App() {
       onDark
     />
   );
-
 
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', item? }
   const [toBuyModal, setToBuyModal] = useState(null); // { mode: 'add'|'edit', entry? }
@@ -1207,18 +976,12 @@ export default function App() {
   const trackWrapRef = useRef(null);
 
   // Guard cadangan (defense-in-depth) untuk bug navigasi tab yang salah
-  // geser: kontainer carousel 4-halaman (digeser via CSS transform) TIDAK
-  // PERNAH boleh punya scroll horizontal sendiri — posisi horizontalnya
-  // 100% dikendalikan oleh transform. Perbaikan utamanya ada di
-  // `overflow: "clip"` pada style kontainer ini (lihat di bawah), yang
-  // mencegah browser diam-diam menggeser scrollLeft kontainer saat
-  // scrollIntoView() dipanggil pada item yang di-highlight (mis. loncat
-  // dari Beranda ke item tertentu di Stok/Beli/Agenda) — browser tidak tahu
-  // posisi sebenarnya sudah benar lewat transform, jadi dulu dia
-  // "mengoreksi" sesuatu yang sebenarnya tidak perlu dikoreksi, membuat
-  // halaman yang tampil jadi salah/geser (mis. malah nampilin halaman Beli
-  // padahal lagi di tab Stok). Listener ini cuma jaring pengaman tambahan
-  // kalau suatu saat ada penyebab lain yang menggeser scrollLeft-nya.
+  // geser: kontainer carousel (digeser via CSS transform) TIDAK PERNAH boleh
+  // punya scroll horizontal sendiri — posisi horizontalnya 100% dikendalikan
+  // oleh transform. Perbaikan utamanya ada di `overflow: "clip"` pada style
+  // kontainer ini, yang mencegah browser diam-diam menggeser scrollLeft
+  // kontainer saat scrollIntoView() dipanggil pada item yang di-highlight.
+  // Listener ini cuma jaring pengaman tambahan.
   useEffect(() => {
     const el = trackWrapRef.current;
     if (!el) return;
@@ -1227,32 +990,14 @@ export default function App() {
     };
     el.addEventListener("scroll", resetScroll, { passive: true });
     return () => el.removeEventListener("scroll", resetScroll);
-  }, []);
+  }, [activeApp]);
 
   // Cegah efek "karet"/tembus ala iOS (rubber-band bounce) saat list
   // discroll sampai mentok atas/bawah — TERMASUK saat app dibuka dari
-  // "Add to Home Screen" (mode standalone).
-  //
-  // Kenapa perlu terpisah dari fix sebelumnya: di Safari biasa (bukan
-  // standalone), toolbar Safari sendiri "menutupi" area status bar,
-  // jadi walau ada bug bouncing di situ, ketutup dan gak kelihatan. Begitu
-  // dibuka sebagai app standalone (tanpa toolbar Safari), area itu jadi
-  // polos milik app sepenuhnya — dan ternyata WebKit di mode standalone
-  // punya perilaku "bounce" sendiri di level SELURUH HALAMAN (bukan cuma
-  // di dalam list), yang tidak bisa dicegah hanya dengan menjaga area di
-  // dalam trackWrapRef saja. Makanya sekarang listener-nya dipasang di
-  // `document` (mencakup seluruh app, termasuk BottomNav & menu/riwayat
-  // yang render di luar trackWrapRef), dan sentuhan yang TIDAK sedang
-  // scroll list apa pun (mis. nyentuh area kosong/BottomNav) langsung
-  // dicegah juga — supaya WebKit gak sempat mengambil alih dan mem-bounce
-  // seluruh halaman.
-  //
-  // CSS overscroll-behavior saja ternyata tidak selalu cukup diandalkan
-  // (apalagi di mode standalone), dan event React (onTouchMove) otomatis
-  // "passive" sehingga preventDefault()-nya tidak selalu didengar browser
-  // — jadi dipasang listener sentuhan native (bukan lewat React) yang
-  // eksplisit non-passive. Ini tidak mengganggu swipe kiri/kanan pindah
-  // tab (itu sudah ditangani terpisah oleh handleTouchStart/Move/End).
+  // "Add to Home Screen" (mode standalone). Listener dipasang di `document`
+  // dan eksplisit non-passive supaya preventDefault()-nya didengar browser.
+  // Ini tidak mengganggu swipe kiri/kanan pindah tab (ditangani terpisah
+  // oleh handleTouchStart/Move/End).
   useEffect(() => {
     let startY = 0;
     let scrollTarget = null;
@@ -1277,9 +1022,7 @@ export default function App() {
     function onMove(e) {
       if (e.touches.length !== 1) return;
 
-      // Kalau ini bagian dari swipe geser kiri/kanan pindah tab (sudah
-      // dideteksi & ditangani terpisah oleh handleTouchMove/handleTouchEnd
-      // lewat dragModeRef), jangan diganggu sama sekali di sini.
+      // Bagian dari swipe geser kiri/kanan pindah tab — jangan diganggu.
       if (dragModeRef.current === "horizontal") return;
 
       // Tidak ada elemen yang bisa di-scroll di jalur sentuhan ini (mis.
@@ -1293,8 +1036,6 @@ export default function App() {
       const dy = e.touches[0].clientY - startY;
       const atTop = scrollTarget.scrollTop <= 0;
       const atBottom = scrollTarget.scrollTop + scrollTarget.clientHeight >= scrollTarget.scrollHeight - 1;
-      // dy > 0: jari geser ke bawah (menarik konten atas) — cegah kalau sudah mentok atas.
-      // dy < 0: jari geser ke atas (menarik konten bawah) — cegah kalau sudah mentok bawah.
       if ((dy > 0 && atTop) || (dy < 0 && atBottom)) {
         e.preventDefault();
       }
@@ -1322,10 +1063,9 @@ export default function App() {
     }
   }, []);
 
-  // Semua data toko disinkronkan real-time lewat Firestore: perubahan dari
+  // Semua data disinkronkan real-time lewat Firestore: perubahan dari
   // HP/perangkat lain akan langsung muncul di sini tanpa perlu refresh.
-  // Baru mulai sinkron setelah login berhasil (authUser terisi) — sebelum
-  // itu Firestore memang akan menolak aksesnya (lihat Security Rules).
+  // Baru mulai sinkron setelah login berhasil (authUser terisi).
   useEffect(() => {
     if (!authUser) return;
     let pending = 6;
@@ -1813,7 +1553,7 @@ export default function App() {
     return "Selamat malam";
   }, []);
 
-  // Preview list untuk kartu Beranda: maksimal 5 baris, sisanya lewat "Lihat semua"
+  // Preview list untuk kartu Beranda: maksimal 3 baris, sisanya lewat "Lihat semua"
   const stockPreview = useMemo(() => {
     const statusOrder = { out: 0, low: 1 };
     const needAttention = items
@@ -1874,7 +1614,8 @@ export default function App() {
   // Belum isi nama — tanya dulu sebelum masuk ke pemilihan aplikasi.
   if (askName) {
     return (
-      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif" }}>
+      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: APP_FONT }}>
+        <SharedStyles />
         <Overlay onClose={() => userName && setAskName(false)}>
           <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 20, color: COLORS.primary }} className="mb-1">
             Siapa kamu?
@@ -1901,49 +1642,26 @@ export default function App() {
 
   // Sudah login & sudah punya nama — pilih mau buka aplikasi yang mana.
   if (!activeApp) {
-    return (
-      <>
-        <AppPicker
-          userName={userName}
-          onPick={openAppWithMorph}
-          onLogout={logout}
-          notifSlot={notifBell}
-          pickingKey={pickingKey}
-          returningKey={flight && flight.back ? lastOpenedKey : null}
-        />
-        {flight && <CardFlyer flight={flight} />}
-      {ink && <span className="fab-ink" style={{ left: ink.left, top: ink.top, background: ink.color }} />}
-      {/* Halaman awal dipasang tak terlihat supaya kartunya bisa diukur. */}
-      {measuring && (
-        <div className="fixed inset-0" style={{ opacity: 0, pointerEvents: "none", zIndex: 1 }} aria-hidden="true">
-          <AppPicker userName={userName} onPick={() => {}} onLogout={() => {}} notifSlot={null} />
-        </div>
-      )}
-      {veil && <div className="veil" style={{ background: veil }} />}
-      </>
-    );
+    return <AppPicker userName={userName} onPick={openApp} onLogout={logout} notifSlot={notifBell} />;
   }
 
   if (activeApp === "kas") {
     return (
-      <>
       <KasRumahApp
         userName={userName}
-        onBackToPicker={closeAppWithMorph}
-        onSwitchApp={closeAppWithMorph}
+        onBackToPicker={closeApp}
+        onSwitchApp={closeApp}
         onLogout={logout}
         notifSlot={notifBell}
         notifSlotDark={notifBellOnDark}
         initialHighlightId={kasHighlightId}
         onInitialHighlightDone={() => setKasHighlightId(null)}
       />
-      {flight && <CardFlyer flight={flight} />}
-      </>
     );
   }
 
   return (
-    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: "'Outfit', sans-serif" }}>
+    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.ink, fontFamily: APP_FONT }}>
       <SharedStyles />
       <style>{`
         html, body {
@@ -1956,7 +1674,7 @@ export default function App() {
       <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleFileSelected} />
 
       {activeApp === "agenda" ? (
-        <div className="fixed left-0 right-0 fx-page" style={{ top: 0, bottom: 0 }}>
+        <div className="fixed left-0 right-0" style={{ top: 0, bottom: 0 }}>
           <AgendaPage
             tasks={tasks}
             dueThreshold={dueThreshold}
@@ -1964,7 +1682,7 @@ export default function App() {
             setSearch={setAgendaSearch}
             filter={agendaFilter}
             setFilter={setAgendaFilter}
-            onBack={() => setActiveApp(null)}
+            onBack={closeApp}
             onAddTask={() => setTaskModal({ mode: "add" })}
             onEditTask={(task) => setTaskModal({ mode: "edit", task })}
             onDeleteTask={(task) => setConfirmDelete({ type: "task", id: task.id, label: task.title })}
@@ -1972,7 +1690,7 @@ export default function App() {
             onOpenThreshold={() => setThresholdModal(true)}
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
-            onSwitchApp={closeAppWithMorph}
+            onSwitchApp={closeApp}
             notifSlot={notifBellOnDark}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "agenda" ? highlightTarget.id : null}
@@ -1982,7 +1700,7 @@ export default function App() {
       ) : (
       <div
         ref={trackWrapRef}
-        className="fixed left-0 right-0 overflow-hidden fx-page"
+        className="fixed left-0 right-0 overflow-hidden"
         style={{ top: 0, bottom: 0, overflow: "clip" }}
       >
         <div
@@ -1990,7 +1708,6 @@ export default function App() {
           style={{
             width: "300vw",
             transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
-            transition: isDragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
@@ -2001,10 +1718,9 @@ export default function App() {
             <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
               <div>
                 {/* Kartu sambutan menempel penuh ke tepi layar dengan tinggi
-                    dikunci — bentuk yang sama persis dengan kartu terbang,
-                    supaya serah terimanya tidak berkedip. */}
+                    dikunci. */}
                 <div
-                  className="hero-hold relative flex flex-col justify-between"
+                  className="relative flex flex-col justify-between"
                   style={{
                     background: COLORS.navy,
                     borderRadius: "0 0 30px 30px",
@@ -2053,10 +1769,10 @@ export default function App() {
                         Rumah
                       </h1>
                     </div>
-                    <div className="hero-actions flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       {view === "dashboard" ? notifBellOnDark : null}
                       <button
-                        onClick={() => attemptNavigate(closeAppWithMorph)}
+                        onClick={() => attemptNavigate(closeApp)}
                         className="w-10 h-10 rounded-full flex items-center justify-center"
                         style={{ background: "rgba(255,255,255,0.14)" }}
                         title="Ganti aplikasi"
@@ -2137,7 +1853,7 @@ export default function App() {
                     ? `${stockPreview.total} barang perlu diperhatikan`
                     : stockCounts.total === 0
                     ? "Belum ada item"
-                    : "Semua aman \u2713"
+                    : "Semua aman ✓"
                 }
                 badge={stockPreview.total}
                 badgeColor={stockCounts.out > 0 ? COLORS.out : COLORS.low}
@@ -2168,7 +1884,7 @@ export default function App() {
                     ? `${toBuyPreview.total} barang dalam daftar`
                     : toBuyCounts.total === 0
                     ? "Belum ada yang perlu dibeli"
-                    : "Semua sudah dibeli \ud83c\udf89"
+                    : "Semua sudah dibeli 🎉"
                 }
                 badge={toBuyPreview.total}
                 badgeColor={COLORS.low}
@@ -2245,7 +1961,7 @@ export default function App() {
             onBlockedAttempt={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
             userName={userName}
             onOpenUserMenu={() => attemptNavigate(() => setShowUserMenu(true))}
-            onSwitchApp={() => attemptNavigate(closeAppWithMorph)}
+            onSwitchApp={() => attemptNavigate(closeApp)}
             notifSlot={view === "stock" ? notifBell : null}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
@@ -2267,7 +1983,7 @@ export default function App() {
             onToggle={handleToggleBought}
             userName={userName}
             onOpenUserMenu={() => setShowUserMenu(true)}
-            onSwitchApp={closeAppWithMorph}
+            onSwitchApp={closeApp}
             notifSlot={view === "tobuy" ? notifBell : null}
             onRefresh={loadAll}
             highlightId={highlightTarget?.type === "tobuy" ? highlightTarget.id : null}
@@ -2280,190 +1996,202 @@ export default function App() {
       )}
 
       {activeApp !== "agenda" && (
-        <BottomNav
-          view={view}
-          setView={(v) => attemptNavigate(() => changeView(v))}
+        <NavBar
+          tabs={STOK_TABS}
+          active={view}
+          onChange={(v) => attemptNavigate(() => changeView(v))}
           showAdd={view === "stock" || view === "tobuy"}
-          onAdd={(e) => {
-            splashInk(e);
+          onAdd={() =>
             attemptNavigate(() => {
               if (view === "stock") setModal({ mode: "add" });
               else setToBuyModal({ mode: "add" });
-            });
-          }}
+            })
+          }
+          color={COLORS.navy}
+          accent={COLORS.accent}
+          shadowRgb="38,49,77"
         />
       )}
 
-      {/* Item add/edit modal */}
-      {modal && (
-        <ItemFormModal
-          mode={modal.mode}
-          item={modal.item}
-          saving={saving}
-          onClose={() => setModal(null)}
-          onSubmit={(data) => (modal.mode === "add" ? handleAdd(data) : handleEdit(modal.item.id, data))}
-        />
-      )}
+      {/* Setiap jendela dibungkus AnimatePresence supaya animasi keluarnya
+          tetap diputar walau state-nya sudah dikosongkan. */}
+      <AnimatePresence>
+        {modal && (
+          <ItemFormModal
+            key="item-form"
+            mode={modal.mode}
+            item={modal.item}
+            saving={saving}
+            onClose={() => setModal(null)}
+            onSubmit={(data) => (modal.mode === "add" ? handleAdd(data) : handleEdit(modal.item.id, data))}
+          />
+        )}
+      </AnimatePresence>
 
-      {/* Generic delete confirm */}
-      {confirmDelete && (
-        <Overlay onClose={() => setConfirmDelete(null)}>
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
-              Hapus {confirmDelete.type === "item" ? "item" : confirmDelete.type === "tobuy" ? "item beli" : "tugas"}?
+      <AnimatePresence>
+        {confirmDelete && (
+          <Overlay key="confirm-delete" onClose={() => setConfirmDelete(null)}>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={18} color={COLORS.out} />
+              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+                Hapus {confirmDelete.type === "item" ? "item" : confirmDelete.type === "tobuy" ? "item beli" : "tugas"}?
+              </div>
             </div>
-          </div>
-          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
-            "{confirmDelete.label}" akan dihapus
-            {confirmDelete.type === "item" ? " dari daftar stok." : confirmDelete.type === "tobuy" ? " dari daftar akan dibeli." : " dari agenda."}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setConfirmDelete(null)}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium"
-              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-            >
-              Batal
-            </button>
-            <button onClick={handleConfirmedDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.out }}>
-              Hapus
-            </button>
-          </div>
-        </Overlay>
-      )}
+            <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+              "{confirmDelete.label}" akan dihapus
+              {confirmDelete.type === "item" ? " dari daftar stok." : confirmDelete.type === "tobuy" ? " dari daftar akan dibeli." : " dari agenda."}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium"
+                style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+              >
+                Batal
+              </button>
+              <button onClick={handleConfirmedDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.out }}>
+                Hapus
+              </button>
+            </div>
+          </Overlay>
+        )}
+      </AnimatePresence>
 
       {/* Peringatan: ada perubahan qty/level yang belum ditekan centang */}
-      {blockedNotice && (
-        <Overlay onClose={handleBlockedNoticeOk}>
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} color={COLORS.low} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
-              Perubahan belum disetujui
+      <AnimatePresence>
+        {blockedNotice && (
+          <Overlay key="blocked-notice" onClose={handleBlockedNoticeOk}>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={18} color={COLORS.low} />
+              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+                Perubahan belum disetujui
+              </div>
             </div>
-          </div>
-          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
-            Kamu belum menyetujui perubahan pada "{blockedNotice}". Tekan centang pada item itu dulu, atau kembalikan ke nilai semula.
-          </p>
-          <button onClick={handleBlockedNoticeOk} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
-            OK
-          </button>
-        </Overlay>
-      )}
-
-      {/* History panel */}
-      {showHistory && <HistoryPanel activity={fullActivityFeed} onClose={() => setShowHistory(false)} />}
-
-      {flight && <CardFlyer flight={flight} />}
-      {/* Halaman awal dipasang tak terlihat supaya kartunya bisa diukur. */}
-      {measuring && (
-        <div className="fixed inset-0" style={{ opacity: 0, pointerEvents: "none", zIndex: 1 }} aria-hidden="true">
-          <AppPicker userName={userName} onPick={() => {}} onLogout={() => {}} notifSlot={null} />
-        </div>
-      )}
-      {veil && <div className="veil" style={{ background: veil }} />}
-
-      {/* User menu drawer */}
-      {showUserMenu && (
-        <UserMenuPanel
-          userName={userName}
-          userEmail={authUser ? authUser.email : ""}
-          onClose={() => setShowUserMenu(false)}
-          onChangeName={() => setAskName(true)}
-          onOpenHistory={() => setShowHistory(true)}
-          onBackup={handleBackupDownload}
-          onRestore={triggerRestorePicker}
-          onSwitchApp={closeAppWithMorph}
-          onOpenThreshold={() => setThresholdModal(true)}
-          dueThreshold={dueThreshold}
-          onLogout={logout}
-        />
-      )}
-
-      {/* Akan Dibeli add/edit modal */}
-      {toBuyModal && (
-        <ToBuyFormModal
-          mode={toBuyModal.mode}
-          entry={toBuyModal.entry}
-          places={places}
-          onAddPlace={addCustomPlace}
-          onDeletePlace={deleteCustomPlace}
-          onClose={() => setToBuyModal(null)}
-          onSubmit={(data) => (toBuyModal.mode === "add" ? handleAddManualToBuy(data) : handleEditToBuyEntry(toBuyModal.entry.id, data))}
-        />
-      )}
-
-      {/* Agenda task add/edit modal */}
-      {taskModal && (
-        <TaskFormModal
-          mode={taskModal.mode}
-          task={taskModal.task}
-          onClose={() => setTaskModal(null)}
-          onSubmit={(data) => (taskModal.mode === "add" ? handleAddTask(data) : handleEditTask(taskModal.task.id, data))}
-        />
-      )}
-
-      {/* Threshold settings modal */}
-      {thresholdModal && (
-        <ThresholdModal
-          current={dueThreshold}
-          onClose={() => setThresholdModal(false)}
-          onSubmit={(n) => {
-            persistThreshold(n);
-            setThresholdModal(false);
-          }}
-        />
-      )}
-
-      {/* Restore confirm */}
-      {pendingRestore && (
-        <Overlay onClose={() => setPendingRestore(null)}>
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
-              Pulihkan dari backup?
-            </div>
-          </div>
-          <p className="text-sm mb-2" style={{ color: COLORS.inkSoft }}>
-            Ini akan menimpa semua data yang ada sekarang dengan isi file backup:
-          </p>
-          <ul className="text-sm mb-4 list-disc pl-4" style={{ color: COLORS.ink }}>
-            <li>{(pendingRestore["stock-items"] || []).length} item stok</li>
-            <li>{(pendingRestore["stock-tobuy"] || []).length} item akan dibeli</li>
-            <li>{(pendingRestore["agenda-tasks"] || []).length} tugas agenda</li>
-          </ul>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPendingRestore(null)}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium"
-              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-            >
-              Batal
+            <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+              Kamu belum menyetujui perubahan pada "{blockedNotice}". Tekan centang pada item itu dulu, atau kembalikan ke nilai semula.
+            </p>
+            <button onClick={handleBlockedNoticeOk} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
+              OK
             </button>
-            <button onClick={handleConfirmRestore} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
-              Pulihkan
-            </button>
-          </div>
-        </Overlay>
-      )}
+          </Overlay>
+        )}
+      </AnimatePresence>
 
-      {/* Restore error */}
-      {restoreError && (
-        <Overlay onClose={() => setRestoreError("")}>
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
-              Gagal memulihkan
+      <AnimatePresence>
+        {showHistory && <HistoryPanel key="history" activity={fullActivityFeed} onClose={() => setShowHistory(false)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showUserMenu && (
+          <UserMenuPanel
+            key="user-menu"
+            userName={userName}
+            userEmail={authUser ? authUser.email : ""}
+            onClose={() => setShowUserMenu(false)}
+            onChangeName={() => setAskName(true)}
+            onOpenHistory={() => setShowHistory(true)}
+            onBackup={handleBackupDownload}
+            onRestore={triggerRestorePicker}
+            onSwitchApp={closeApp}
+            onOpenThreshold={() => setThresholdModal(true)}
+            dueThreshold={dueThreshold}
+            onLogout={logout}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {toBuyModal && (
+          <ToBuyFormModal
+            key="tobuy-form"
+            mode={toBuyModal.mode}
+            entry={toBuyModal.entry}
+            places={places}
+            onAddPlace={addCustomPlace}
+            onDeletePlace={deleteCustomPlace}
+            onClose={() => setToBuyModal(null)}
+            onSubmit={(data) => (toBuyModal.mode === "add" ? handleAddManualToBuy(data) : handleEditToBuyEntry(toBuyModal.entry.id, data))}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {taskModal && (
+          <TaskFormModal
+            key="task-form"
+            mode={taskModal.mode}
+            task={taskModal.task}
+            onClose={() => setTaskModal(null)}
+            onSubmit={(data) => (taskModal.mode === "add" ? handleAddTask(data) : handleEditTask(taskModal.task.id, data))}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {thresholdModal && (
+          <ThresholdModal
+            key="threshold"
+            current={dueThreshold}
+            onClose={() => setThresholdModal(false)}
+            onSubmit={(n) => {
+              persistThreshold(n);
+              setThresholdModal(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingRestore && (
+          <Overlay key="restore" onClose={() => setPendingRestore(null)}>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={18} color={COLORS.out} />
+              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+                Pulihkan dari backup?
+              </div>
             </div>
-          </div>
-          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
-            {restoreError}
-          </p>
-          <button onClick={() => setRestoreError("")} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
-            Oke
-          </button>
-        </Overlay>
-      )}
+            <p className="text-sm mb-2" style={{ color: COLORS.inkSoft }}>
+              Ini akan menimpa semua data yang ada sekarang dengan isi file backup:
+            </p>
+            <ul className="text-sm mb-4 list-disc pl-4" style={{ color: COLORS.ink }}>
+              <li>{(pendingRestore["stock-items"] || []).length} item stok</li>
+              <li>{(pendingRestore["stock-tobuy"] || []).length} item akan dibeli</li>
+              <li>{(pendingRestore["agenda-tasks"] || []).length} tugas agenda</li>
+            </ul>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingRestore(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium"
+                style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+              >
+                Batal
+              </button>
+              <button onClick={handleConfirmRestore} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
+                Pulihkan
+              </button>
+            </div>
+          </Overlay>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {restoreError && (
+          <Overlay key="restore-error" onClose={() => setRestoreError("")}>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={18} color={COLORS.out} />
+              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>
+                Gagal memulihkan
+              </div>
+            </div>
+            <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+              {restoreError}
+            </p>
+            <button onClick={() => setRestoreError("")} className="w-full py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.primary }}>
+              Oke
+            </button>
+          </Overlay>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -2487,13 +2215,9 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
     };
   }, [open, onClose]);
 
-  // Hitung sisa ruang di layar dari POSISI ASLI tombol lonceng (bukan cuma
-  // asumsi jarak tetap). Ini juga yang bikin lebar panel sebelumnya mepet ke
-  // kiri: panel digantung dari sisi kanan tombol lonceng, tapi tombol itu
-  // sendiri bukan elemen paling kanan di layar (ada tombol menu di sebelahnya),
-  // jadi lebar tetap 340px kepanjangan ke kiri. Sekarang lebar & tinggi
-  // dihitung dari posisi asli tombol, dipasang sebagai angka piksel pasti
-  // (bukan %/vw), biar selalu pas & tetap bisa discroll di iPhone maupun Android.
+  // Hitung sisa ruang di layar dari POSISI ASLI tombol lonceng, lalu pasang
+  // lebar & tinggi panel sebagai angka piksel pasti supaya selalu pas dan
+  // tetap bisa digulir di iPhone maupun Android.
   useEffect(() => {
     if (!open) return;
     function recompute() {
@@ -2549,7 +2273,6 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
         <Bell size={onDark ? 19 : 16} color={onDark ? "#fff" : COLORS.ink} />
         {count > 0 && (
           <span
-            key={count}
             className="absolute flex items-center justify-center font-semibold text-white"
             style={{
               top: -2,
@@ -2560,7 +2283,6 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
               borderRadius: 999,
               background: COLORS.out,
               fontSize: 10,
-              animation: "notifBadgePop 220ms ease-out",
             }}
           >
             {count > 9 ? "9+" : count}
@@ -2577,7 +2299,6 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
             zIndex: 60,
             width: panelWidth,
             filter: "drop-shadow(0 16px 30px rgba(43,42,37,0.20)) drop-shadow(0 2px 6px rgba(43,42,37,0.10))",
-            animation: "notifPop 180ms ease-out",
           }}
         >
           {/* Panah penunjuk: bentuknya menyatu dengan kartu (bayangan gabungan
@@ -2683,79 +2404,52 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
 }
 
 function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onSwitchApp, onOpenThreshold, dueThreshold, onLogout }) {
-  const [entered, setEntered] = useState(false);
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setEntered(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  const handleClose = () => {
-    setEntered(false);
-    setTimeout(onClose, 220);
-  };
-
+  // Drawer ditutup dulu (animasi keluarnya jalan sendiri), lalu aksinya
+  // langsung dijalankan — tidak perlu menunggu dengan setTimeout.
   const runAndClose = (action) => {
+    onClose();
     action();
-    handleClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className="absolute inset-0"
-        style={{ background: "rgba(43,42,37,0.45)", opacity: entered ? 1 : 0, transition: "opacity 220ms ease-out" }}
-        onClick={handleClose}
-      />
-      <div
-        className="drawer-panel relative w-full sm:max-w-xs h-full overflow-y-auto p-5"
-        style={{
-          background: COLORS.bg,
-          paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)",
-          transform: `translateX(${entered ? "0" : "100%"})`,
-          transition: "transform 260ms ease-out",
-          overscrollBehaviorY: "contain",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-6 pt-1">
-          <div className="flex items-center gap-3">
-            <span
-              className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0"
-              style={{ background: COLORS.primary }}
-            >
-              {userName ? userName.charAt(0).toUpperCase() : "?"}
-            </span>
-            <div>
-              <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
-              <div className="text-xs" style={{ color: COLORS.inkSoft }}>{userEmail || "Frinirvan Tracker"}</div>
-            </div>
+    <Drawer onClose={onClose} background={COLORS.bg} font={APP_FONT} color={COLORS.ink} narrow>
+      <div className="flex items-center justify-between mb-6 pt-1">
+        <div className="flex items-center gap-3">
+          <span
+            className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0"
+            style={{ background: COLORS.primary }}
+          >
+            {userName ? userName.charAt(0).toUpperCase() : "?"}
+          </span>
+          <div>
+            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>{userName || "Belum diisi"}</div>
+            <div className="text-xs" style={{ color: COLORS.inkSoft }}>{userEmail || "Frinirvan Tracker"}</div>
           </div>
-          <button onClick={handleClose}>
-            <X size={18} color={COLORS.inkSoft} />
-          </button>
         </div>
-
-        <div className="rounded-2xl overflow-hidden drawer-rows" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <UserMenuItem icon={User} label="Ganti Nama" onClick={() => runAndClose(onChangeName)} />
-          {onOpenThreshold && (
-            <UserMenuItem
-              icon={SlidersHorizontal}
-              label={`Atur Pengingat (H-${dueThreshold})`}
-              onClick={() => runAndClose(onOpenThreshold)}
-            />
-          )}
-          <UserMenuItem icon={History} label="Riwayat" onClick={() => runAndClose(onOpenHistory)} />
-          <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
-          <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
-        </div>
-
-        <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <UserMenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
-          <UserMenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
-        </div>
+        <button onClick={onClose}>
+          <X size={18} color={COLORS.inkSoft} />
+        </button>
       </div>
-    </div>
+
+      <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <UserMenuItem icon={User} label="Ganti Nama" onClick={() => runAndClose(onChangeName)} />
+        {onOpenThreshold && (
+          <UserMenuItem
+            icon={SlidersHorizontal}
+            label={`Atur Pengingat (H-${dueThreshold})`}
+            onClick={() => runAndClose(onOpenThreshold)}
+          />
+        )}
+        <UserMenuItem icon={History} label="Riwayat" onClick={() => runAndClose(onOpenHistory)} />
+        <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
+        <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
+      </div>
+
+      <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <UserMenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
+        <UserMenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
+      </div>
+    </Drawer>
   );
 }
 
@@ -2773,7 +2467,7 @@ function UserMenuItem({ icon: Icon, label, onClick, last, danger }) {
   );
 }
 
-function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, userName, onOpenUserMenu, onSwitchApp, notifSlot }) {
+function TopBar({ title, subtitle, icon: Icon, iconBg, iconFg, onBack, rightSlot, onOpenUserMenu, onSwitchApp, notifSlot }) {
   return (
     <div className="pt-8 pb-5 flex items-start justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -2916,7 +2610,7 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
         </span>
         {detailParts.length > 0 && (
           <span className="mt-0.5" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-            {detailParts.join(" \u00b7 ")}
+            {detailParts.join(" · ")}
           </span>
         )}
       </button>
@@ -2946,69 +2640,6 @@ function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
           {deadlineLabel(task)}
         </span>
       </button>
-    </div>
-  );
-}
-
-// Navigasi bawah berbentuk kapsul hijau melayang. Tab yang sedang aktif
-// ditandai kapsul putih berisi ikon dan namanya, sisanya cuma ikon.
-// Tombol tambah menyatu di ujung kanan, bukan melayang terpisah.
-function BottomNav({ view, setView, onAdd, showAdd }) {
-  const tabs = [
-    { key: "dashboard", label: "Beranda", icon: Home },
-    { key: "stock", label: "Stok", icon: Package },
-    { key: "tobuy", label: "Beli", icon: ShoppingCart },
-  ];
-  return (
-    <div
-      className="fixed left-0 right-0 z-40 flex justify-center px-4 pointer-events-none"
-      style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
-    >
-      <div
-        className="flex items-center gap-1.5 pointer-events-auto"
-        style={{ background: COLORS.navy, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(38,49,77,0.30)" }}
-      >
-        {tabs.map((t) => {
-          const active = view === t.key;
-          const Icon = t.icon;
-          if (active) {
-            return (
-              <div
-                key={t.key}
-                className="flex items-center gap-2"
-                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: COLORS.navy }}
-              >
-                <Icon size={20} />
-                <span className="font-semibold" style={{ fontSize: 13 }}>
-                  {t.label}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={t.key}
-              onClick={() => setView(t.key)}
-              className="flex items-center justify-center"
-              style={{ width: 44, height: 42 }}
-              title={t.label}
-            >
-              <Icon size={20} color="rgba(255,255,255,0.8)" />
-            </button>
-          );
-        })}
-
-        {showAdd && (
-          <button
-            onClick={onAdd}
-            className="flex items-center justify-center shrink-0"
-            style={{ width: 42, height: 42, borderRadius: 999, background: COLORS.accent, color: "#fff" }}
-            title="Tambah"
-          >
-            <Plus size={22} />
-          </button>
-        )}
-      </div>
     </div>
   );
 }
@@ -3045,127 +2676,14 @@ function HomeStat({ icon: Icon, value, label, bg, fg, textColor, onClick }) {
   );
 }
 
-function Chip({ label, tone }) {
-  const meta = CHIP_META[tone] || CHIP_META.neutral;
-  return (
-    <span className="text-[11px] font-semibold px-2 py-1 rounded-full" style={{ background: meta.bg, color: meta.fg }}>
-      {label}
-    </span>
-  );
-}
-
-// Kartu filter di halaman Stok — angka besar berwarna sesuai maknanya,
-// label abu-abu di bawahnya. Yang sedang dipilih jadi navy penuh.
-// Tombol simpan berfase: label, lalu pemintal saat menyimpan, lalu centang
-// sesaat sebelum jendelanya turun.
-function SaveButton({ saving, done, label = "Simpan", onClick, style }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={saving || done}
-      className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white flex items-center justify-center gap-2"
-      style={{ background: COLORS.primary, opacity: saving ? 0.85 : 1, ...style }}
-    >
-      {done ? (
-        <>
-          <Check size={16} /> Tersimpan
-        </>
-      ) : saving ? (
-        <>
-          <Loader2 size={16} className="spin" /> Menyimpan
-        </>
-      ) : (
-        label
-      )}
-    </button>
-  );
-}
-
-function FilterTile({ label, value, color, active, onClick }) {
-  return (
-    <button
-      onClick={(e) => {
-        // Warna mengembang dari titik yang disentuh, bukan berganti mendadak.
-        const r = e.currentTarget.getBoundingClientRect();
-        e.currentTarget.style.setProperty("--ox", `${e.clientX - r.left}px`);
-        e.currentTarget.style.setProperty("--oy", `${e.clientY - r.top}px`);
-        onClick();
-      }}
-      className="min-w-0 text-left"
-      style={{
-        position: "relative",
-        overflow: "hidden",
-        background: COLORS.card,
-        borderRadius: 18,
-        padding: "13px 12px 12px",
-        boxShadow: active ? "0 4px 12px rgba(38,49,77,0.22)" : "0 2px 8px rgba(38,49,77,0.05)",
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: COLORS.navy,
-          borderRadius: 18,
-          transformOrigin: "var(--ox, 50%) var(--oy, 50%)",
-          transform: active ? "scale(1)" : "scale(0)",
-          transition: "transform 560ms var(--ease-lux)",
-        }}
-      />
-      <div
-        className="tile-swap relative"
-        style={{
-          fontFamily: "'Baloo 2', cursive",
-          fontWeight: 700,
-          fontSize: 24,
-          lineHeight: "26px",
-          color: active ? "#fff" : color,
-        }}
-      >
-        {value}
-      </div>
-      <div className="tile-swap relative truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : COLORS.inkSoft }}>
-        {label}
-      </div>
-    </button>
-  );
-}
-
-function SummaryCard({ icon: Icon, label, value, color, active, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="rounded-xl p-2.5 text-left flex flex-col gap-1.5 transition-shadow"
-      style={{
-        background: active ? color : COLORS.card,
-        border: `1.5px solid ${active ? color : COLORS.border}`,
-        boxShadow: active ? `0 3px 10px ${color}40` : "none",
-      }}
-    >
-      {Icon && (
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center"
-          style={{ background: active ? "rgba(255,255,255,0.22)" : `${color}1F` }}
-        >
-          <Icon size={13} color={active ? "#fff" : color} />
-        </div>
-      )}
-      <div>
-        <div className="font-bold" style={{ fontSize: 16, color: active ? "#fff" : COLORS.ink }}>
-          {value}
-        </div>
-        <div className="leading-tight mt-0.5" style={{ fontSize: 11, color: active ? "rgba(255,255,255,0.85)" : COLORS.inkSoft }}>
-          {label}
-        </div>
-      </div>
-    </button>
-  );
+// Kartu filter Stok & Akan Dibeli — komponen bersama dengan warna navy.
+function FilterTile(props) {
+  return <Tile activeBg={COLORS.navy} inkSoft={COLORS.inkSoft} shadowRgb="38,49,77" {...props} />;
 }
 
 /* ---------------- Stock page ---------------- */
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd, onEditItem, onDeleteItem, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onBlockedAttempt, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -3217,7 +2735,6 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
         <TopBar
           title="Stok Rumah"
           onBack={onBack}
-          userName={userName}
           onOpenUserMenu={onOpenUserMenu}
           onSwitchApp={onSwitchApp}
           notifSlot={notifSlot}
@@ -3286,12 +2803,6 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onAdd,
 }
 
 function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConfirmPending, onEdit, onDelete, highlighted }) {
-  // Angka bergulir naik saat ditambah, turun saat dikurangi.
-  const [roll, setRoll] = useState({ dir: 0, n: 0 });
-  const bump = (d) => {
-    setRoll((r) => ({ dir: d, n: r.n + 1 }));
-    onAdjust(d);
-  };
   const status = statusOf(item);
   const meta = STATUS_META[status];
   const isLevel = item.type === "level";
@@ -3301,12 +2812,12 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
   return (
     <div
       id={`stock-item-${item.id}`}
-      className={`rounded-2xl overflow-hidden flex ${highlighted ? "highlight-blink" : ""}`}
+      className="rounded-2xl overflow-hidden flex"
       style={{
         background: COLORS.card,
         border: `1px solid ${isPending ? COLORS.low : COLORS.border}`,
         opacity: blocked ? 0.55 : 1,
-        transition: "border-color 160ms ease, opacity 160ms ease",
+        boxShadow: highlighted ? HIGHLIGHT_RING : undefined,
       }}
     >
       <div style={{ width: 4, background: isPending ? COLORS.low : meta.fg }} />
@@ -3359,19 +2870,14 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
             ) : (
               <div className="flex items-center gap-2.5">
                 <button
-                  key={`m${roll.n}`}
-                  onClick={() => bump(-1)}
-                  className="tap-ring w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                  onClick={() => onAdjust(-1)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{ border: `1.5px solid ${COLORS.border}` }}
                 >
                   <Minus size={13} color={COLORS.ink} />
                 </button>
-                <div className="text-center overflow-hidden" style={{ minWidth: 48 }}>
-                  <span
-                    key={roll.n}
-                    className={roll.dir > 0 ? "roll-up" : roll.dir < 0 ? "roll-down" : ""}
-                    style={{ display: "inline-block", fontWeight: 700, fontSize: 15, color: isPending ? COLORS.low : COLORS.ink }}
-                  >
+                <div className="text-center" style={{ minWidth: 48 }}>
+                  <span style={{ display: "inline-block", fontWeight: 700, fontSize: 15, color: isPending ? COLORS.low : COLORS.ink }}>
                     {displayQty}
                   </span>
                   <span className="ml-1" style={{ color: COLORS.inkSoft, fontSize: 11 }}>
@@ -3379,9 +2885,8 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
                   </span>
                 </div>
                 <button
-                  key={`p${roll.n}`}
-                  onClick={() => bump(1)}
-                  className="tap-ring w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                  onClick={() => onAdjust(1)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{ border: `1.5px solid ${COLORS.border}` }}
                 >
                   <Plus size={13} color={COLORS.ink} />
@@ -3393,7 +2898,7 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
           {isPending && (
             <button
               onClick={onConfirmPending}
-              className="confirm-slide-in w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white"
+              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white"
               style={{ background: COLORS.safe, boxShadow: "0 3px 10px rgba(107,143,113,0.4)" }}
               title="Setujui perubahan"
             >
@@ -3610,7 +3115,7 @@ function ItemFormModal({ mode, item, saving, onClose, onSubmit }) {
 
 /* ---------------- Akan Dibeli page ---------------- */
 
-function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddManual, onEditEntry, onDeleteEntry, onToggle, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
+function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onEditEntry, onDeleteEntry, onToggle, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
   const pendingCount = toBuy.filter((e) => !e.bought).length;
   const boughtCount = toBuy.filter((e) => e.bought).length;
 
@@ -3641,7 +3146,6 @@ function ToBuyPage({ toBuy, search, setSearch, filter, setFilter, onBack, onAddM
         <TopBar
           title="Akan Dibeli"
           onBack={onBack}
-          userName={userName}
           onOpenUserMenu={onOpenUserMenu}
           onSwitchApp={onSwitchApp}
           notifSlot={notifSlot}
@@ -3698,8 +3202,8 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
   return (
     <div
       id={`tobuy-item-${entry.id}`}
-      className={`rounded-2xl p-3 ${highlighted ? "highlight-blink" : ""}`}
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+      className="rounded-2xl p-3"
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: highlighted ? HIGHLIGHT_RING : undefined }}
     >
       <div className="flex items-start gap-2.5">
         <button
@@ -3728,7 +3232,7 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
             )}
             {detailParts.length > 0 && (
               <span style={{ color: COLORS.inkSoft, fontSize: 11 }}>
-                {detailParts.join(" \u00b7 ")}
+                {detailParts.join(" · ")}
               </span>
             )}
           </div>
@@ -3746,7 +3250,7 @@ function ToBuyRow({ entry, onToggle, onEdit, onDelete, highlighted }) {
           <div className="leading-tight" style={{ color: entry.bought ? COLORS.safe : COLORS.inkSoft, fontSize: 11 }}>
             <div>{entry.bought ? "Sudah dibeli" : "Ditambahkan"}</div>
             <div className="truncate">
-              {entry.bought ? `${entry.boughtBy || "?"} \u00b7 ${fmtDateTime(entry.boughtAt)}` : fmtDateTime(entry.addedAt)}
+              {entry.bought ? `${entry.boughtBy || "?"} · ${fmtDateTime(entry.boughtAt)}` : fmtDateTime(entry.addedAt)}
             </div>
           </div>
         </div>
@@ -3926,39 +3430,12 @@ function ToBuyFormModal({ mode, entry, places, onAddPlace, onDeletePlace, onClos
 
 /* ---------------- Agenda Rumah page ---------------- */
 
-// Kartu filter Agenda — bentuknya sama persis dengan Stok Rumah dan Kas
-// Rumah: angka besar berwarna sesuai maknanya, label abu-abu di bawahnya.
-function AgendaTile({ label, value, color, active, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="min-w-0 text-left"
-      style={{
-        background: active ? AG.primary : AG.card,
-        borderRadius: 18,
-        padding: "13px 12px 12px",
-        boxShadow: active ? "0 4px 12px rgba(23,64,61,0.22)" : "0 2px 8px rgba(23,64,61,0.05)",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "'Baloo 2', cursive",
-          fontWeight: 700,
-          fontSize: 24,
-          lineHeight: "26px",
-          color: active ? "#fff" : color,
-        }}
-      >
-        {value}
-      </div>
-      <div className="truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : AG.inkSoft }}>
-        {label}
-      </div>
-    </button>
-  );
+// Kartu filter Agenda — komponen bersama dengan warna teal.
+function AgendaTile(props) {
+  return <Tile activeBg={AG.primary} inkSoft={AG.inkSoft} shadowRgb="23,64,61" {...props} />;
 }
 
-function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onBack, onAddTask, onEditTask, onDeleteTask, onToggleDone, onOpenThreshold, userName, onOpenUserMenu, onSwitchApp, notifSlot, onRefresh, highlightId, onHighlightDone }) {
+function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter, onAddTask, onEditTask, onDeleteTask, onToggleDone, userName, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
   const [subView, setSubView] = useState("list"); // 'list' | 'calendar'
 
   // Geser samping untuk berpindah antara List dan Kalender, seperti tab di
@@ -4063,7 +3540,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3">
         {/* Kartu sambutan teal */}
         <div
-          className="hero-hold relative flex flex-col justify-between"
+          className="relative flex flex-col justify-between"
           style={{
             background: AG.primary,
             borderRadius: "0 0 30px 30px",
@@ -4110,7 +3587,7 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
                 Rumah
               </h1>
             </div>
-            <div className="hero-actions flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {notifSlot}
               <button
                 onClick={onSwitchApp}
@@ -4191,65 +3668,16 @@ function AgendaPage({ tasks, dueThreshold, search, setSearch, filter, setFilter,
         </div>
       </div>
 
-      <AgendaNav subView={subView} setSubView={setSubView} onAdd={onAddTask} />
-    </div>
-  );
-}
-
-// Navigasi bawah Agenda — bentuknya sama dengan aplikasi lain, sekaligus
-// menggantikan sakelar List/Kalender yang dulu memakan ruang di atas.
-function AgendaNav({ subView, setSubView, onAdd }) {
-  const tabs = [
-    { key: "list", label: "List", icon: ListTodo },
-    { key: "calendar", label: "Kalender", icon: Calendar },
-  ];
-  return (
-    <div
-      className="fixed left-0 right-0 z-40 flex justify-center px-4 pointer-events-none"
-      style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
-    >
-      <div
-        className="flex items-center gap-1.5 pointer-events-auto"
-        style={{ background: AG.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(23,64,61,0.30)" }}
-      >
-        {tabs.map((t) => {
-          const active = subView === t.key;
-          const Icon = t.icon;
-          if (active) {
-            return (
-              <div
-                key={t.key}
-                className="flex items-center gap-2"
-                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: AG.primary }}
-              >
-                <Icon size={20} />
-                <span className="font-semibold" style={{ fontSize: 13 }}>
-                  {t.label}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={t.key}
-              onClick={() => setSubView(t.key)}
-              className="flex items-center justify-center"
-              style={{ width: 44, height: 42 }}
-              title={t.label}
-            >
-              <Icon size={20} color="rgba(255,255,255,0.8)" />
-            </button>
-          );
-        })}
-        <button
-          onClick={onAdd}
-          className="flex items-center justify-center shrink-0"
-          style={{ width: 42, height: 42, borderRadius: 999, background: AG.accent, color: "#fff" }}
-          title="Tambah tugas"
-        >
-          <Plus size={22} />
-        </button>
-      </div>
+      <NavBar
+        tabs={AGENDA_TABS}
+        active={subView}
+        onChange={setSubView}
+        onAdd={onAddTask}
+        color={AG.primary}
+        accent={AG.accent}
+        shadowRgb="23,64,61"
+        addTitle="Tambah tugas"
+      />
     </div>
   );
 }
@@ -4593,8 +4021,8 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
   return (
     <div
       id={`agenda-item-${task.id}`}
-      className={`relative overflow-hidden ${highlighted ? "highlight-blink" : ""}`}
-      style={{ background: AG.card, borderRadius: 20, paddingLeft: 6 }}
+      className="relative overflow-hidden"
+      style={{ background: AG.card, borderRadius: 20, paddingLeft: 6, boxShadow: highlighted ? HIGHLIGHT_RING : undefined }}
     >
       <span className="absolute left-0 top-0 bottom-0" style={{ width: 6, background: barColor }} />
       <div style={{ padding: "16px 16px 0 12px" }}>
@@ -4698,7 +4126,7 @@ function TaskRow({ task, threshold, onToggle, onEdit, onDelete, highlighted }) {
           <div className="leading-tight min-w-0" style={{ color: AG.inkSoft, fontSize: 12.5 }}>
             <div>{task.done ? "Selesai" : "Dibuat"}</div>
             <div className="truncate" style={{ marginTop: 2 }}>
-              {task.done ? `${task.doneBy || "?"} \u00b7 ${fmtDateTime(task.doneAt)}` : `${task.createdBy || "?"} \u00b7 ${fmtDateTime(task.createdAt)}`}
+              {task.done ? `${task.doneBy || "?"} · ${fmtDateTime(task.doneAt)}` : `${task.createdBy || "?"} · ${fmtDateTime(task.createdAt)}`}
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -4936,91 +4364,14 @@ function ThresholdModal({ current, onClose, onSubmit }) {
 
 /* ---------------- Shared bits ---------------- */
 
-// Mengikuti tinggi area layar yang BENAR-BENAR terlihat. Saat papan ketik HP
-// muncul, tinggi layar (100dvh) tidak ikut mengecil, jadi jendela formulir
-// tetap setinggi semula dan bagian bawahnya tertutup papan ketik tanpa bisa
-// digulir. Nilai dari visualViewport ikut mengecil, sehingga masalah itu
-// hilang.
-function useVisibleViewport() {
-  const [vp, setVp] = useState(() => ({
-    height: typeof window !== "undefined" ? window.innerHeight : 0,
-    offsetTop: 0,
-  }));
-
-  useEffect(() => {
-    const visual = window.visualViewport;
-    const read = () => {
-      if (visual) setVp({ height: visual.height, offsetTop: visual.offsetTop });
-      else setVp({ height: window.innerHeight, offsetTop: 0 });
-    };
-    read();
-    if (visual) {
-      visual.addEventListener("resize", read);
-      visual.addEventListener("scroll", read);
-      return () => {
-        visual.removeEventListener("resize", read);
-        visual.removeEventListener("scroll", read);
-      };
-    }
-    window.addEventListener("resize", read);
-    return () => window.removeEventListener("resize", read);
-  }, []);
-
-  return vp;
-}
-
+// Jendela formulir Stok & Agenda — Sheet bersama dengan warna dan font
+// aplikasi ini. Karena Sheet dirender lewat portal ke <body>, font dan warna
+// teks harus diberikan di sini (tidak lagi mewarisi dari halaman).
 function Overlay({ children, onClose }) {
-  const vp = useVisibleViewport();
-  const sheetRef = useRef(null);
-  // Jendela turun dulu, baru dilepas — bukan hilang mendadak.
-  const [closing, setClosing] = useState(false);
-  const closeSheet = () => {
-    if (closing) return;
-    setClosing(true);
-    setTimeout(() => {
-      setClosing(false);
-      onClose && onClose();
-    }, 380);
-  };
-
-  // Kolom yang sedang diketik digulir ke tengah supaya tidak tertutup papan
-  // ketik, tanpa perlu menggulir sendiri.
-  useEffect(() => {
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-    const onFocus = (e) => {
-      const el = e.target;
-      if (!el.matches || !el.matches("input, textarea, select")) return;
-      setTimeout(() => {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 260);
-    };
-    sheet.addEventListener("focusin", onFocus);
-    return () => sheet.removeEventListener("focusin", onFocus);
-  }, []);
-
   return (
-    <div
-      className={`sheet-scrim${closing ? " scrim-out" : ""} fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4`}
-      style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
-      onClick={closeSheet}
-    >
-      <div
-        ref={sheetRef}
-        className={`sheet-panel${closing ? " sheet-panel-out" : ""} w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto`}
-        style={{
-          background: COLORS.card,
-          // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
-          // jendela yang menumpang di atas halaman.
-          maxHeight: Math.max(220, vp.height - 24),
-          overscrollBehavior: "contain",
-          WebkitOverflowScrolling: "touch",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
+    <Sheet onClose={onClose} background={COLORS.card} font={APP_FONT} color={COLORS.ink}>
+      {children}
+    </Sheet>
   );
 }
 
@@ -5050,68 +4401,66 @@ function HistoryPanel({ activity, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div className="drawer-panel w-full sm:max-w-sm h-full overflow-y-auto p-5" style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <ClipboardList size={18} color={COLORS.primary} />
-            <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Riwayat</div>
-          </div>
-          <button onClick={onClose}>
-            <X size={18} color={COLORS.inkSoft} />
-          </button>
+    <Drawer onClose={onClose} background={COLORS.bg} font={APP_FONT} color={COLORS.ink}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={18} color={COLORS.primary} />
+          <div style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Riwayat</div>
         </div>
-
-        {groups.length === 0 ? (
-          <div className="text-sm text-center py-10" style={{ color: COLORS.inkSoft }}>
-            Belum ada riwayat perubahan.
-          </div>
-        ) : (
-          <div className="flex flex-col">
-            {groups.map((g, gi) => (
-              <div key={g.label}>
-                <div
-                  className="uppercase"
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: 0.6,
-                    fontWeight: 700,
-                    color: COLORS.primaryLight,
-                    paddingTop: gi === 0 ? 0 : 18,
-                    paddingBottom: 8,
-                  }}
-                >
-                  {g.label}
-                </div>
-                <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card }}>
-                  {g.items.map((a, ai) => {
-                    const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
-                    const Icon = meta.icon;
-                    return (
-                      <div
-                        key={a.id}
-                        className="flex items-start gap-2.5 px-3.5 py-3"
-                        style={{ borderTop: ai === 0 ? "none" : `1px solid ${COLORS.bg}` }}
-                      >
-                        <span
-                          className="shrink-0 rounded-full flex items-center justify-center"
-                          style={{ width: 32, height: 32, background: meta.bg }}
-                        >
-                          <Icon size={15} color={meta.fg} />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
-                          <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <button onClick={onClose}>
+          <X size={18} color={COLORS.inkSoft} />
+        </button>
       </div>
-    </div>
+
+      {groups.length === 0 ? (
+        <div className="text-sm text-center py-10" style={{ color: COLORS.inkSoft }}>
+          Belum ada riwayat perubahan.
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {groups.map((g, gi) => (
+            <div key={g.label}>
+              <div
+                className="uppercase"
+                style={{
+                  fontSize: 11,
+                  letterSpacing: 0.6,
+                  fontWeight: 700,
+                  color: COLORS.primaryLight,
+                  paddingTop: gi === 0 ? 0 : 18,
+                  paddingBottom: 8,
+                }}
+              >
+                {g.label}
+              </div>
+              <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card }}>
+                {g.items.map((a, ai) => {
+                  const meta = ACTIVITY_ICON[a.kind] || ACTIVITY_ICON.stockUpdate;
+                  const Icon = meta.icon;
+                  return (
+                    <div
+                      key={a.id}
+                      className="flex items-start gap-2.5 px-3.5 py-3"
+                      style={{ borderTop: ai === 0 ? "none" : `1px solid ${COLORS.bg}` }}
+                    >
+                      <span
+                        className="shrink-0 rounded-full flex items-center justify-center"
+                        style={{ width: 32, height: 32, background: meta.bg }}
+                      >
+                        <Icon size={15} color={meta.fg} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm leading-snug" style={{ color: COLORS.ink }}>{a.text}</div>
+                        <div className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{fmtClock(a.timestamp)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Drawer>
   );
 }

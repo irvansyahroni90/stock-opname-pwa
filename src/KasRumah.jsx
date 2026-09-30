@@ -47,9 +47,11 @@ import {
   CreditCard,
   Coins,
 } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { storageSet, storageSubscribe } from "./firebase";
 import { SharedStyles } from "./SharedStyles";
 import { scanReceipt, guessWallet, findDuplicate } from "./receiptScan";
+import { Sheet, Drawer, BottomNav as NavBar, FilterTile as Tile } from "./ui";
 
 // Palet khusus Kas Rumah — hijau hutan pekat dengan aksen oranye.
 const COLORS = {
@@ -84,7 +86,19 @@ const COLORS = {
   iconStockFg: "#2E7D51",
 };
 
+const KAS_FONT = "'Poppins', system-ui, sans-serif";
+
+// Cincin sorotan saat transaksi dituju dari beranda/notifikasi. Versi
+// beranimasinya menyusul di fase mikro-interaksi.
+const HIGHLIGHT_RING = "0 0 0 3px rgba(220,138,44,0.55)";
+
 const TAB_ORDER = ["dashboard", "transactions", "wallets"];
+
+const KAS_TABS = [
+  { key: "dashboard", label: "Beranda", icon: Home },
+  { key: "transactions", label: "Transaksi", icon: Receipt },
+  { key: "wallets", label: "Dompet", icon: Wallet },
+];
 
 // --- Ikon yang bisa dipilih untuk kategori & dompet ----------------------
 const CATEGORY_ICONS = {
@@ -256,91 +270,23 @@ function isSameMonth(iso, ref) {
 }
 
 // --- Komponen kecil bersama ---------------------------------------------
-// Mengikuti tinggi area layar yang BENAR-BENAR terlihat. Saat papan ketik HP
-// muncul, tinggi layar (100dvh) tidak ikut mengecil, jadi jendela formulir
-// tetap setinggi semula dan bagian bawahnya tertutup papan ketik tanpa bisa
-// digulir. Nilai dari visualViewport ikut mengecil, sehingga masalah itu
-// hilang.
-function useVisibleViewport() {
-  const [vp, setVp] = useState(() => ({
-    height: typeof window !== "undefined" ? window.innerHeight : 0,
-    offsetTop: 0,
-  }));
-
-  useEffect(() => {
-    const visual = window.visualViewport;
-    const read = () => {
-      if (visual) setVp({ height: visual.height, offsetTop: visual.offsetTop });
-      else setVp({ height: window.innerHeight, offsetTop: 0 });
-    };
-    read();
-    if (visual) {
-      visual.addEventListener("resize", read);
-      visual.addEventListener("scroll", read);
-      return () => {
-        visual.removeEventListener("resize", read);
-        visual.removeEventListener("scroll", read);
-      };
-    }
-    window.addEventListener("resize", read);
-    return () => window.removeEventListener("resize", read);
-  }, []);
-
-  return vp;
+// Jendela formulir Kas — Sheet bersama dengan font dan warna Kas Rumah.
+// Sheet dirender lewat portal ke <body>, jadi font dan warna teks harus
+// diberikan di sini (tidak lagi mewarisi dari halaman).
+function Overlay({ children, onClose, padded = true }) {
+  return (
+    <Sheet onClose={onClose} background={COLORS.card} font={KAS_FONT} color={COLORS.ink} padded={padded}>
+      {children}
+    </Sheet>
+  );
 }
 
-function Overlay({ children, onClose }) {
-  const vp = useVisibleViewport();
-  const sheetRef = useRef(null);
-  // Jendela turun dulu, baru dilepas — bukan hilang mendadak.
-  const [closing, setClosing] = useState(false);
-  const closeSheet = () => {
-    if (closing) return;
-    setClosing(true);
-    setTimeout(() => {
-      setClosing(false);
-      onClose && onClose();
-    }, 380);
-  };
-
-  // Kolom yang sedang diketik digulir ke tengah supaya tidak tertutup papan
-  // ketik, tanpa perlu menggulir sendiri.
-  useEffect(() => {
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-    const onFocus = (e) => {
-      const el = e.target;
-      if (!el.matches || !el.matches("input, textarea, select")) return;
-      setTimeout(() => {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 260);
-    };
-    sheet.addEventListener("focusin", onFocus);
-    return () => sheet.removeEventListener("focusin", onFocus);
-  }, []);
-
+// Panel samping Kas (menu, kategori) — Drawer bersama.
+function SidePanel({ children, onClose }) {
   return (
-    <div
-      className={`sheet-scrim${closing ? " scrim-out" : ""} fixed left-0 right-0 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4`}
-      style={{ background: "rgba(43,42,37,0.45)", top: vp.offsetTop, height: vp.height }}
-      onClick={closeSheet}
-    >
-      <div
-        ref={sheetRef}
-        className={`sheet-panel${closing ? " sheet-panel-out" : ""} w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5 overflow-y-auto`}
-        style={{
-          background: COLORS.card,
-          // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
-          // jendela yang menumpang di atas halaman.
-          maxHeight: Math.max(220, vp.height - 24),
-          overscrollBehavior: "contain",
-          WebkitOverflowScrolling: "touch",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
+    <Drawer onClose={onClose} background={COLORS.bg} font={KAS_FONT} color={COLORS.ink}>
+      {children}
+    </Drawer>
   );
 }
 
@@ -355,37 +301,9 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-// Kartu filter — angka besar berwarna sesuai maknanya, label abu-abu di
-// bawahnya. Yang sedang dipilih jadi hijau pekat penuh. Bentuknya dibuat
-// sama persis dengan halaman Stok Rumah supaya seragam.
-function FilterTile({ label, value, color, active, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="min-w-0 text-left"
-      style={{
-        background: active ? COLORS.primary : COLORS.card,
-        borderRadius: 18,
-        padding: "13px 12px 12px",
-        boxShadow: active ? "0 4px 12px rgba(18,48,30,0.22)" : "0 2px 8px rgba(18,48,30,0.05)",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "'Poppins', system-ui, sans-serif",
-          fontWeight: 700,
-          fontSize: 24,
-          lineHeight: "26px",
-          color: active ? "#fff" : color,
-        }}
-      >
-        {value}
-      </div>
-      <div className="truncate" style={{ fontSize: 12, marginTop: 2, color: active ? "rgba(255,255,255,0.75)" : COLORS.inkSoft }}>
-        {label}
-      </div>
-    </button>
-  );
+// Kartu filter — komponen bersama dengan warna hijau pekat Kas Rumah.
+function FilterTile(props) {
+  return <Tile activeBg={COLORS.primary} inkSoft={COLORS.inkSoft} valueFont={KAS_FONT} shadowRgb="18,48,30" {...props} />;
 }
 
 function SearchBox({ value, onChange, placeholder }) {
@@ -422,7 +340,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
         >
           <ArrowLeft size={17} color={COLORS.ink} />
         </button>
-        <h1 className="truncate" style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 700, fontSize: 26, color: COLORS.primary }}>
+        <h1 className="truncate" style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 26, color: COLORS.primary }}>
           {title}
         </h1>
       </div>
@@ -451,71 +369,10 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
   );
 }
 
-// Navigasi bawah berbentuk kapsul hijau melayang, seragam dengan Stok Rumah.
-function BottomNav({ view, setView, onAdd, showAdd }) {
-  const tabs = [
-    { key: "dashboard", label: "Beranda", icon: Home },
-    { key: "transactions", label: "Transaksi", icon: Receipt },
-    { key: "wallets", label: "Dompet", icon: Wallet },
-  ];
-  return (
-    <div
-      className="fixed left-0 right-0 z-40 flex justify-center px-4 pointer-events-none"
-      style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
-    >
-      <div
-        className="flex items-center gap-1.5 pointer-events-auto"
-        style={{ background: COLORS.primary, borderRadius: 28, padding: 8, boxShadow: "0 10px 24px rgba(18,48,30,0.30)" }}
-      >
-        {tabs.map((t) => {
-          const active = view === t.key;
-          const Icon = t.icon;
-          if (active) {
-            return (
-              <div
-                key={t.key}
-                className="flex items-center gap-2"
-                style={{ background: "#fff", borderRadius: 22, padding: "10px 16px", color: COLORS.primary }}
-              >
-                <Icon size={20} />
-                <span className="font-semibold" style={{ fontSize: 13 }}>
-                  {t.label}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={t.key}
-              onClick={() => setView(t.key)}
-              className="flex items-center justify-center"
-              style={{ width: 44, height: 42 }}
-              title={t.label}
-            >
-              <Icon size={20} color="rgba(255,255,255,0.8)" />
-            </button>
-          );
-        })}
-
-        {showAdd && (
-          <button
-            onClick={onAdd}
-            className="flex items-center justify-center shrink-0"
-            style={{ width: 42, height: 42, borderRadius: 999, background: COLORS.accent, color: "#fff" }}
-            title="Tambah"
-          >
-            <Plus size={22} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // --- App utama ----------------------------------------------------------
 // Simpanan data terakhir selama aplikasi masih terbuka. Tanpa ini, Kas Rumah
 // menampilkan layar "Memuat data..." setiap kali dibuka ulang dari halaman
-// awal, yang membuat transisi terlihat berkedip kosong.
+// awal.
 let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null };
 
 export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwitchApp, notifSlot, notifSlotDark, initialHighlightId, onInitialHighlightDone }) {
@@ -809,7 +666,7 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
   };
 
   return (
-    <div className="fx-page" style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: "'Poppins', system-ui, sans-serif", overflow: "hidden" }}>
+    <div style={{ background: COLORS.bg, height: "100dvh", color: COLORS.ink, fontFamily: KAS_FONT, overflow: "hidden" }}>
       <SharedStyles />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
@@ -821,7 +678,6 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
           style={{
             width: "300vw",
             transform: `translateX(calc(${-TAB_ORDER.indexOf(view) * 100}vw + ${dragX}px))`,
-            transition: isDragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
@@ -904,116 +760,149 @@ export default function KasRumahApp({ userName, onBackToPicker, onLogout, onSwit
         </button>
       )}
 
-      <BottomNav view={view} setView={setView} showAdd onAdd={fabAction} />
+      <NavBar
+        tabs={KAS_TABS}
+        active={view}
+        onChange={setView}
+        onAdd={fabAction}
+        color={COLORS.primary}
+        accent={COLORS.accent}
+        shadowRgb="18,48,30"
+      />
 
-      {txModal && (
-        <TransactionModal
-          mode={txModal.mode}
-          tx={txModal.tx}
-          initialType={txModal.type}
-          categories={categories}
-          wallets={wallets}
-          allTags={allTags}
-          saving={saving}
-          onClose={() => setTxModal(null)}
-          onSubmit={(data) => handleSaveTx(data, txModal.mode === "edit" ? txModal.tx : null)}
-        />
-      )}
+      {/* Setiap jendela dibungkus AnimatePresence supaya animasi keluarnya
+          tetap diputar walau state-nya sudah dikosongkan. */}
+      <AnimatePresence>
+        {txModal && (
+          <TransactionModal
+            key="tx-modal"
+            mode={txModal.mode}
+            tx={txModal.tx}
+            initialType={txModal.type}
+            categories={categories}
+            wallets={wallets}
+            allTags={allTags}
+            saving={saving}
+            onClose={() => setTxModal(null)}
+            onSubmit={(data) => handleSaveTx(data, txModal.mode === "edit" ? txModal.tx : null)}
+          />
+        )}
+      </AnimatePresence>
 
-      {transferModal && (
-        <TransferModal
-          tx={typeof transferModal === "object" ? transferModal : null}
-          wallets={wallets}
-          saving={saving}
-          onClose={() => setTransferModal(false)}
-          onSubmit={(data) => handleSaveTx(data, typeof transferModal === "object" ? transferModal : null)}
-        />
-      )}
+      <AnimatePresence>
+        {transferModal && (
+          <TransferModal
+            key="transfer-modal"
+            tx={typeof transferModal === "object" ? transferModal : null}
+            wallets={wallets}
+            saving={saving}
+            onClose={() => setTransferModal(false)}
+            onSubmit={(data) => handleSaveTx(data, typeof transferModal === "object" ? transferModal : null)}
+          />
+        )}
+      </AnimatePresence>
 
-      {walletModal && (
-        <WalletModal
-          mode={walletModal.mode}
-          wallet={walletModal.wallet}
-          saving={saving}
-          onClose={() => setWalletModal(null)}
-          onSubmit={(data) => handleSaveWallet(data, walletModal.wallet)}
-        />
-      )}
+      <AnimatePresence>
+        {walletModal && (
+          <WalletModal
+            key="wallet-modal"
+            mode={walletModal.mode}
+            wallet={walletModal.wallet}
+            saving={saving}
+            onClose={() => setWalletModal(null)}
+            onSubmit={(data) => handleSaveWallet(data, walletModal.wallet)}
+          />
+        )}
+      </AnimatePresence>
 
-      {categoryPanel && (
-        <CategoryPanel
-          categories={categories}
-          onClose={() => setCategoryPanel(false)}
-          onAdd={(kind) => setCategoryModal({ mode: "add", kind })}
-          onEdit={(c) => setCategoryModal({ mode: "edit", category: c })}
-          onDelete={(c) => setConfirmDelete({ type: "category", id: c.id, label: c.name })}
-        />
-      )}
+      <AnimatePresence>
+        {categoryPanel && (
+          <CategoryPanel
+            key="category-panel"
+            categories={categories}
+            onClose={() => setCategoryPanel(false)}
+            onAdd={(kind) => setCategoryModal({ mode: "add", kind })}
+            onEdit={(c) => setCategoryModal({ mode: "edit", category: c })}
+            onDelete={(c) => setConfirmDelete({ type: "category", id: c.id, label: c.name })}
+          />
+        )}
+      </AnimatePresence>
 
-      {categoryModal && (
-        <CategoryModal
-          mode={categoryModal.mode}
-          category={categoryModal.category}
-          initialKind={categoryModal.kind}
-          saving={saving}
-          onClose={() => setCategoryModal(null)}
-          onSubmit={(data) => handleSaveCategory(data, categoryModal.category)}
-        />
-      )}
+      <AnimatePresence>
+        {categoryModal && (
+          <CategoryModal
+            key="category-modal"
+            mode={categoryModal.mode}
+            category={categoryModal.category}
+            initialKind={categoryModal.kind}
+            saving={saving}
+            onClose={() => setCategoryModal(null)}
+            onSubmit={(data) => handleSaveCategory(data, categoryModal.category)}
+          />
+        )}
+      </AnimatePresence>
 
-      {scanModal && (
-        <ReceiptScanModal
-          categories={categories}
-          wallets={wallets}
-          transactions={transactions}
-          toBuy={toBuy}
-          aliases={aliases}
-          saving={saving}
-          onClose={() => setScanModal(false)}
-          onSubmit={async (data) => {
-            await handleSaveTx(data, null);
-            setScanModal(false);
-          }}
-          onMarkBought={handleMarkBought}
-          onSaveAliases={handleSaveAliases}
-        />
-      )}
+      <AnimatePresence>
+        {scanModal && (
+          <ReceiptScanModal
+            key="scan-modal"
+            categories={categories}
+            wallets={wallets}
+            transactions={transactions}
+            toBuy={toBuy}
+            aliases={aliases}
+            saving={saving}
+            onClose={() => setScanModal(false)}
+            onSubmit={async (data) => {
+              await handleSaveTx(data, null);
+              setScanModal(false);
+            }}
+            onMarkBought={handleMarkBought}
+            onSaveAliases={handleSaveAliases}
+          />
+        )}
+      </AnimatePresence>
 
-      {confirmDelete && (
-        <Overlay onClose={() => setConfirmDelete(null)}>
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} color={COLORS.out} />
-            <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 18, color: COLORS.ink }}>Hapus?</div>
-          </div>
-          <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
-            "{confirmDelete.label}" bakal dihapus permanen.
-            {confirmDelete.type === "wallet" && " Transaksi yang memakai dompet ini tetap tersimpan."}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setConfirmDelete(null)}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium"
-              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-            >
-              Batal
-            </button>
-            <button onClick={handleConfirmedDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.out }}>
-              Hapus
-            </button>
-          </div>
-        </Overlay>
-      )}
+      <AnimatePresence>
+        {confirmDelete && (
+          <Overlay key="confirm-delete" onClose={() => setConfirmDelete(null)}>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={18} color={COLORS.out} />
+              <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 18, color: COLORS.ink }}>Hapus?</div>
+            </div>
+            <p className="text-sm mb-4" style={{ color: COLORS.inkSoft }}>
+              "{confirmDelete.label}" bakal dihapus permanen.
+              {confirmDelete.type === "wallet" && " Transaksi yang memakai dompet ini tetap tersimpan."}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium"
+                style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+              >
+                Batal
+              </button>
+              <button onClick={handleConfirmedDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: COLORS.out }}>
+                Hapus
+              </button>
+            </div>
+          </Overlay>
+        )}
+      </AnimatePresence>
 
-      {showMenu && (
-        <MenuPanel
-          userName={userName}
-          onClose={() => setShowMenu(false)}
-          onOpenCategories={() => setCategoryPanel(true)}
-          onTransfer={view === "wallets" ? () => setTransferModal(true) : null}
-          onSwitchApp={onSwitchApp || onBackToPicker}
-          onLogout={onLogout}
-        />
-      )}
+      <AnimatePresence>
+        {showMenu && (
+          <MenuPanel
+            key="menu"
+            userName={userName}
+            onClose={() => setShowMenu(false)}
+            onOpenCategories={() => setCategoryPanel(true)}
+            onTransfer={view === "wallets" ? () => setTransferModal(true) : null}
+            onSwitchApp={onSwitchApp || onBackToPicker}
+            onLogout={onLogout}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1034,10 +923,9 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
     <div className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
       <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div>
-          {/* Kartu sambutan — latar ungu muda mengikuti warna Kas Rumah di
-              halaman awal, dengan tulisan ungu tua supaya tetap terbaca. */}
+          {/* Kartu sambutan hijau pekat */}
           <div
-            className="hero-hold relative flex flex-col justify-between"
+            className="relative flex flex-col justify-between"
             style={{
               background: COLORS.primary,
               borderRadius: "0 0 30px 30px",
@@ -1083,7 +971,7 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
                   Rumah
                 </h1>
               </div>
-              <div className="hero-actions flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 {notifSlot}
                 <button
                   onClick={onBackToPicker}
@@ -1412,8 +1300,8 @@ function TransactionRow({ tx, category, wallet, toWallet, catById, highlighted, 
   return (
     <div
       id={`kas-tx-${tx.id}`}
-      className={`rounded-2xl p-3 ${highlighted ? "highlight-blink" : ""}`}
-      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}
+      className="rounded-2xl p-3"
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: highlighted ? HIGHLIGHT_RING : undefined }}
     >
       <div className="flex items-start gap-2.5">
         <span className="shrink-0 rounded-full flex items-center justify-center" style={{ width: 36, height: 36, background: `${color}1F` }}>
@@ -1523,7 +1411,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
           <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
             Total saldo
           </div>
-          <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 23, color: "#fff", lineHeight: 1.2 }}>
+          <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 23, color: "#fff", lineHeight: 1.2 }}>
             {fmtRupiah(total)}
           </div>
         </div>
@@ -1767,90 +1655,79 @@ function TrendChart({ months }) {
 
 // Panel pemilih periode yang muncul dari bawah layar. Pilihan baru diterapkan
 // setelah tombol "Terapkan" ditekan, jadi tidak langsung mengubah tampilan
-// setiap kali disentuh.
+// setiap kali disentuh. Memakai Sheet bersama, jadi ikut punya pegangan
+// tarik-ke-bawah dan animasi masuk/keluar yang sama dengan jendela lain.
 function PeriodSheet({ draftPeriod, setDraftPeriod, draftFrom, setDraftFrom, draftTo, setDraftTo, onApply, onClose }) {
   const needsDates = draftPeriod === "custom";
   const invalid = needsDates && (!draftFrom || !draftTo || new Date(draftFrom) > new Date(draftTo));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div
-        className="w-full sm:max-w-sm rounded-t-2xl overflow-hidden"
-        style={{ background: COLORS.card, maxHeight: "85dvh", paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-center pt-2.5 pb-1">
-          <span className="rounded-full" style={{ width: 36, height: 4, background: COLORS.border }} />
-        </div>
-
-        <div className="text-center pb-2" style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
-          Periode
-        </div>
-
-        <div className="overflow-y-auto px-5" style={{ maxHeight: "55dvh" }}>
-          {PERIODS.map((p, i) => {
-            const active = draftPeriod === p.key;
-            return (
-              <button
-                key={p.key}
-                onClick={() => setDraftPeriod(p.key)}
-                className="w-full flex items-center justify-between gap-3 py-3.5 text-left"
-                style={{ borderTop: i === 0 ? "none" : `1px solid ${COLORS.border}` }}
-              >
-                <span className="text-sm" style={{ color: COLORS.ink, fontWeight: active ? 600 : 400 }}>
-                  {p.label}
-                </span>
-                <span
-                  className="shrink-0 rounded-full flex items-center justify-center"
-                  style={{
-                    width: 21,
-                    height: 21,
-                    background: active ? COLORS.primary : "transparent",
-                    border: active ? "none" : `1.5px solid ${COLORS.border}`,
-                  }}
-                >
-                  {active && <Check size={13} color="#fff" />}
-                </span>
-              </button>
-            );
-          })}
-
-          {needsDates && (
-            <div className="flex gap-2 pt-1 pb-2">
-              <Field label="Dari" className="flex-1 min-w-0">
-                <input
-                  type="date"
-                  value={draftFrom}
-                  onChange={(e) => setDraftFrom(e.target.value)}
-                  className="w-full px-2 py-2 rounded-lg text-xs"
-                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-                />
-              </Field>
-              <Field label="Sampai" className="flex-1 min-w-0">
-                <input
-                  type="date"
-                  value={draftTo}
-                  onChange={(e) => setDraftTo(e.target.value)}
-                  className="w-full px-2 py-2 rounded-lg text-xs"
-                  style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
-                />
-              </Field>
-            </div>
-          )}
-        </div>
-
-        <div className="px-5 pt-3">
-          <button
-            onClick={onApply}
-            disabled={invalid}
-            className="w-full py-3 rounded-xl text-sm font-semibold text-white"
-            style={{ background: COLORS.primary, opacity: invalid ? 0.5 : 1 }}
-          >
-            Terapkan
-          </button>
-        </div>
+    <Overlay onClose={onClose}>
+      <div className="text-center pb-2" style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>
+        Periode
       </div>
-    </div>
+
+      {PERIODS.map((p, i) => {
+        const active = draftPeriod === p.key;
+        return (
+          <button
+            key={p.key}
+            onClick={() => setDraftPeriod(p.key)}
+            className="w-full flex items-center justify-between gap-3 py-3.5 text-left"
+            style={{ borderTop: i === 0 ? "none" : `1px solid ${COLORS.border}` }}
+          >
+            <span className="text-sm" style={{ color: COLORS.ink, fontWeight: active ? 600 : 400 }}>
+              {p.label}
+            </span>
+            <span
+              className="shrink-0 rounded-full flex items-center justify-center"
+              style={{
+                width: 21,
+                height: 21,
+                background: active ? COLORS.primary : "transparent",
+                border: active ? "none" : `1.5px solid ${COLORS.border}`,
+              }}
+            >
+              {active && <Check size={13} color="#fff" />}
+            </span>
+          </button>
+        );
+      })}
+
+      {needsDates && (
+        <div className="flex gap-2 pt-1 pb-2">
+          <Field label="Dari" className="flex-1 min-w-0">
+            <input
+              type="date"
+              value={draftFrom}
+              onChange={(e) => setDraftFrom(e.target.value)}
+              className="w-full px-2 py-2 rounded-lg text-xs"
+              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+            />
+          </Field>
+          <Field label="Sampai" className="flex-1 min-w-0">
+            <input
+              type="date"
+              value={draftTo}
+              onChange={(e) => setDraftTo(e.target.value)}
+              className="w-full px-2 py-2 rounded-lg text-xs"
+              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.ink }}
+            />
+          </Field>
+        </div>
+      )}
+
+      <div className="pt-3">
+        <button
+          onClick={onApply}
+          disabled={invalid}
+          className="w-full py-3 rounded-xl text-sm font-semibold text-white"
+          style={{ background: COLORS.primary, opacity: invalid ? 0.5 : 1 }}
+        >
+          Terapkan
+        </button>
+      </div>
+    </Overlay>
   );
 }
 
@@ -2036,7 +1913,7 @@ function AnalysisSection({ transactions, catById, walById }) {
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <div className="flex items-center gap-2">
           <PieChart size={16} color={COLORS.primary} />
-          <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 17, color: COLORS.ink }}>Analisis</div>
+          <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 17, color: COLORS.ink }}>Analisis</div>
         </div>
         <button
           onClick={openPeriodSheet}
@@ -2067,18 +1944,21 @@ function AnalysisSection({ transactions, catById, walById }) {
         ))}
       </div>
 
-      {periodSheet && (
-        <PeriodSheet
-          draftPeriod={draftPeriod}
-          setDraftPeriod={setDraftPeriod}
-          draftFrom={draftFrom}
-          setDraftFrom={setDraftFrom}
-          draftTo={draftTo}
-          setDraftTo={setDraftTo}
-          onApply={applyPeriod}
-          onClose={() => setPeriodSheet(false)}
-        />
-      )}
+      <AnimatePresence>
+        {periodSheet && (
+          <PeriodSheet
+            key="period-sheet"
+            draftPeriod={draftPeriod}
+            setDraftPeriod={setDraftPeriod}
+            draftFrom={draftFrom}
+            setDraftFrom={setDraftFrom}
+            draftTo={draftTo}
+            setDraftTo={setDraftTo}
+            onApply={applyPeriod}
+            onClose={() => setPeriodSheet(false)}
+          />
+        )}
+      </AnimatePresence>
 
       <div>
         <div>
@@ -2086,7 +1966,7 @@ function AnalysisSection({ transactions, catById, walById }) {
             <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
               {txType === "expense" ? "Total pengeluaran" : "Total pemasukan"} · {fmtRangeLabel(range)}
             </div>
-            <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
+            <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
               {fmtRupiah(total)}
             </div>
             {totalPrev > 0 && (
@@ -2109,7 +1989,7 @@ function AnalysisSection({ transactions, catById, walById }) {
               <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
                 <div className="flex items-center gap-2 mb-3">
                   <PieChart size={16} color={COLORS.primary} />
-                  <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Komposisi</div>
+                  <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Komposisi</div>
                 </div>
 
                 <div className="flex gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
@@ -2208,7 +2088,7 @@ function AnalysisSection({ transactions, catById, walById }) {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <BarChart3 size={16} color={COLORS.primary} />
-                    <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Tren 6 Bulan</div>
+                    <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Tren 6 Bulan</div>
                   </div>
                   <div className="flex items-center gap-2.5 text-[10px]" style={{ color: COLORS.inkSoft }}>
                     <span className="flex items-center gap-1">
@@ -2226,7 +2106,7 @@ function AnalysisSection({ transactions, catById, walById }) {
                 <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
                   <div className="flex items-center gap-2 mb-3">
                     <Sparkles size={16} color={COLORS.primary} />
-                    <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Yang Menarik</div>
+                    <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Yang Menarik</div>
                   </div>
                   <div className="flex flex-col gap-2">
                     {insights.map((ins, i) => (
@@ -2340,7 +2220,7 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {mode === "edit" ? "Edit Transaksi" : mode === "duplicate" ? "Duplikat Transaksi" : "Transaksi Baru"}
       </div>
 
@@ -2662,6 +2542,9 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
     setStep("pick");
   };
 
+  // Hentikan pemindaian kalau jendelanya ditutup di tengah jalan.
+  useEffect(() => () => abortRef.current && abortRef.current.abort(), []);
+
   // Penghitung detik supaya terlihat prosesnya masih berjalan.
   useEffect(() => {
     if (step !== "loading") return;
@@ -2757,7 +2640,7 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
     <Overlay onClose={onClose}>
       <div className="flex items-center gap-2 mb-3">
         <ScanLine size={18} color={COLORS.primary} />
-        <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Scan Struk</div>
+        <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Scan Struk</div>
       </div>
 
       {step === "pick" && (
@@ -2800,7 +2683,7 @@ function ReceiptScanModal({ categories, wallets, transactions, toBuy, aliases, s
 
       {step === "loading" && (
         <div className="py-8 text-center">
-          <div className="scan-pulse rounded-full mx-auto mb-3 flex items-center justify-center" style={{ width: 52, height: 52, background: COLORS.iconAgendaBg }}>
+          <div className="rounded-full mx-auto mb-3 flex items-center justify-center" style={{ width: 52, height: 52, background: COLORS.iconAgendaBg }}>
             <ScanLine size={22} color={COLORS.iconAgendaFg} />
           </div>
           <div className="text-sm font-medium" style={{ color: COLORS.ink }}>
@@ -3114,7 +2997,7 @@ function TransferModal({ tx, wallets, saving, onClose, onSubmit }) {
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {tx ? "Edit Transfer" : "Transfer Antar Dompet"}
       </div>
 
@@ -3245,7 +3128,7 @@ function WalletModal({ mode, wallet, saving, onClose, onSubmit }) {
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {mode === "edit" ? "Edit Dompet" : "Dompet Baru"}
       </div>
 
@@ -3347,69 +3230,63 @@ function CategoryPanel({ categories, onClose, onAdd, onEdit, onDelete }) {
   const list = categories.filter((c) => c.kind === kind);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div
-        className="drawer-panel w-full sm:max-w-sm h-full overflow-y-auto p-5"
-        style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Tag size={18} color={COLORS.primary} />
-            <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Kategori</div>
-          </div>
-          <button onClick={onClose}>
-            <X size={18} color={COLORS.inkSoft} />
-          </button>
+    <SidePanel onClose={onClose}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Tag size={18} color={COLORS.primary} />
+          <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }}>Kategori</div>
         </div>
-
-        <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          {[
-            { key: "expense", label: "Pengeluaran" },
-            { key: "income", label: "Pemasukan" },
-          ].map((o) => (
-            <button
-              key={o.key}
-              onClick={() => setKind(o.key)}
-              className="flex-1 py-2 rounded-lg text-sm font-medium"
-              style={{ background: kind === o.key ? COLORS.primary : "transparent", color: kind === o.key ? "#fff" : COLORS.ink }}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-2 mb-3">
-          {list.map((c) => {
-            const Icon = CATEGORY_ICONS[c.icon] || Tag;
-            return (
-              <div key={c.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-                <span className="shrink-0 rounded-full flex items-center justify-center" style={{ width: 34, height: 34, background: `${c.color}1F` }}>
-                  <Icon size={15} color={c.color} />
-                </span>
-                <span className="flex-1 min-w-0 text-sm font-medium truncate" style={{ color: COLORS.ink }}>
-                  {c.name}
-                </span>
-                <button onClick={() => onEdit(c)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.border}` }}>
-                  <Pencil size={12} color={COLORS.ink} />
-                </button>
-                <button onClick={() => onDelete(c)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.out}55` }}>
-                  <Trash2 size={12} color={COLORS.out} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <button
-          onClick={() => onAdd(kind)}
-          className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-1.5"
-          style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.primary }}
-        >
-          <Plus size={15} /> Tambah kategori
+        <button onClick={onClose}>
+          <X size={18} color={COLORS.inkSoft} />
         </button>
       </div>
-    </div>
+
+      <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        {[
+          { key: "expense", label: "Pengeluaran" },
+          { key: "income", label: "Pemasukan" },
+        ].map((o) => (
+          <button
+            key={o.key}
+            onClick={() => setKind(o.key)}
+            className="flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ background: kind === o.key ? COLORS.primary : "transparent", color: kind === o.key ? "#fff" : COLORS.ink }}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-2 mb-3">
+        {list.map((c) => {
+          const Icon = CATEGORY_ICONS[c.icon] || Tag;
+          return (
+            <div key={c.id} className="rounded-xl p-3 flex items-center gap-2.5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+              <span className="shrink-0 rounded-full flex items-center justify-center" style={{ width: 34, height: 34, background: `${c.color}1F` }}>
+                <Icon size={15} color={c.color} />
+              </span>
+              <span className="flex-1 min-w-0 text-sm font-medium truncate" style={{ color: COLORS.ink }}>
+                {c.name}
+              </span>
+              <button onClick={() => onEdit(c)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.border}` }}>
+                <Pencil size={12} color={COLORS.ink} />
+              </button>
+              <button onClick={() => onDelete(c)} className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ border: `1px solid ${COLORS.out}55` }}>
+                <Trash2 size={12} color={COLORS.out} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={() => onAdd(kind)}
+        className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-1.5"
+        style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}`, color: COLORS.primary }}
+      >
+        <Plus size={15} /> Tambah kategori
+      </button>
+    </SidePanel>
   );
 }
 
@@ -3430,7 +3307,7 @@ function CategoryModal({ mode, category, initialKind, saving, onClose, onSubmit 
 
   return (
     <Overlay onClose={onClose}>
-      <div style={{ fontFamily: "'Poppins', system-ui, sans-serif", fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
+      <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 19, color: COLORS.primary }} className="mb-3">
         {mode === "edit" ? "Edit Kategori" : "Kategori Baru"}
       </div>
 
@@ -3501,13 +3378,8 @@ function CategoryModal({ mode, category, initialKind, saving, onClose, onSubmit 
 }
 
 // --- Menu ---------------------------------------------------------------
-function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchApp, onLogout }) {
-  const runAndClose = (fn) => {
-    onClose();
-    if (fn) setTimeout(fn, 60);
-  };
-
-  const Item = ({ icon: Icon, label, onClick, last, danger }) => (
+function MenuItem({ icon: Icon, label, onClick, last, danger }) {
+  return (
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
@@ -3519,45 +3391,48 @@ function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchAp
       </span>
     </button>
   );
+}
+
+function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchApp, onLogout }) {
+  // Drawer ditutup dulu (animasi keluarnya jalan sendiri), lalu aksinya
+  // langsung dijalankan.
+  const runAndClose = (fn) => {
+    onClose();
+    if (fn) fn();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(43,42,37,0.45)" }} onClick={onClose}>
-      <div
-        className="drawer-panel w-full sm:max-w-sm h-full overflow-y-auto p-5"
-        style={{ background: COLORS.bg, paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)", overscrollBehaviorY: "contain" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <span className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: COLORS.iconAgendaBg }}>
-              <User size={17} color={COLORS.iconAgendaFg} />
-            </span>
-            <div>
-              <div className="text-sm font-semibold" style={{ color: COLORS.ink }}>
-                {userName || "Pengguna"}
-              </div>
-              <div className="text-xs" style={{ color: COLORS.inkSoft }}>
-                Kas Rumah
-              </div>
+    <SidePanel onClose={onClose}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <span className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: COLORS.iconAgendaBg }}>
+            <User size={17} color={COLORS.iconAgendaFg} />
+          </span>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: COLORS.ink }}>
+              {userName || "Pengguna"}
+            </div>
+            <div className="text-xs" style={{ color: COLORS.inkSoft }}>
+              Kas Rumah
             </div>
           </div>
-          <button onClick={onClose}>
-            <X size={18} color={COLORS.inkSoft} />
-          </button>
         </div>
-
-        <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Item icon={Tag} label="Kelola Kategori" onClick={() => runAndClose(onOpenCategories)} last={!onTransfer} />
-          {onTransfer && (
-            <Item icon={ArrowLeftRight} label="Transfer Antar Dompet" onClick={() => runAndClose(onTransfer)} last />
-          )}
-        </div>
-
-        <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-          <Item icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
-          <Item icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
-        </div>
+        <button onClick={onClose}>
+          <X size={18} color={COLORS.inkSoft} />
+        </button>
       </div>
-    </div>
+
+      <div className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <MenuItem icon={Tag} label="Kelola Kategori" onClick={() => runAndClose(onOpenCategories)} last={!onTransfer} />
+        {onTransfer && (
+          <MenuItem icon={ArrowLeftRight} label="Transfer Antar Dompet" onClick={() => runAndClose(onTransfer)} last />
+        )}
+      </div>
+
+      <div className="rounded-2xl overflow-hidden mt-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <MenuItem icon={LayoutGrid} label="Ganti Aplikasi" onClick={() => runAndClose(onSwitchApp)} />
+        <MenuItem icon={LogOut} label="Keluar" onClick={() => runAndClose(onLogout)} last danger />
+      </div>
+    </SidePanel>
   );
 }
