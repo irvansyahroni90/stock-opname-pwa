@@ -47,6 +47,7 @@ import {
   CreditCard,
   Coins,
   Clock3,
+  SlidersHorizontal,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { storageSet, storageSubscribe } from "./firebase";
@@ -440,6 +441,8 @@ export default function KasRumahApp({
 
   const [txModal, setTxModal] = useState(null);
   const [txDetailId, setTxDetailId] = useState(null);
+  // Sesuaikan saldo: null = tertutup, { walletId } = terbuka.
+  const [adjustModal, setAdjustModal] = useState(null);
   // Pindah dari satu jendela ke jendela lain (mis. detail → edit): jendela
   // pertama turun dulu sebentar, baru berikutnya naik, supaya dua lapisan
   // gelapnya tidak menumpuk.
@@ -721,6 +724,7 @@ export default function KasRumahApp({
             onSeeWallets={() => setView("wallets")}
             notifSlot={view === "dashboard" ? notifSlotDark || notifSlot : null}
             onOpenTx={(tx) => setTxDetailId(tx.id)}
+            onAdjustBalance={wallets.length ? () => setAdjustModal({ walletId: wallets[0].id }) : undefined}
             onBackToPicker={onBackToPicker}
             heroLayoutId={view === "dashboard" ? heroLayoutId : undefined}
             morphIn={morphIn}
@@ -752,6 +756,7 @@ export default function KasRumahApp({
             notifSlot={view === "wallets" ? notifSlot : null}
             onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
             onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
+            onAdjust={(w) => setAdjustModal({ walletId: w.id })}
           />
         </TabPager>
       </div>
@@ -776,6 +781,7 @@ export default function KasRumahApp({
             mode={txModal.mode}
             tx={txModal.tx}
             initialType={txModal.type}
+            initialWalletId={txModal.walletId}
             categories={categories}
             wallets={wallets}
             allTags={allTags}
@@ -813,6 +819,25 @@ export default function KasRumahApp({
                 () => setConfirmDelete({ type: "tx", id: txDetail.id, label: txDetail.note || "transaksi ini" })
               )
             }
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {adjustModal && (
+          <BalanceAdjustSheet
+            key="adjust-sheet"
+            wallets={wallets}
+            transactions={transactions}
+            initialWalletId={adjustModal.walletId}
+            categories={categories}
+            saving={saving}
+            onClose={() => setAdjustModal(null)}
+            onSubmit={async (data) => {
+              setAdjustModal(null);
+              await handleSaveTx(data, null);
+            }}
+            onRecordIncome={(walletId) => swapSheet(() => setAdjustModal(null), () => setTxModal({ mode: "add", type: "income", walletId }))}
           />
         )}
       </AnimatePresence>
@@ -970,7 +995,7 @@ function KasHero({ layoutId, fadeIn, notifSlot, onBackToPicker, onOpenMenu }) {
   );
 }
 
-function DashboardPage({ userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
+function DashboardPage({ onAdjustBalance, userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
   return (
     <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
       <div className="max-w-2xl mx-auto px-4 pb-32">
@@ -1016,6 +1041,17 @@ function DashboardPage({ userName, totals, recent, transactions, catById, walByI
           <div style={{ fontSize: 33, fontWeight: 700, color: COLORS.ink, marginTop: 8, letterSpacing: "-0.02em" }}>
             <RollingNumber value={fmtRupiah(totals.balance)} />
           </div>
+          {onAdjustBalance && (
+            <button
+              type="button"
+              onClick={onAdjustBalance}
+              className="flex items-center"
+              style={{ gap: 6, height: 34, marginTop: 6, padding: "0 12px", borderRadius: 999, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.primary, fontSize: 12, fontWeight: 600 }}
+            >
+              <SlidersHorizontal size={13} />
+              Sesuaikan saldo
+            </button>
+          )}
 
           <div className="flex gap-2.5" style={{ marginTop: 16 }}>
             <div className="flex-1 min-w-0" style={{ padding: "13px 14px", borderRadius: 18, background: COLORS.safeBg }}>
@@ -1129,18 +1165,19 @@ function txVisual(tx, catById, walById, withDay = false) {
   const category = catById[tx.categoryId];
   const wallet = walById[tx.walletId];
   const toWallet = walById[tx.toWalletId];
-  const Icon = isTransfer ? ArrowLeftRight : hasSplit ? Split : CATEGORY_ICONS[category?.icon] || Tag;
-  const color = isTransfer ? COLORS.muted : category?.color || (isIncome ? COLORS.safe : COLORS.out);
-  const catName = hasSplit ? `${tx.splits.length} kategori` : category?.name || "Tanpa kategori";
+  const isAdjust = !!tx.adjustment;
+  const Icon = isTransfer ? ArrowLeftRight : hasSplit ? Split : isAdjust && !category ? SlidersHorizontal : CATEGORY_ICONS[category?.icon] || Tag;
+  const color = isTransfer ? COLORS.muted : category?.color || (isAdjust ? "#8B6F47" : isIncome ? COLORS.safe : COLORS.out);
+  const catName = hasSplit ? `${tx.splits.length} kategori` : category?.name || (isAdjust ? "Penyesuaian saldo" : "Tanpa kategori");
   const title = isTransfer ? `${wallet?.name || "?"} → ${toWallet?.name || "?"}` : tx.note || catName;
   const clock = new Date(tx.date).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(":", ".");
   const time = withDay ? `${dayLabel(tx.date)}, ${clock}` : clock;
   const meta = isTransfer
     ? `Transfer${Number(tx.fee) > 0 ? ` · biaya ${fmtRupiah(tx.fee)}` : ""} · ${time}`
-    : `${tx.note ? catName + " · " : ""}${wallet?.name || "?"} · ${time}`;
+    : `${isAdjust && category ? "Penyesuaian · " : ""}${tx.note ? catName + " · " : ""}${wallet?.name || "?"} · ${time}`;
   const sign = isIncome ? "+" : isTransfer ? "" : "−";
   const amountColor = isTransfer ? COLORS.muted : isIncome ? COLORS.safe : COLORS.expenseText;
-  return { isIncome, isTransfer, hasSplit, category, wallet, toWallet, Icon, color, catName, title, meta, sign, amountColor };
+  return { isAdjust, isIncome, isTransfer, hasSplit, category, wallet, toWallet, Icon, color, catName, title, meta, sign, amountColor };
 }
 
 function TxIcon({ Icon, color, isTransfer, size = 42, radius = 14 }) {
@@ -1272,7 +1309,9 @@ function TransactionsPage({ transactions, catById, walById, search, setSearch, f
 function TransactionRow({ tx, catById, walById, first, highlighted, withDay, onOpen }) {
   const v = txVisual(tx, catById, walById, withDay);
   return (
-    <div id={`kas-tx-${tx.id}`} className="relative">
+    // id hanya untuk daftar di halaman Transaksi (dipakai untuk menggulir ke
+    // transaksi yang dituju dari notifikasi), bukan untuk salinan di Beranda.
+    <div id={withDay ? undefined : `kas-tx-${tx.id}`} className="relative">
       {!first && <div aria-hidden="true" style={{ height: 1, background: "#F1EFE7", marginLeft: 68 }} />}
       <button type="button" onClick={onOpen} className="relative w-full flex items-center text-left" style={{ gap: 12, padding: "12px 14px", minHeight: 66 }}>
         <CardRings radius={16} highlighted={!!highlighted} glowRgb={HIGHLIGHT_RGB} />
@@ -1340,7 +1379,8 @@ function TxDetailSheet({ tx, catById, walById, onClose, onEdit, onDuplicate, onD
             </>
           ) : (
             <>
-              {!v.hasSplit && row("Kategori", v.category?.name || "Tanpa kategori")}
+              {v.isAdjust && row("Jenis", `Penyesuaian saldo (${v.isIncome ? "bertambah" : "berkurang"})`)}
+              {!v.hasSplit && row("Kategori", v.category?.name || (v.isAdjust ? "Tanpa rincian" : "Tanpa kategori"))}
               {row("Dompet", v.wallet?.name || "?")}
             </>
           )}
@@ -1392,7 +1432,7 @@ function TxDetailSheet({ tx, catById, walById, onClose, onEdit, onDuplicate, onD
             Edit transaksi
           </button>
           <div className="flex" style={{ gap: 8 }}>
-            {!v.isTransfer && (
+            {!v.isTransfer && !v.isAdjust && (
               <button
                 type="button"
                 onClick={onDuplicate}
@@ -1420,7 +1460,7 @@ function TxDetailSheet({ tx, catById, walById, onClose, onEdit, onDuplicate, onD
 }
 
 // --- Halaman dompet -----------------------------------------------------
-function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete }) {
+function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete, onAdjust }) {
   const total = useMemo(
     () => wallets.reduce((sum, w) => sum + walletBalance(w, transactions), 0),
     [wallets, transactions]
@@ -1483,6 +1523,15 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                         </button>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => onAdjust(w)}
+                      className="w-full flex items-center justify-center"
+                      style={{ marginTop: 12, height: 40, gap: 6, borderRadius: 12, border: "none", background: COLORS.soft, color: COLORS.primary, fontSize: 13, fontWeight: 600 }}
+                    >
+                      <SlidersHorizontal size={14} />
+                      Sesuaikan saldo
+                    </button>
                   </div>
                 );
               })}
@@ -1586,6 +1635,9 @@ function breakdownParts(tx, dimension, catById, walById) {
         color: catById[s.categoryId]?.color || COLORS.inkSoft,
         amount: Number(s.amount) || 0,
       }));
+    }
+    if (tx.adjustment && !catById[tx.categoryId]) {
+      return [{ key: "adjust", label: "Tanpa rincian (penyesuaian)", color: "#A9A08C", amount: Number(tx.amount) || 0 }];
     }
     return [
       {
@@ -2227,12 +2279,15 @@ function CategoryTile({ category, active, onClick }) {
   );
 }
 
-function TransactionModal({ mode, tx, initialType, categories, wallets, allTags, saving, onClose, onSubmit, onOpenScan }) {
+function TransactionModal({ mode, tx, initialType, initialWalletId, categories, wallets, allTags, saving, onClose, onSubmit, onOpenScan }) {
   const [type, setType] = useState(tx?.type || initialType || "expense");
   const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
   const [categoryId, setCategoryId] = useState(tx?.categoryId || "");
   // Dompet lama yang sudah dihapus tidak dipakai lagi — pindah ke dompet pertama.
-  const [walletId, setWalletId] = useState(() => (tx?.walletId && wallets.some((w) => w.id === tx.walletId) ? tx.walletId : wallets[0]?.id || ""));
+  const [walletId, setWalletId] = useState(() => {
+    const want = tx?.walletId || initialWalletId;
+    return want && wallets.some((w) => w.id === want) ? want : wallets[0]?.id || "";
+  });
   const [date, setDate] = useState(toLocalInput(tx?.date));
   const [note, setNote] = useState(tx?.note || "");
   const [tags, setTags] = useState(tx?.tags || []);
@@ -2280,7 +2335,7 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
       const sum = rows.reduce((a, s) => a + s.amount, 0);
       if (Math.round(sum) !== Math.round(value)) return setError(`Total pembagian (${fmtRupiah(sum)}) belum sama dengan nominal (${fmtRupiah(value)}).`);
       splitPayload = rows;
-    } else if (!categoryId) {
+    } else if (!categoryId && !tx?.adjustment) {
       return setError("Pilih kategorinya dulu.");
     }
     setError("");
@@ -2583,6 +2638,237 @@ function TransactionModal({ mode, tx, initialType, categories, wallets, allTags,
         >
           {saving ? "Menyimpan..." : saveLabel}
         </button>
+      </div>
+    </Overlay>
+  );
+}
+
+// --- Sesuaikan saldo ----------------------------------------------------
+// Untuk saat tidak sempat mencatat tiap transaksi: cukup isi saldo yang
+// sebenarnya ada sekarang. Selisihnya dicatat sebagai SATU transaksi
+// "Penyesuaian saldo" — berkurang = pengeluaran (ikut dihitung di ringkasan
+// & analisis), bertambah = pemasukan. Saldo jadi pas dan riwayatnya tetap
+// jelas.
+function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories, saving, onClose, onSubmit, onRecordIncome }) {
+  const [walletId, setWalletId] = useState(() =>
+    initialWalletId && wallets.some((w) => w.id === initialWalletId) ? initialWalletId : wallets[0]?.id || ""
+  );
+  const [actual, setActual] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const wallet = wallets.find((w) => w.id === walletId);
+  const current = wallet ? walletBalance(wallet, transactions) : 0;
+  const actualValue = evalAmount(actual);
+  const hasValue = actual !== "" && actualValue !== null;
+  const diff = hasValue ? Math.round(actualValue) - Math.round(current) : 0;
+  const kind = diff < 0 ? "expense" : diff > 0 ? "income" : null;
+  const catOptions = kind ? categories.filter((c) => c.kind === kind) : [];
+
+  // Kategori yang dipilih harus sesuai arah selisihnya.
+  useEffect(() => {
+    if (categoryId && !catOptions.some((c) => c.id === categoryId)) setCategoryId("");
+  }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submit = () => {
+    if (!wallet) return setError("Pilih dompetnya dulu.");
+    if (!hasValue) return setError("Isi saldo yang sebenarnya ada sekarang.");
+    if (actualValue < 0) return setError("Saldo tidak bisa minus.");
+    if (!kind) return onClose();
+    setError("");
+    onSubmit({
+      type: kind,
+      amount: Math.abs(diff),
+      categoryId,
+      splits: null,
+      walletId,
+      tags: [],
+      date: new Date().toISOString(),
+      note: note.trim(),
+      adjustment: true,
+    });
+  };
+
+  const fieldStyle = { height: 46, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.ink, "--inp-focus": COLORS.primary };
+  const diffColor = kind === "expense" ? COLORS.expenseText : kind === "income" ? COLORS.safe : COLORS.muted;
+
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        <div className="flex items-center justify-between" style={{ gap: 10 }}>
+          <div className="min-w-0">
+            <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 20, lineHeight: 1.2 }}>Sesuaikan saldo</div>
+            <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 2 }}>Isi uang yang benar-benar ada sekarang.</div>
+          </div>
+          <button
+            type="button"
+            aria-label="Tutup"
+            title="Tutup"
+            onClick={onClose}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.muted }}
+          >
+            <X size={17} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        {wallets.length > 1 && (
+          <div className="flex overflow-x-auto" style={{ gap: 6, margin: "-4px -20px", padding: "4px 20px", scrollbarWidth: "none" }}>
+            {wallets.map((w) => (
+              <Chip
+                key={w.id}
+                active={walletId === w.id}
+                onClick={() => setWalletId(w.id)}
+                height={38}
+                activeBg={COLORS.primary}
+                ink={COLORS.ink}
+                inkSoft={COLORS.muted}
+                border={COLORS.border}
+                style={{ flexShrink: 0, padding: "0 16px" }}
+              >
+                {w.name}
+              </Chip>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between" style={{ background: COLORS.soft, borderRadius: 16, padding: "12px 14px" }}>
+          <span style={{ fontSize: 13, color: COLORS.muted }}>Saldo {wallet ? wallet.name : ""} di aplikasi</span>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>
+            <RollingNumber value={fmtRupiah(current)} />
+          </span>
+        </div>
+
+        <div className="text-center">
+          <div style={{ fontSize: 13, color: COLORS.muted }}>Saldo sebenarnya sekarang</div>
+          <label className="flex items-baseline justify-center" style={{ gap: 6, cursor: "text" }}>
+            <span style={{ fontSize: 22, fontWeight: 600, color: actual ? COLORS.ink : "#B9BDB5" }}>Rp</span>
+            <input
+              autoFocus
+              inputMode="text"
+              aria-label="Saldo sebenarnya sekarang"
+              value={actual}
+              onChange={(e) => {
+                setActual(e.target.value.replace(/[^\d+\-*/().x×÷ ]/gi, ""));
+                setError("");
+              }}
+              placeholder="0"
+              className="fs-38"
+              style={{
+                width: `calc(${Math.max(1, String(actual).length)}ch + 8px)`,
+                maxWidth: "80%",
+                minWidth: 30,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+                color: COLORS.ink,
+                padding: 0,
+              }}
+            />
+          </label>
+          <div style={{ fontSize: 12, color: actual && actualValue === null ? COLORS.out : COLORS.muted }}>
+            {actual ? (actualValue === null ? "Rumusnya belum benar" : fmtRupiah(actualValue)) : "Bisa juga ketik hitungan, mis. 200000+50000"}
+          </div>
+        </div>
+
+        <Collapse open={hasValue}>
+          <div className="flex flex-col" style={{ gap: 14 }}>
+            <motion.div
+              className="flex items-center"
+              initial={false}
+              animate={{ backgroundColor: kind === "expense" ? COLORS.outBg : kind === "income" ? COLORS.safeBg : COLORS.soft }}
+              transition={{ duration: DUR.fast }}
+              style={{ gap: 12, borderRadius: 16, padding: "12px 14px" }}
+            >
+              <span className="flex-1 min-w-0" style={{ fontSize: 13, color: COLORS.ink, lineHeight: 1.35 }}>
+                {kind === "expense"
+                  ? "Selisihnya dicatat sebagai pengeluaran (ikut dihitung di Keluar bulan ini)."
+                  : kind === "income"
+                  ? "Selisihnya dicatat sebagai pemasukan."
+                  : "Saldo sudah cocok — tidak ada yang perlu dicatat."}
+              </span>
+              <motion.span initial={false} animate={{ color: diffColor }} transition={{ duration: DUR.fast }} className="shrink-0" style={{ fontSize: 16, fontWeight: 700 }}>
+                <RollingNumber value={`${diff > 0 ? "+" : diff < 0 ? "−" : ""}${fmtRupiah(Math.abs(diff))}`} />
+              </motion.span>
+            </motion.div>
+
+            <Collapse open={!!kind}>
+              <div className="flex flex-col" style={{ gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted, marginBottom: 8 }}>
+                    {kind === "income" ? "Dari mana? (opsional)" : "Kebanyakan untuk apa? (opsional)"}
+                  </div>
+                  <div className="flex flex-wrap" style={{ gap: 6 }}>
+                    <Chip active={!categoryId} onClick={() => setCategoryId("")} height={34} activeBg={COLORS.primary} ink={COLORS.ink} inkSoft={COLORS.muted} border={COLORS.border} style={{ padding: "0 12px", fontSize: 12.5 }}>
+                      Tanpa rincian
+                    </Chip>
+                    {catOptions.map((c) => (
+                      <Chip
+                        key={c.id}
+                        active={categoryId === c.id}
+                        onClick={() => setCategoryId(c.id)}
+                        height={34}
+                        activeBg={c.color || COLORS.primary}
+                        ink={COLORS.ink}
+                        inkSoft={COLORS.muted}
+                        border={COLORS.border}
+                        style={{ padding: "0 12px", fontSize: 12.5 }}
+                      >
+                        {c.name}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Catatan (opsional), mis. belanja minggu ini"
+                  aria-label="Catatan penyesuaian"
+                  className="inp w-full"
+                  style={{ ...fieldStyle, padding: "0 14px" }}
+                />
+              </div>
+            </Collapse>
+          </div>
+        </Collapse>
+
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.div
+              key="err"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, color: COLORS.out, overflow: "hidden" }}
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex flex-col" style={{ gap: 6 }}>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={saving}
+            style={{ height: 52, borderRadius: 16, border: "none", background: COLORS.primary, color: "#FFFFFF", fontSize: 15, fontWeight: 600, opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? "Menyimpan..." : hasValue && !kind ? "Tutup" : "Simpan saldo"}
+          </button>
+          {onRecordIncome && (
+            <button
+              type="button"
+              onClick={() => onRecordIncome(walletId)}
+              style={{ height: 40, border: "none", background: "transparent", color: COLORS.safe, fontSize: 12.5, fontWeight: 600 }}
+            >
+              Ada pemasukan yang jelas (gaji, bonus)? Catat sebagai pemasukan
+            </button>
+          )}
+        </div>
       </div>
     </Overlay>
   );

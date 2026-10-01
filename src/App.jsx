@@ -417,14 +417,16 @@ function buildActivityFeed(history, toBuy, tasks, { days, kasTx, kasCats } = {})
     let kind, text;
     if (t.type === "income") {
       kind = "kasIncome";
-      text = `${who} mencatat pemasukan ${nominal}`;
+      text = t.adjustment ? `${who} menyesuaikan saldo (+${nominal})` : `${who} mencatat pemasukan ${nominal}`;
     } else if (t.type === "transfer") {
       kind = "kasTransfer";
       text = `${who} transfer ${nominal} antar dompet`;
     } else {
       kind = "kasExpense";
       const cat = (kasCats || {})[t.categoryId]?.name;
-      text = `${who} mencatat pengeluaran ${nominal}${cat ? ` (${cat})` : ""}`;
+      text = t.adjustment
+        ? `${who} menyesuaikan saldo (−${nominal}${cat ? `, ${cat}` : ""})`
+        : `${who} mencatat pengeluaran ${nominal}${cat ? ` (${cat})` : ""}`;
     }
     items.push({ id: `kas-${t.id}`, kind, text, timestamp: t.date, ref: { type: "kas", id: t.id } });
   }
