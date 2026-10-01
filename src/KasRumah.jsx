@@ -146,6 +146,7 @@ const CATEGORY_ICONS = {
 };
 
 const WALLET_ICONS = {
+  stock: TrendingUp,
   cash: Coins,
   bank: Landmark,
   ewallet: Smartphone,
@@ -292,6 +293,36 @@ function walletBalance(wallet, transactions) {
   return bal;
 }
 
+// Dompet saham/investasi: nilainya naik-turun mengikuti pasar, jadi
+// perubahan nilainya BUKAN pemasukan/pengeluaran.
+function isInvestment(wallet) {
+  return !!wallet && wallet.icon === "stock";
+}
+
+// Transaksi yang dihitung sebagai pemasukan/pengeluaran (ringkasan bulanan &
+// analisis). Pembaruan nilai saham tidak ikut.
+function countsAsFlow(t) {
+  return !t.valuation;
+}
+
+// "Irvan · 1 Okt 2026, 15.41"
+function stamp(by, at) {
+  if (!at) return by || "?";
+  return `${by || "?"} · ${fmtDateTime(at)}`;
+}
+
+// Kapan & oleh siapa sebuah dompet terakhir berubah: dompetnya sendiri
+// diedit, atau ada transaksi yang memakai dompet itu.
+function walletLastActivity(wallet, transactions) {
+  let best = wallet.updatedAt ? { at: wallet.updatedAt, by: wallet.updatedBy } : null;
+  for (const t of transactions) {
+    if (t.walletId !== wallet.id && t.toWalletId !== wallet.id) continue;
+    const at = t.updatedAt || t.createdAt;
+    if (at && (!best || at > best.at)) best = { at, by: t.updatedBy || t.createdBy };
+  }
+  return best;
+}
+
 function isSameMonth(iso, ref) {
   const d = new Date(iso);
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth();
@@ -403,7 +434,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
 // Simpanan data terakhir selama aplikasi masih terbuka. Tanpa ini, Kas Rumah
 // menampilkan layar "Memuat data..." setiap kali dibuka ulang dari halaman
 // awal.
-let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null };
+let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null, log: null };
 
 export default function KasRumahApp({
   userName,
@@ -471,6 +502,9 @@ export default function KasRumahApp({
   }, [initialHighlightId]);
   const [toBuy, setToBuy] = useState(() => kasCache.toBuy || []);
   const [aliases, setAliases] = useState(() => kasCache.aliases || {});
+  // Catatan perubahan Kas Rumah: siapa mengubah apa, kapan (termasuk hapus).
+  const [kasLog, setKasLog] = useState(() => kasCache.log || []);
+  const [showLog, setShowLog] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // --- Sinkron Firestore ------------------------------------------------
@@ -518,6 +552,11 @@ export default function KasRumahApp({
         kasCache.toBuy = next;
         setToBuy(next);
       }),
+      storageSubscribe("kas-log", (data) => {
+        const next = Array.isArray(data) ? data : [];
+        kasCache.log = next;
+        setKasLog(next);
+      }),
       storageSubscribe("kas-aliases", (data) => {
         const next = data && typeof data === "object" ? data : {};
         kasCache.aliases = next;
@@ -540,6 +579,29 @@ export default function KasRumahApp({
     await storageSet("kas-transactions", next);
   };
 
+  // --- Catatan perubahan ------------------------------------------------
+  const kasLogRef = useRef(kasLog);
+  kasLogRef.current = kasLog;
+  const logKas = (kind, text) => {
+    const entry = { id: uid("log"), at: new Date().toISOString(), by: userName || "?", kind, text };
+    const next = [entry, ...kasLogRef.current].slice(0, 300);
+    kasLogRef.current = next;
+    kasCache.log = next;
+    setKasLog(next);
+    return storageSet("kas-log", next);
+  };
+
+  const catName = (id) => categories.find((c) => c.id === id)?.name;
+  const walName = (id) => wallets.find((w) => w.id === id)?.name || "?";
+  const describeTx = (t) => {
+    const nominal = fmtRupiah(t.amount);
+    if (t.type === "transfer") return `transfer ${nominal} dari ${walName(t.walletId)} ke ${walName(t.toWalletId)}`;
+    if (t.valuation) return `nilai saham ${walName(t.walletId)} ${t.type === "income" ? "naik" : "turun"} ${nominal}`;
+    if (t.adjustment) return `penyesuaian saldo ${walName(t.walletId)} ${t.type === "income" ? "+" : "−"}${nominal}`;
+    const what = t.note || catName(t.categoryId) || (t.splits && t.splits.length ? `${t.splits.length} kategori` : "");
+    return `${t.type === "income" ? "pemasukan" : "pengeluaran"} ${nominal}${what ? ` (${what})` : ""} · ${walName(t.walletId)}`;
+  };
+
   // --- Aksi transaksi ---------------------------------------------------
   const handleSaveTx = async (data, existing) => {
     setSaving(true);
@@ -555,14 +617,21 @@ export default function KasRumahApp({
         ...transactions,
       ];
     }
-    await persistTransactions(next);
+    const merged = existing ? { ...existing, ...data } : data;
+    const verb = existing ? "mengubah" : data.valuation ? "memperbarui" : data.adjustment ? "mencatat" : "mencatat";
+    const saveP = persistTransactions(next);
     setSaving(false);
     setTxModal(null);
     setTransferModal(false);
+    await Promise.all([saveP, logKas("tx", `${verb} ${describeTx(merged)}`)]);
   };
 
   const handleDeleteTx = async (id) => {
-    await persistTransactions(transactions.filter((t) => t.id !== id));
+    const t = transactions.find((x) => x.id === id);
+    await Promise.all([
+      persistTransactions(transactions.filter((x) => x.id !== id)),
+      t ? logKas("tx", `menghapus ${describeTx(t)}`) : null,
+    ]);
   };
 
   // Centang item di daftar "Akan Dibeli" milik Stok Rumah setelah pengguna
@@ -592,37 +661,43 @@ export default function KasRumahApp({
   // --- Aksi dompet ------------------------------------------------------
   const handleSaveWallet = async (data, existing) => {
     setSaving(true);
+    const now = new Date().toISOString();
     let next;
     if (existing) {
-      next = wallets.map((w) => (w.id === existing.id ? { ...w, ...data } : w));
+      next = wallets.map((w) => (w.id === existing.id ? { ...w, ...data, updatedBy: userName, updatedAt: now } : w));
     } else {
-      next = [...wallets, { id: uid("wal"), ...data }];
+      next = [...wallets, { id: uid("wal"), ...data, createdBy: userName, createdAt: now, updatedBy: userName, updatedAt: now }];
     }
+    logKas("wallet", existing ? `mengubah dompet ${data.name}` : `menambahkan dompet ${data.name} (${fmtRupiah(data.initialBalance)})`);
     await persistWallets(next);
     setSaving(false);
     setWalletModal(null);
   };
 
   const handleDeleteWallet = async (id) => {
-    await persistWallets(wallets.filter((w) => w.id !== id));
+    const w = wallets.find((x) => x.id === id);
+    await Promise.all([persistWallets(wallets.filter((x) => x.id !== id)), w ? logKas("wallet", `menghapus dompet ${w.name}`) : null]);
   };
 
   // --- Aksi kategori ----------------------------------------------------
   const handleSaveCategory = async (data, existing) => {
     setSaving(true);
     let next;
+    const now = new Date().toISOString();
     if (existing) {
-      next = categories.map((c) => (c.id === existing.id ? { ...c, ...data } : c));
+      next = categories.map((c) => (c.id === existing.id ? { ...c, ...data, updatedBy: userName, updatedAt: now } : c));
     } else {
-      next = [...categories, { id: uid("cat"), ...data }];
+      next = [...categories, { id: uid("cat"), ...data, createdBy: userName, createdAt: now, updatedBy: userName, updatedAt: now }];
     }
+    logKas("category", existing ? `mengubah kategori ${data.name}` : `menambahkan kategori ${data.name}`);
     await persistCategories(next);
     setSaving(false);
     setCategoryModal(null);
   };
 
   const handleDeleteCategory = async (id) => {
-    await persistCategories(categories.filter((c) => c.id !== id));
+    const c = categories.find((x) => x.id === id);
+    await Promise.all([persistCategories(categories.filter((x) => x.id !== id)), c ? logKas("category", `menghapus kategori ${c.name}`) : null]);
   };
 
   const handleConfirmedDelete = async () => {
@@ -663,13 +738,16 @@ export default function KasRumahApp({
     let income = 0,
       expense = 0;
     transactions.forEach((t) => {
-      if (!isSameMonth(t.date, ref)) return;
+      if (!isSameMonth(t.date, ref) || !countsAsFlow(t)) return;
       if (t.type === "income") income += Number(t.amount) || 0;
       else if (t.type === "expense") expense += Number(t.amount) || 0;
     });
     const balance = wallets.reduce((sum, w) => sum + walletBalance(w, transactions), 0);
-    return { income, expense, balance, monthCount: transactions.filter((t) => isSameMonth(t.date, ref)).length };
-  }, [transactions, wallets]);
+    const equity = wallets.filter(isInvestment).reduce((sum, w) => sum + walletBalance(w, transactions), 0);
+    const hasEquity = wallets.some(isInvestment);
+    const lastLog = kasLog[0] || null;
+    return { income, expense, balance, equity, hasEquity, lastLog, monthCount: transactions.filter((t) => isSameMonth(t.date, ref)).length };
+  }, [transactions, wallets, kasLog]);
 
   // Data pertama kali belum siap: kartu sambutan tetap langsung tampil (jadi
   // kartu dari halaman awal tetap punya tempat mendarat), sisanya menunggu.
@@ -724,7 +802,8 @@ export default function KasRumahApp({
             onSeeWallets={() => setView("wallets")}
             notifSlot={view === "dashboard" ? notifSlotDark || notifSlot : null}
             onOpenTx={(tx) => setTxDetailId(tx.id)}
-            onAdjustBalance={wallets.length ? () => setAdjustModal({ walletId: wallets[0].id }) : undefined}
+            onAdjustBalance={wallets.length ? () => setAdjustModal({ walletId: (wallets.find((w) => !isInvestment(w)) || wallets[0]).id }) : undefined}
+            onOpenLog={() => setShowLog(true)}
             onBackToPicker={onBackToPicker}
             heroLayoutId={view === "dashboard" ? heroLayoutId : undefined}
             morphIn={morphIn}
@@ -944,12 +1023,17 @@ export default function KasRumahApp({
       </AnimatePresence>
 
       <AnimatePresence>
+        {showLog && <KasLogPanel key="kas-log" log={kasLog} onClose={() => setShowLog(false)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showMenu && (
           <MenuPanel
             key="menu"
             userName={userName}
             onClose={() => setShowMenu(false)}
             onOpenCategories={() => setCategoryPanel(true)}
+            onOpenLog={() => setShowLog(true)}
             onTransfer={view === "wallets" ? () => setTransferModal(true) : null}
             onSwitchApp={onSwitchApp || onBackToPicker}
             onLogout={onLogout}
@@ -995,7 +1079,7 @@ function KasHero({ layoutId, fadeIn, notifSlot, onBackToPicker, onOpenMenu }) {
   );
 }
 
-function DashboardPage({ onAdjustBalance, userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
+function DashboardPage({ onAdjustBalance, onOpenLog, userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
   return (
     <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
       <div className="max-w-2xl mx-auto px-4 pb-32">
@@ -1041,6 +1125,14 @@ function DashboardPage({ onAdjustBalance, userName, totals, recent, transactions
           <div style={{ fontSize: 33, fontWeight: 700, color: COLORS.ink, marginTop: 8, letterSpacing: "-0.02em" }}>
             <RollingNumber value={fmtRupiah(totals.balance)} />
           </div>
+          {totals.hasEquity && (
+            <div className="flex items-center" style={{ gap: 5, fontSize: 12, color: COLORS.muted, marginTop: 2 }}>
+              <TrendingUp size={13} className="shrink-0" />
+              <span>
+                termasuk saham <RollingNumber value={fmtRupiah(totals.equity)} />
+              </span>
+            </div>
+          )}
           {onAdjustBalance && (
             <button
               type="button"
@@ -1050,6 +1142,18 @@ function DashboardPage({ onAdjustBalance, userName, totals, recent, transactions
             >
               <SlidersHorizontal size={13} />
               Sesuaikan saldo
+            </button>
+          )}
+          {totals.lastLog && (
+            <button
+              type="button"
+              onClick={onOpenLog}
+              className="flex items-center text-left w-full"
+              style={{ gap: 5, marginTop: 10, fontSize: 11.5, color: COLORS.muted, border: "none", background: "transparent", padding: 0, minHeight: 24 }}
+            >
+              <Clock3 size={12} className="shrink-0" />
+              <span className="truncate">Terakhir diperbarui {stamp(totals.lastLog.by, totals.lastLog.at)}</span>
+              <ChevronRight size={12} className="shrink-0" />
             </button>
           )}
 
@@ -1166,18 +1270,24 @@ function txVisual(tx, catById, walById, withDay = false) {
   const wallet = walById[tx.walletId];
   const toWallet = walById[tx.toWalletId];
   const isAdjust = !!tx.adjustment;
-  const Icon = isTransfer ? ArrowLeftRight : hasSplit ? Split : isAdjust && !category ? SlidersHorizontal : CATEGORY_ICONS[category?.icon] || Tag;
+  const isValuation = !!tx.valuation;
+  const Icon = isTransfer ? ArrowLeftRight : isValuation ? (isIncome ? TrendingUp : TrendingDown) : hasSplit ? Split : isAdjust && !category ? SlidersHorizontal : CATEGORY_ICONS[category?.icon] || Tag;
   const color = isTransfer ? COLORS.muted : category?.color || (isAdjust ? "#8B6F47" : isIncome ? COLORS.safe : COLORS.out);
-  const catName = hasSplit ? `${tx.splits.length} kategori` : category?.name || (isAdjust ? "Penyesuaian saldo" : "Tanpa kategori");
+  const catName = isValuation
+    ? `Nilai saham ${isIncome ? "naik" : "turun"}`
+    : hasSplit
+    ? `${tx.splits.length} kategori`
+    : category?.name || (isAdjust ? "Penyesuaian saldo" : "Tanpa kategori");
   const title = isTransfer ? `${wallet?.name || "?"} → ${toWallet?.name || "?"}` : tx.note || catName;
   const clock = new Date(tx.date).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }).replace(":", ".");
   const time = withDay ? `${dayLabel(tx.date)}, ${clock}` : clock;
+  const who = tx.updatedBy && tx.updatedAt && tx.createdAt && tx.updatedAt !== tx.createdAt ? tx.updatedBy : tx.createdBy;
   const meta = isTransfer
     ? `Transfer${Number(tx.fee) > 0 ? ` · biaya ${fmtRupiah(tx.fee)}` : ""} · ${time}`
-    : `${isAdjust && category ? "Penyesuaian · " : ""}${tx.note ? catName + " · " : ""}${wallet?.name || "?"} · ${time}`;
+    : `${isAdjust && category ? "Penyesuaian · " : ""}${tx.note ? catName + " · " : ""}${wallet?.name || "?"} · ${time}${who ? " · " + who : ""}`;
   const sign = isIncome ? "+" : isTransfer ? "" : "−";
   const amountColor = isTransfer ? COLORS.muted : isIncome ? COLORS.safe : COLORS.expenseText;
-  return { isAdjust, isIncome, isTransfer, hasSplit, category, wallet, toWallet, Icon, color, catName, title, meta, sign, amountColor };
+  return { isValuation, isAdjust, isIncome, isTransfer, hasSplit, category, wallet, toWallet, Icon, color, catName, title, meta, sign, amountColor };
 }
 
 function TxIcon({ Icon, color, isTransfer, size = 42, radius = 14 }) {
@@ -1379,15 +1489,17 @@ function TxDetailSheet({ tx, catById, walById, onClose, onEdit, onDuplicate, onD
             </>
           ) : (
             <>
-              {v.isAdjust && row("Jenis", `Penyesuaian saldo (${v.isIncome ? "bertambah" : "berkurang"})`)}
-              {!v.hasSplit && row("Kategori", v.category?.name || (v.isAdjust ? "Tanpa rincian" : "Tanpa kategori"))}
+              {v.isValuation && row("Jenis", `Perubahan nilai saham (${v.isIncome ? "naik" : "turun"})`)}
+              {v.isAdjust && !v.isValuation && row("Jenis", `Penyesuaian saldo (${v.isIncome ? "bertambah" : "berkurang"})`)}
+              {!v.hasSplit && !v.isValuation && row("Kategori", v.category?.name || (v.isAdjust ? "Tanpa rincian" : "Tanpa kategori"))}
               {row("Dompet", v.wallet?.name || "?")}
             </>
           )}
           {row("Tanggal", fmtDateTime(tx.date))}
           {tx.note && !v.isTransfer && v.title !== tx.note && row("Catatan", tx.note)}
           {tx.note && v.isTransfer && row("Catatan", tx.note)}
-          {row("Dicatat", tx.createdBy || "?")}
+          {row("Dicatat", stamp(tx.createdBy, tx.createdAt || tx.date))}
+          {tx.updatedAt && tx.createdAt && tx.updatedAt !== tx.createdAt && row("Terakhir diubah", stamp(tx.updatedBy, tx.updatedAt))}
         </div>
 
         {v.hasSplit && (
@@ -1500,6 +1612,8 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
               {wallets.map((w) => {
                 const Icon = WALLET_ICONS[w.icon] || Wallet;
                 const bal = walletBalance(w, transactions);
+                const invest = isInvestment(w);
+                const last = walletLastActivity(w, transactions);
                 return (
                   <div key={w.id} className="rounded-2xl p-3.5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
                     <div className="flex items-center gap-3">
@@ -1507,8 +1621,15 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                         <Icon size={19} color={w.color} />
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 14 }}>
-                          {w.name}
+                        <div className="flex items-center" style={{ gap: 6 }}>
+                          <span className="font-semibold truncate" style={{ color: COLORS.ink, fontSize: 14 }}>
+                            {w.name}
+                          </span>
+                          {invest && (
+                            <span className="shrink-0" style={{ fontSize: 10.5, fontWeight: 600, color: COLORS.safe, background: COLORS.safeBg, borderRadius: 999, padding: "2px 8px" }}>
+                              Saham
+                            </span>
+                          )}
                         </div>
                         <div className="font-bold mt-0.5" style={{ fontSize: 16, color: bal < 0 ? COLORS.out : COLORS.primary }}>
                           <RollingNumber value={fmtRupiah(bal)} />
@@ -1523,14 +1644,20 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                         </button>
                       </div>
                     </div>
+                    {last && (
+                      <div className="flex items-center truncate" style={{ gap: 5, marginTop: 8, fontSize: 11.5, color: COLORS.muted }}>
+                        <Clock3 size={12} className="shrink-0" />
+                        <span className="truncate">Diperbarui {stamp(last.by, last.at)}</span>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => onAdjust(w)}
                       className="w-full flex items-center justify-center"
-                      style={{ marginTop: 12, height: 40, gap: 6, borderRadius: 12, border: "none", background: COLORS.soft, color: COLORS.primary, fontSize: 13, fontWeight: 600 }}
+                      style={{ marginTop: 10, height: 40, gap: 6, borderRadius: 12, border: "none", background: COLORS.soft, color: COLORS.primary, fontSize: 13, fontWeight: 600 }}
                     >
-                      <SlidersHorizontal size={14} />
-                      Sesuaikan saldo
+                      {invest ? <TrendingUp size={14} /> : <SlidersHorizontal size={14} />}
+                      {invest ? "Update nilai saham" : "Sesuaikan saldo"}
                     </button>
                   </div>
                 );
@@ -1847,11 +1974,11 @@ function AnalysisSection({ transactions, catById, walById }) {
   const prev = useMemo(() => previousRange(range), [range]);
 
   const scoped = useMemo(
-    () => transactions.filter((t) => t.type === txType && inRange(t.date, range)),
+    () => transactions.filter((t) => t.type === txType && countsAsFlow(t) && inRange(t.date, range)),
     [transactions, txType, range]
   );
   const scopedPrev = useMemo(
-    () => transactions.filter((t) => t.type === txType && inRange(t.date, prev)),
+    () => transactions.filter((t) => t.type === txType && countsAsFlow(t) && inRange(t.date, prev)),
     [transactions, txType, prev]
   );
 
@@ -1893,7 +2020,7 @@ function AnalysisSection({ transactions, catById, walById }) {
         expense = 0;
       transactions.forEach((t) => {
         const d = new Date(t.date);
-        if (d < from || d > to) return;
+        if (d < from || d > to || !countsAsFlow(t)) return;
         if (t.type === "income") income += Number(t.amount) || 0;
         else if (t.type === "expense") expense += Number(t.amount) || 0;
       });
@@ -2659,6 +2786,7 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
   const [error, setError] = useState("");
 
   const wallet = wallets.find((w) => w.id === walletId);
+  const invest = isInvestment(wallet);
   const current = wallet ? walletBalance(wallet, transactions) : 0;
   const actualValue = evalAmount(actual);
   const hasValue = actual !== "" && actualValue !== null;
@@ -2687,6 +2815,8 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
       date: new Date().toISOString(),
       note: note.trim(),
       adjustment: true,
+      // Saham: perubahan nilai, tidak dihitung sebagai pemasukan/pengeluaran.
+      ...(invest ? { valuation: true, categoryId: "" } : {}),
     });
   };
 
@@ -2698,8 +2828,10 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
       <div className="flex flex-col" style={{ gap: 16 }}>
         <div className="flex items-center justify-between" style={{ gap: 10 }}>
           <div className="min-w-0">
-            <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 20, lineHeight: 1.2 }}>Sesuaikan saldo</div>
-            <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 2 }}>Isi uang yang benar-benar ada sekarang.</div>
+            <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 20, lineHeight: 1.2 }}>{invest ? "Update nilai saham" : "Sesuaikan saldo"}</div>
+            <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 2 }}>
+              {invest ? "Isi total equity saham sekarang." : "Isi uang yang benar-benar ada sekarang."}
+            </div>
           </div>
           <button
             type="button"
@@ -2734,14 +2866,16 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
         )}
 
         <div className="flex items-center justify-between" style={{ background: COLORS.soft, borderRadius: 16, padding: "12px 14px" }}>
-          <span style={{ fontSize: 13, color: COLORS.muted }}>Saldo {wallet ? wallet.name : ""} di aplikasi</span>
+          <span style={{ fontSize: 13, color: COLORS.muted }}>
+            {invest ? "Nilai" : "Saldo"} {wallet ? wallet.name : ""} di aplikasi
+          </span>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
             <RollingNumber value={fmtRupiah(current)} />
           </span>
         </div>
 
         <div className="text-center">
-          <div style={{ fontSize: 13, color: COLORS.muted }}>Saldo sebenarnya sekarang</div>
+          <div style={{ fontSize: 13, color: COLORS.muted }}>{invest ? "Nilai saham sekarang (total equity)" : "Saldo sebenarnya sekarang"}</div>
           <label className="flex items-baseline justify-center" style={{ gap: 6, cursor: "text" }}>
             <span style={{ fontSize: 22, fontWeight: 600, color: actual ? COLORS.ink : "#B9BDB5" }}>Rp</span>
             <input
@@ -2784,7 +2918,9 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
               style={{ gap: 12, borderRadius: 16, padding: "12px 14px" }}
             >
               <span className="flex-1 min-w-0" style={{ fontSize: 13, color: COLORS.ink, lineHeight: 1.35 }}>
-                {kind === "expense"
+                {invest && kind
+                  ? `Nilai saham ${kind === "income" ? "naik" : "turun"}. Dicatat sebagai perubahan nilai — tidak dihitung sebagai pemasukan/pengeluaran.`
+                  : kind === "expense"
                   ? "Selisihnya dicatat sebagai pengeluaran (ikut dihitung di Keluar bulan ini)."
                   : kind === "income"
                   ? "Selisihnya dicatat sebagai pemasukan."
@@ -2797,6 +2933,7 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
 
             <Collapse open={!!kind}>
               <div className="flex flex-col" style={{ gap: 12 }}>
+                {!invest && (
                 <div>
                   <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted, marginBottom: 8 }}>
                     {kind === "income" ? "Dari mana? (opsional)" : "Kebanyakan untuk apa? (opsional)"}
@@ -2822,10 +2959,11 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
                     ))}
                   </div>
                 </div>
+                )}
                 <input
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="Catatan (opsional), mis. belanja minggu ini"
+                  placeholder={invest ? "Catatan (opsional), mis. update dari aplikasi sekuritas" : "Catatan (opsional), mis. belanja minggu ini"}
                   aria-label="Catatan penyesuaian"
                   className="inp w-full"
                   style={{ ...fieldStyle, padding: "0 14px" }}
@@ -2857,9 +2995,9 @@ function BalanceAdjustSheet({ wallets, transactions, initialWalletId, categories
             disabled={saving}
             style={{ height: 52, borderRadius: 16, border: "none", background: COLORS.primary, color: "#FFFFFF", fontSize: 15, fontWeight: 600, opacity: saving ? 0.6 : 1 }}
           >
-            {saving ? "Menyimpan..." : hasValue && !kind ? "Tutup" : "Simpan saldo"}
+            {saving ? "Menyimpan..." : hasValue && !kind ? "Tutup" : invest ? "Simpan nilai saham" : "Simpan saldo"}
           </button>
-          {onRecordIncome && (
+          {onRecordIncome && !invest && (
             <button
               type="button"
               onClick={() => onRecordIncome(walletId)}
@@ -3565,6 +3703,7 @@ function WalletModal({ mode, wallet, saving, onClose, onSubmit }) {
             { key: "bank", label: "Bank" },
             { key: "ewallet", label: "E-Wallet" },
             { key: "card", label: "Kartu" },
+            { key: "stock", label: "Saham" },
           ].map((o) => {
             const Icon = WALLET_ICONS[o.key];
             const active = icon === o.key;
@@ -3602,7 +3741,7 @@ function WalletModal({ mode, wallet, saving, onClose, onSubmit }) {
         </div>
       </Field>
 
-      <Field label="Saldo awal" className="mb-4">
+      <Field label={icon === "stock" ? "Nilai saham sekarang (total equity)" : "Saldo awal"} className="mb-4">
         <div className="flex items-center gap-2 px-3 rounded-lg" style={{ border: `1px solid ${COLORS.border}` }}>
           <span className="text-sm font-medium" style={{ color: COLORS.inkSoft }}>
             Rp
@@ -3617,7 +3756,9 @@ function WalletModal({ mode, wallet, saving, onClose, onSubmit }) {
           />
         </div>
         <div className="text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>
-          Isi saldo yang ada sekarang. Transaksi berikutnya bakal dihitung dari sini.
+          {icon === "stock"
+            ? "Naik-turunnya nilai saham nanti diperbarui lewat \"Update nilai saham\" dan tidak dihitung sebagai pemasukan/pengeluaran."
+            : "Isi saldo yang ada sekarang. Transaksi berikutnya bakal dihitung dari sini."}
         </div>
       </Field>
 
@@ -3807,6 +3948,84 @@ function CategoryModal({ mode, category, initialKind, saving, onClose, onSubmit 
 }
 
 // --- Menu ---------------------------------------------------------------
+// Riwayat perubahan Kas Rumah: siapa mengubah apa dan kapan, termasuk yang
+// sudah dihapus. Dikelompokkan per hari, terbaru di atas.
+const LOG_ICON = { tx: Receipt, wallet: Wallet, category: Tag };
+
+function KasLogPanel({ log, onClose }) {
+  const groups = useMemo(() => {
+    const out = [];
+    for (const e of log) {
+      const label = dayLabel(e.at);
+      let g = out.find((x) => x.label === label);
+      if (!g) {
+        g = { label, items: [] };
+        out.push(g);
+      }
+      g.items.push(e);
+    }
+    return out;
+  }, [log]);
+
+  return (
+    <SidePanel onClose={onClose}>
+      <Stagger>
+        <StaggerItem className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+          <div className="flex items-center" style={{ gap: 8 }}>
+            <Clock3 size={18} color={COLORS.primary} />
+            <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 19 }}>Riwayat Perubahan</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Tutup"
+            className="flex items-center justify-center"
+            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.muted }}
+          >
+            <X size={17} />
+          </button>
+        </StaggerItem>
+        {groups.length === 0 ? (
+          <StaggerItem>
+            <div className="text-center" style={{ padding: "28px 16px", borderRadius: 20, border: `1px dashed ${COLORS.border}`, fontSize: 13, color: COLORS.muted }}>
+              Belum ada perubahan yang tercatat. Mulai sekarang setiap tambah, ubah, dan hapus di Kas Rumah dicatat di sini.
+            </div>
+          </StaggerItem>
+        ) : (
+          groups.map((g) => (
+            <StaggerItem key={g.label} style={{ marginBottom: 16 }}>
+              <div className="uppercase" style={{ padding: "0 4px 8px", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: COLORS.safe }}>
+                {g.label}
+              </div>
+              <div style={{ background: COLORS.card, borderRadius: 20, boxShadow: TX_CARD_SHADOW }}>
+                {g.items.map((e, i) => {
+                  const Ic = LOG_ICON[e.kind] || Clock3;
+                  return (
+                    <div key={e.id}>
+                      {i > 0 && <div style={{ height: 1, background: "#F1EFE7", marginLeft: 58 }} />}
+                      <div className="flex items-start" style={{ gap: 12, padding: "12px 14px" }}>
+                        <span className="shrink-0 flex items-center justify-center" style={{ width: 32, height: 32, borderRadius: 11, background: COLORS.soft, color: COLORS.primary }}>
+                          <Ic size={15} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div style={{ fontSize: 13.5, color: COLORS.ink, lineHeight: 1.35 }}>
+                            <b style={{ fontWeight: 600 }}>{e.by}</b> {e.text}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 2 }}>{fmtDateTime(e.at)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </StaggerItem>
+          ))
+        )}
+      </Stagger>
+    </SidePanel>
+  );
+}
+
 function MenuItem({ icon: Icon, label, onClick, last, danger }) {
   return (
     <button
@@ -3822,7 +4041,7 @@ function MenuItem({ icon: Icon, label, onClick, last, danger }) {
   );
 }
 
-function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchApp, onLogout }) {
+function MenuPanel({ userName, onClose, onOpenCategories, onOpenLog, onTransfer, onSwitchApp, onLogout }) {
   // Drawer ditutup dulu (animasi keluarnya jalan sendiri), lalu aksinya
   // langsung dijalankan.
   const runAndClose = (fn) => {
@@ -3853,6 +4072,7 @@ function MenuPanel({ userName, onClose, onOpenCategories, onTransfer, onSwitchAp
       </StaggerItem>
 
       <StaggerItem className="rounded-2xl overflow-hidden" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
+        <MenuItem icon={Clock3} label="Riwayat Perubahan" onClick={() => runAndClose(onOpenLog)} />
         <MenuItem icon={Tag} label="Kelola Kategori" onClick={() => runAndClose(onOpenCategories)} last={!onTransfer} />
         {onTransfer && (
           <MenuItem icon={ArrowLeftRight} label="Transfer Antar Dompet" onClick={() => runAndClose(onTransfer)} last />
