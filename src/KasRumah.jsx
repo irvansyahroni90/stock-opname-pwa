@@ -71,7 +71,7 @@ import {
   CollapseList,
   Segmented,
   Chip,
-  Hero,
+  HeroBar,
   highlightMotion,
   SPRING,
   DUR,
@@ -675,7 +675,7 @@ export default function KasRumahApp({
       <div className="h-full" style={{ color: COLORS.ink, fontFamily: KAS_FONT }}>
         <SharedStyles />
         <Backdrop color={COLORS.bg} />
-        <div className="relative max-w-2xl mx-auto px-4" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        <div className="relative max-w-2xl mx-auto px-4">
           <KasHero userName={userName} layoutId={heroLayoutId} fadeIn={!morphIn} />
           <motion.div
             className="text-center text-sm"
@@ -939,77 +939,41 @@ export default function KasRumahApp({
 // Kartu sambutan hijau pekat. Dipisah jadi komponen sendiri karena juga
 // dipakai di layar tunggu (supaya kartu dari halaman awal selalu punya
 // tempat mendarat walau datanya belum siap).
-function KasHero({ userName, layoutId, fadeIn, notifSlot, onBackToPicker, onOpenMenu }) {
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 10) return "Selamat pagi";
-    if (h < 15) return "Selamat siang";
-    if (h < 18) return "Selamat sore";
-    return "Selamat malam";
-  }, []);
+function KasHero({ layoutId, fadeIn, notifSlot, onBackToPicker, onOpenMenu }) {
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const barBtn = { width: 44, height: 44, borderRadius: 999, border: "none", background: "rgba(255,255,255,0.14)", color: "#FFFFFF" };
 
+  // Bilah hijau ringkas (sama seperti Agenda) — lapisan warnanya berubah
+  // bentuk dari kartu di halaman awal; isinya menyusul.
   return (
-    <Hero color={COLORS.primary} layoutId={layoutId} fadeIn={fadeIn}>
-      <div className="flex items-start justify-between gap-3">
+    <HeroBar color={COLORS.primary} layoutId={layoutId} fadeIn={fadeIn}>
+      <div className="flex items-center justify-between" style={{ gap: 10, minHeight: 44 }}>
         <div className="min-w-0">
-          <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.72)" }}>
-            {greeting}
-            {userName ? `, ${userName}` : ""} <span>👋</span>
-          </span>
-          <h1
-            style={{
-              fontFamily: "'Baloo 2', cursive",
-              fontWeight: 700,
-              fontSize: 44,
-              lineHeight: 1.02,
-              letterSpacing: "-0.5px",
-              color: "#fff",
-              marginTop: 4,
-            }}
-          >
-            Kas
-            <br />
-            Rumah
-          </h1>
+          <div className="capitalize truncate" style={{ fontSize: 12.5, color: "rgba(255,255,255,0.72)" }}>
+            {todayLabel}
+          </div>
+          <h1 style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 24, lineHeight: 1.15, color: "#FFFFFF" }}>Kas Rumah</h1>
         </div>
         {(onBackToPicker || onOpenMenu) && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center shrink-0" style={{ gap: 6 }}>
             {notifSlot}
-            <button
-              onClick={onBackToPicker}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(255,255,255,0.14)" }}
-              title="Ganti aplikasi"
-            >
-              <LayoutGrid size={19} color="#EAF3EC" />
+            <button onClick={onBackToPicker} className="flex items-center justify-center" style={barBtn} title="Ganti aplikasi">
+              <LayoutGrid size={18} />
             </button>
-            <button
-              onClick={onOpenMenu}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(255,255,255,0.14)" }}
-              title="Menu"
-            >
-              <Menu size={19} color="#EAF3EC" />
+            <button onClick={onOpenMenu} className="flex items-center justify-center" style={barBtn} title="Menu">
+              <Menu size={18} />
             </button>
           </div>
         )}
       </div>
-      <div
-        className="inline-flex items-center gap-2 capitalize self-start"
-        style={{ background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)" }}
-      >
-        <Calendar size={15} color="rgba(255,255,255,0.88)" />
-        {todayLabel}
-      </div>
-    </Hero>
+    </HeroBar>
   );
 }
 
 function DashboardPage({ userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
   return (
     <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-      <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="max-w-2xl mx-auto px-4 pb-32">
         <KasHero
           userName={userName}
           layoutId={heroLayoutId}

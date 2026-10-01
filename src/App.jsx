@@ -1824,17 +1824,6 @@ export default function App() {
     return { pending, total: toBuy.length };
   }, [toBuy]);
 
-  const agendaCounts = useMemo(() => {
-    const active = tasks.filter((t) => !t.done);
-    let soon = 0,
-      overdue = 0;
-    active.forEach((t) => {
-      const u = taskUrgency(t, dueThreshold);
-      if (u === "overdue") overdue++;
-      else if (u === "soon") soon++;
-    });
-    return { all: active.length, soon, overdue, done: tasks.length - active.length };
-  }, [tasks, dueThreshold]);
 
   const todayLabel = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -1871,21 +1860,6 @@ export default function App() {
     return { list: pending.slice(0, 3), total };
   }, [toBuy, toBuyLinger]);
 
-  const taskLinger = useRecentlyToggled(tasks, "done");
-  const agendaPreview = useMemo(() => {
-    const rank = { overdue: 0, soon: 1, normal: 2, none: 3 };
-    const active = tasks
-      .filter((t) => !t.done || taskLinger.includes(t.id))
-      .sort((a, b) => {
-        const ua = taskUrgency(a, dueThreshold),
-          ub = taskUrgency(b, dueThreshold);
-        if (rank[ua] !== rank[ub]) return rank[ua] - rank[ub];
-        const da = a.deadline ? daysUntil(a.deadline) : Infinity;
-        const db = b.deadline ? daysUntil(b.deadline) : Infinity;
-        return da - db;
-      });
-    return { list: active.slice(0, 3), total: active.filter((t) => !t.done).length };
-  }, [tasks, dueThreshold, taskLinger]);
 
   // Masih mengecek status login ke Firebase (sekejap saat pertama buka app)
   if (authUser === undefined) {
@@ -2015,64 +1989,41 @@ export default function App() {
                 onBlocked={() => pendingEdit && setBlockedNotice(pendingEdit.itemName)}
               >
                 <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
-                  <div className="max-w-2xl mx-auto px-4 pb-32" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-                    {/* Kartu sambutan menempel penuh ke tepi layar dengan tinggi
-                        dikunci. Lapisan warnanya yang berubah bentuk dari kartu
-                        di halaman awal; isinya menyusul. */}
-                    <Hero color={COLORS.navy} layoutId={view === "dashboard" ? morphId("stok") : undefined} fadeIn={!entryMorph}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <span className="text-sm font-medium" style={{ color: "#A8B2CC" }}>
-                              {greeting}
-                              {userName ? `, ${userName}` : ""} <span>👋</span>
-                            </span>
-                            <h1
-                              style={{
-                                fontFamily: "'Baloo 2', cursive",
-                                fontWeight: 700,
-                                fontSize: 44,
-                                lineHeight: 1.02,
-                                letterSpacing: "-0.5px",
-                                color: "#fff",
-                                marginTop: 4,
-                              }}
-                            >
-                              Stok
-                              <br />
-                              Rumah
-                            </h1>
+                  <div className="max-w-2xl mx-auto px-4 pb-32">
+                    {/* Bilah navy ringkas (sama seperti Agenda) — lapisan warnanya
+                        berubah bentuk dari kartu di halaman awal; isinya menyusul. */}
+                    <HeroBar color={COLORS.navy} layoutId={view === "dashboard" ? morphId("stok") : undefined} fadeIn={!entryMorph}>
+                      <div className="flex items-center justify-between" style={{ gap: 10 }}>
+                        <div className="min-w-0">
+                          <div className="capitalize truncate" style={{ fontSize: 12.5, color: "rgba(255,255,255,0.72)" }}>
+                            {todayLabel}
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {view === "dashboard" ? notifBellOnDark : null}
-                            <button
-                              onClick={() => attemptNavigate(closeApp)}
-                              className="w-10 h-10 rounded-full flex items-center justify-center"
-                              style={{ background: "rgba(255,255,255,0.14)" }}
-                              title="Ganti aplikasi"
-                            >
-                              <LayoutGrid size={19} color="#fff" />
-                            </button>
-                            <button
-                              onClick={() => setShowUserMenu(true)}
-                              className="w-10 h-10 rounded-full flex items-center justify-center"
-                              style={{ background: "rgba(255,255,255,0.14)" }}
-                              title="Menu"
-                            >
-                              <Menu size={19} color="#fff" />
-                            </button>
-                          </div>
+                          <h1 style={{ fontFamily: "'Baloo 2', cursive", fontWeight: 700, fontSize: 26, lineHeight: 1.1, color: "#FFFFFF" }}>Stok Rumah</h1>
                         </div>
-                        <div
-                          className="inline-flex items-center gap-2 capitalize self-start"
-                          style={{ background: "rgba(255,255,255,0.12)", borderRadius: 22, padding: "8px 14px", fontSize: 13, color: "#E6EAF3" }}
-                        >
-                          <Calendar size={15} color="#E6EAF3" />
-                          {todayLabel}
+                        <div className="flex items-center shrink-0" style={{ gap: 6 }}>
+                          {view === "dashboard" ? notifBellOnDark : null}
+                          <button
+                            onClick={() => attemptNavigate(closeApp)}
+                            className="flex items-center justify-center"
+                            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: "rgba(255,255,255,0.14)", color: "#FFFFFF" }}
+                            title="Ganti aplikasi"
+                          >
+                            <LayoutGrid size={18} />
+                          </button>
+                          <button
+                            onClick={() => setShowUserMenu(true)}
+                            className="flex items-center justify-center"
+                            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: "rgba(255,255,255,0.14)", color: "#FFFFFF" }}
+                            title="Menu"
+                          >
+                            <Menu size={18} />
+                          </button>
                         </div>
-                    </Hero>
+                      </div>
+                    </HeroBar>
 
                     {/* Tiga ringkasan angka — sekaligus pintasan ke daftar yang sesuai */}
-                    <Rise delay={0.12} className="grid gap-2" style={{ marginTop: 16, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                    <Rise delay={0.12} className="grid gap-2" style={{ marginTop: 14, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
                       <HomeStat
                         icon={ThumbsUp}
                         value={stockCounts.total - stockPreview.total}
@@ -2178,40 +2129,6 @@ export default function App() {
                         />
                       </Rise>
 
-                      <Rise delay={0.25}>
-                        <SectionCard
-                          icon={CalendarCheck2}
-                          iconBg={COLORS.iconAgendaBg}
-                          iconFg={COLORS.iconAgendaFg}
-                          title="Agenda Rumah"
-                          subtitle={agendaPreview.total > 0 ? `${agendaPreview.total} tugas aktif` : "Belum ada tugas"}
-                          badge={agendaCounts.overdue + agendaCounts.soon}
-                          badgeColor={agendaCounts.overdue > 0 ? COLORS.out : COLORS.low}
-                          onOpen={() => attemptNavigate(() => jumpToApp("agenda"))}
-                          rows={agendaPreview.list.map((task) => (
-                            <AgendaPreviewRow
-                              key={task.id}
-                              task={task}
-                              threshold={dueThreshold}
-                              onToggle={() => handleToggleTaskDone(task.id)}
-                              onClick={() => attemptNavigate(() => goToTask(task))}
-                            />
-                          ))}
-                          moreButton={
-                            agendaPreview.total > 3 && (
-                              <SeeAllButton
-                                count={agendaPreview.total - agendaPreview.list.length}
-                                onClick={() =>
-                                  attemptNavigate(() => {
-                                    setAgendaFilter("all");
-                                    jumpToApp("agenda");
-                                  })
-                                }
-                              />
-                            )
-                          }
-                        />
-                      </Rise>
                     </div>
                   </div>
                 </motion.div>
@@ -2976,34 +2893,6 @@ function ToBuyPreviewRow({ entry, onToggle, onClick }) {
   );
 }
 
-function AgendaPreviewRow({ task, threshold, onToggle, onClick }) {
-  const urgency = taskUrgency(task, threshold);
-  const meta = URGENCY_META[urgency];
-  return (
-    <div className="w-full flex items-center gap-2.5" style={{ background: COLORS.soft, borderRadius: 14, padding: "11px 12px" }}>
-      <CheckCircle
-        checked={!!task.done}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        color={COLORS.safe}
-        borderColor={COLORS.border}
-        title="Tandai selesai"
-      />
-      <button onClick={onClick} className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left">
-        <span className="truncate" style={{ color: COLORS.ink, fontSize: 13 }}>
-          {task.title}
-        </span>
-        <span className="shrink-0" style={{ color: meta ? meta.fg : COLORS.inkSoft, fontSize: 11 }}>
-          {deadlineLabel(task)}
-        </span>
-      </button>
-    </div>
-  );
-}
-
-// Kotak ringkasan angka di beranda — sekaligus pintasan ke daftar terkait.
 function HomeStat({ icon: Icon, value, label, bg, fg, textColor, onClick }) {
   return (
     <button
