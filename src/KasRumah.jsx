@@ -48,11 +48,15 @@ import {
   Coins,
   Clock3,
   SlidersHorizontal,
+  Gem,
+  RefreshCw,
+  ChevronUp,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { storageSet, storageSubscribe } from "./firebase";
 import { SharedStyles } from "./SharedStyles";
 import { scanReceipt, guessWallet, findDuplicate } from "./receiptScan";
+import { GOLD_BRANDS, BRAND_BY_KEY, isAutoBrand, todayWIB, fetchLatestPrices, fetchPriceHistory } from "./goldPrice";
 import {
   Sheet,
   Drawer,
@@ -72,6 +76,10 @@ import {
   CollapseList,
   Segmented,
   Chip,
+  Stepper,
+  AreaChart,
+  PairBars,
+  Donut,
   HeroBar,
   highlightMotion,
   SPRING,
@@ -120,12 +128,13 @@ const KAS_FONT = "'Poppins', system-ui, sans-serif";
 // Warna pendar saat transaksi dituju dari beranda/notifikasi.
 const HIGHLIGHT_RGB = "220,138,44";
 
-const TAB_ORDER = ["dashboard", "transactions", "wallets"];
+const TAB_ORDER = ["dashboard", "transactions", "wallets", "analysis"];
 
 const KAS_TABS = [
   { key: "dashboard", label: "Beranda", icon: Home },
   { key: "transactions", label: "Transaksi", icon: Receipt },
-  { key: "wallets", label: "Dompet", icon: Wallet },
+  { key: "wallets", label: "Aset", icon: Wallet },
+  { key: "analysis", label: "Analisis", icon: PieChart },
 ];
 
 // --- Ikon yang bisa dipilih untuk kategori & dompet ----------------------
@@ -323,6 +332,86 @@ function walletLastActivity(wallet, transactions) {
   return best;
 }
 
+// --- Emas: harga & nilai -------------------------------------------------
+const EMPTY_PRICES = { days: {}, sources: {}, historyLoaded: {} };
+
+function fmtGram(g) {
+  const n = Math.round((Number(g) || 0) * 1000) / 1000;
+  return String(n).replace(".", ",");
+}
+
+// Indeks harga per merek: daftar tanggal terurut + harganya, untuk mencari
+// "harga terakhir pada/ sebelum tanggal X" dengan cepat.
+function buildPriceIndex(prices) {
+  const byBrand = {};
+  Object.keys((prices && prices.days) || {})
+    .sort()
+    .forEach((date) => {
+      const day = prices.days[date] || {};
+      Object.entries(day).forEach(([brand, p]) => {
+        if (!p || !(p.s > 0)) return;
+        (byBrand[brand] = byBrand[brand] || []).push({ date, s: p.s, b: p.b || null });
+      });
+    });
+  // Riwayat sering tanpa harga buyback. Supaya grafik "buyback" tidak tampak
+  // anjlok/melonjak palsu, buyback yang kosong diperkirakan dari rasio
+  // buyback/jual di tanggal terdekat yang lengkap.
+  Object.values(byBrand).forEach((list) => {
+    const known = list.map((p, i) => (p.b ? i : -1)).filter((i) => i >= 0);
+    if (!known.length) return;
+    let k = 0;
+    list.forEach((p, i) => {
+      if (p.b) return;
+      while (k < known.length - 1 && Math.abs(known[k + 1] - i) <= Math.abs(known[k] - i)) k++;
+      const ref = list[known[k]];
+      p.b = Math.round(p.s * (ref.b / ref.s));
+      p.estimated = true;
+    });
+  });
+  return byBrand;
+}
+
+// Harga per gram sebuah merek pada tanggal tertentu (YYYY-MM-DD). Memakai
+// harga terakhir yang diketahui sebelum/pada tanggal itu; kalau belum ada,
+// harga paling awal yang tersimpan.
+function priceAt(index, brand, date, basis) {
+  const list = index[brand];
+  if (!list || !list.length) return null;
+  let lo = 0,
+    hi = list.length - 1,
+    found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].date <= date) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  const p = list[found >= 0 ? found : 0];
+  const perGram = basis === "buyback" && p.b ? p.b : p.s;
+  return { perGram, date: p.date, s: p.s, b: p.b };
+}
+
+function holdingPerGram(h, index, date, basis) {
+  if (!isAutoBrand(h.brand)) return Number(h.manualPrice) > 0 ? { perGram: Number(h.manualPrice), date: null, manual: true } : null;
+  return priceAt(index, h.brand, date, basis);
+}
+
+function holdingValue(h, index, date, basis) {
+  const p = holdingPerGram(h, index, date, basis);
+  return p ? (Number(h.grams) || 0) * p.perGram : 0;
+}
+
+// Sejak kapan emas dihitung. Tanpa tanggal beli, dianggap sudah dimiliki
+// sejak awal — jadi grafik menunjukkan naik-turun nilainya karena harga.
+function holdingStart(h) {
+  return h.buyDate || "0000-00-00";
+}
+
+function goldValueAt(gold, index, date, basis) {
+  return gold.reduce((sum, h) => (holdingStart(h) <= date ? sum + holdingValue(h, index, date, basis) : sum), 0);
+}
+
 function isSameMonth(iso, ref) {
   const d = new Date(iso);
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth();
@@ -434,7 +523,7 @@ function TopBar({ title, onBack, rightSlot, onOpenMenu, onSwitchApp, notifSlot }
 // Simpanan data terakhir selama aplikasi masih terbuka. Tanpa ini, Kas Rumah
 // menampilkan layar "Memuat data..." setiap kali dibuka ulang dari halaman
 // awal.
-let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null, log: null };
+let kasCache = { wallets: null, categories: null, transactions: null, toBuy: null, aliases: null, log: null, gold: null, goldPrices: null, settings: null };
 
 export default function KasRumahApp({
   userName,
@@ -466,6 +555,15 @@ export default function KasRumahApp({
   const [wallets, setWallets] = useState(() => kasCache.wallets || []);
   const [categories, setCategories] = useState(() => kasCache.categories || []);
   const [transactions, setTransactions] = useState(() => kasCache.transactions || []);
+
+  // Emas: kepemilikan (gram per pemilik & merek), harga harian, pengaturan.
+  const [gold, setGold] = useState(() => kasCache.gold || []);
+  const [goldPrices, setGoldPrices] = useState(() => kasCache.goldPrices || EMPTY_PRICES);
+  const [kasSettings, setKasSettings] = useState(() => kasCache.settings || {});
+  const [goldStatus, setGoldStatus] = useState("idle"); // idle | loading | ok | error
+  const [goldModal, setGoldModal] = useState(null); // { mode, holding? }
+  const [assetChooser, setAssetChooser] = useState(false);
+  const goldBasis = kasSettings.goldBasis === "buyback" ? "buyback" : "sell";
 
   const [txSearch, setTxSearch] = useState("");
   const [txFilter, setTxFilter] = useState("all"); // all | income | expense | transfer
@@ -551,6 +649,21 @@ export default function KasRumahApp({
         const next = Array.isArray(data) ? data : [];
         kasCache.toBuy = next;
         setToBuy(next);
+      }),
+      storageSubscribe("kas-gold", (data) => {
+        const next = Array.isArray(data) ? data : [];
+        kasCache.gold = next;
+        setGold(next);
+      }),
+      storageSubscribe("kas-gold-prices", (data) => {
+        const next = data && typeof data === "object" && data.days ? data : EMPTY_PRICES;
+        kasCache.goldPrices = next;
+        setGoldPrices(next);
+      }),
+      storageSubscribe("kas-settings", (data) => {
+        const next = data && typeof data === "object" ? data : {};
+        kasCache.settings = next;
+        setKasSettings(next);
       }),
       storageSubscribe("kas-log", (data) => {
         const next = Array.isArray(data) ? data : [];
@@ -700,9 +813,154 @@ export default function KasRumahApp({
     await Promise.all([persistCategories(categories.filter((x) => x.id !== id)), c ? logKas("category", `menghapus kategori ${c.name}`) : null]);
   };
 
+  // --- Emas -------------------------------------------------------------
+  const goldLabel = (h) => `${BRAND_BY_KEY[h.brand]?.label || "Emas"} ${fmtGram(h.grams)} gr milik ${h.owner}`;
+
+  const goldSavingRef = useRef(false);
+  const handleSaveGold = async (data, existing) => {
+    if (goldSavingRef.current) return;
+    goldSavingRef.current = true;
+    setTimeout(() => (goldSavingRef.current = false), 600);
+    const now = new Date().toISOString();
+    const next = existing
+      ? gold.map((g) => (g.id === existing.id ? { ...g, ...data, updatedBy: userName, updatedAt: now } : g))
+      : [...gold, { id: uid("gold"), ...data, createdBy: userName, createdAt: now, updatedBy: userName, updatedAt: now }];
+    setGold(next);
+    kasCache.gold = next;
+    setGoldModal(null);
+    await Promise.all([
+      storageSet("kas-gold", next),
+      logKas("gold", existing ? `mengubah emas jadi ${goldLabel({ ...existing, ...data })}` : `menambahkan emas ${goldLabel(data)}`),
+    ]);
+  };
+
+  const handleDeleteGold = async (id) => {
+    const h = gold.find((g) => g.id === id);
+    const next = gold.filter((g) => g.id !== id);
+    setGold(next);
+    kasCache.gold = next;
+    await Promise.all([storageSet("kas-gold", next), h ? logKas("gold", `menghapus emas ${goldLabel(h)}`) : null]);
+  };
+
+  const setGoldBasis = async (basis) => {
+    const next = { ...kasSettings, goldBasis: basis };
+    setKasSettings(next);
+    kasCache.settings = next;
+    await storageSet("kas-settings", next);
+  };
+
+  // Harga emas otomatis: dicek saat Kas dibuka (paling sering tiap 3 jam per
+  // perangkat), plus riwayat ke belakang sekali per merek untuk grafik.
+  const goldPricesRef = useRef(goldPrices);
+  goldPricesRef.current = goldPrices;
+  const goldBusyRef = useRef(false);
+  const goldBrandsUsed = useMemo(() => [...new Set(gold.map((g) => g.brand))].filter(isAutoBrand).sort(), [gold]);
+
+  const refreshGoldPrices = async ({ force = false } = {}) => {
+    const brands = goldBrandsUsed;
+    if (!brands.length || goldBusyRef.current) return;
+    const today = todayWIB();
+    const cur = goldPricesRef.current || EMPTY_PRICES;
+    const hasToday = brands.every((b) => cur.days[today] && cur.days[today][b]);
+    const tried = cur.historyTriedAt || {};
+    // Riwayat dicoba lagi paling cepat sehari sekali kalau sebelumnya gagal.
+    const needHistory = brands.some((b) => !(cur.historyLoaded || {})[b] && Date.now() - (tried[b] || 0) > 24 * 3600 * 1000);
+    let lastCheck = 0;
+    try {
+      lastCheck = Number(localStorage.getItem("kas-gold-checked") || 0);
+    } catch {
+      /* abaikan */
+    }
+    if (!force && hasToday && !needHistory) return;
+    if (!force && !needHistory && Date.now() - lastCheck < 3 * 3600 * 1000) return;
+    const markChecked = () => {
+      try {
+        localStorage.setItem("kas-gold-checked", String(Date.now()));
+      } catch {
+        /* abaikan */
+      }
+    };
+
+    goldBusyRef.current = true;
+    setGoldStatus("loading");
+    try {
+      const latest = await fetchLatestPrices(brands);
+      const added = {}; // date -> brand -> {s,b}
+      const addedSources = {};
+      const historyDone = {};
+      const historyTried = {};
+      Object.entries(latest).forEach(([brand, p]) => {
+        added[p.date] = { ...(added[p.date] || {}), [brand]: { s: p.s, b: p.b } };
+        addedSources[brand] = p.source;
+      });
+      for (const brand of brands) {
+        const base = goldPricesRef.current || EMPTY_PRICES;
+        if ((base.historyLoaded || {})[brand]) continue;
+        if (!force && Date.now() - ((base.historyTriedAt || {})[brand] || 0) <= 24 * 3600 * 1000) continue;
+        historyTried[brand] = Date.now();
+        const hist = await fetchPriceHistory(brand);
+        if (!hist) continue;
+        Object.entries(hist).forEach(([date, p]) => {
+          added[date] = { ...(added[date] || {}), [brand]: added[date]?.[brand] || p };
+        });
+        historyDone[brand] = true;
+      }
+
+      // Gabungkan dengan data TERBARU (mungkin baru diubah perangkat lain
+      // selama menunggu), lalu simpan hanya kalau ada yang berubah.
+      const base = goldPricesRef.current || EMPTY_PRICES;
+      let changed = false;
+      const days = { ...base.days };
+      Object.entries(added).forEach(([date, brandsOfDay]) => {
+        Object.entries(brandsOfDay).forEach(([brand, p]) => {
+          const old = days[date] && days[date][brand];
+          // Harga yang sudah ada dari "harga terbaru" tidak ditimpa riwayat,
+          // kecuali tanggal hari ini yang memang bisa diperbarui.
+          if (old && (old.s === p.s && old.b === p.b)) return;
+          if (old && !latest[brand]) return;
+          if (old && latest[brand] && latest[brand].date !== date) return;
+          days[date] = { ...(days[date] || {}), [brand]: p };
+          changed = true;
+        });
+      });
+      const next = {
+        days,
+        sources: { ...(base.sources || {}), ...addedSources },
+        historyLoaded: { ...(base.historyLoaded || {}), ...historyDone },
+        historyTriedAt: { ...(base.historyTriedAt || {}), ...historyTried },
+        checkedAt: new Date().toISOString(),
+      };
+      if (Object.keys(historyDone).length || Object.keys(historyTried).length) changed = true;
+      if (Object.keys(addedSources).some((k) => (base.sources || {})[k] !== addedSources[k])) changed = true;
+      if (changed) {
+        const keep = Object.keys(next.days).sort().slice(-800);
+        next.days = Object.fromEntries(keep.map((d) => [d, next.days[d]]));
+        setGoldPrices(next);
+        kasCache.goldPrices = next;
+        goldPricesRef.current = next;
+        await storageSet("kas-gold-prices", next);
+      }
+      setGoldStatus(Object.keys(latest).length ? "ok" : "error");
+    } catch {
+      setGoldStatus("error");
+    } finally {
+      markChecked();
+      goldBusyRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (loading) return;
+    refreshGoldPrices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, goldBrandsUsed.join(",")]);
+
+  const goldIndex = useMemo(() => buildPriceIndex(goldPrices), [goldPrices]);
+
   const handleConfirmedDelete = async () => {
     if (!confirmDelete) return;
-    if (confirmDelete.type === "tx") await handleDeleteTx(confirmDelete.id);
+    if (confirmDelete.type === "gold") await handleDeleteGold(confirmDelete.id);
+    else if (confirmDelete.type === "tx") await handleDeleteTx(confirmDelete.id);
     else if (confirmDelete.type === "wallet") await handleDeleteWallet(confirmDelete.id);
     else if (confirmDelete.type === "category") await handleDeleteCategory(confirmDelete.id);
     setConfirmDelete(null);
@@ -771,12 +1029,23 @@ export default function KasRumahApp({
     );
   }
 
+  const assetsNow = assetSnapshot(wallets, transactions, gold, goldIndex, goldBasis);
   const txDetail = txDetailId ? transactions.find((t) => t.id === txDetailId) || null : null;
 
   const fabAction = () => {
-    if (view === "wallets") setWalletModal({ mode: "add" });
+    if (view === "wallets") setAssetChooser(true);
     else setTxModal({ mode: "add", type: "expense" });
   };
+
+  // Calon nama pemilik emas: pengguna ini, semua yang pernah mencatat di Kas,
+  // dan pemilik emas yang sudah ada (jadi nama istri otomatis muncul).
+  const ownerOptions = [
+    ...new Set(
+      [userName, ...gold.map((g) => g.owner), ...transactions.map((t) => t.createdBy), ...kasLog.map((e) => e.by)].filter(
+        (n) => n && n !== "?"
+      )
+    ),
+  ];
 
   return (
     <div className="h-full" style={{ color: COLORS.ink, fontFamily: KAS_FONT }}>
@@ -804,6 +1073,8 @@ export default function KasRumahApp({
             onOpenTx={(tx) => setTxDetailId(tx.id)}
             onAdjustBalance={wallets.length ? () => setAdjustModal({ walletId: (wallets.find((w) => !isInvestment(w)) || wallets[0]).id }) : undefined}
             onOpenLog={() => setShowLog(true)}
+            assets={assetsNow}
+            onOpenAnalysis={() => setView("analysis")}
             onBackToPicker={onBackToPicker}
             heroLayoutId={view === "dashboard" ? heroLayoutId : undefined}
             morphIn={morphIn}
@@ -826,9 +1097,18 @@ export default function KasRumahApp({
             onHighlightDone={() => setHighlightId(null)}
           />
 
-          <WalletsPage
+          <AssetsPage
             wallets={wallets}
             transactions={transactions}
+            gold={gold}
+            goldIndex={goldIndex}
+            goldBasis={goldBasis}
+            goldPrices={goldPrices}
+            goldStatus={goldStatus}
+            onRefreshGold={() => refreshGoldPrices({ force: true })}
+            onSetGoldBasis={setGoldBasis}
+            onAddGold={() => setGoldModal({ mode: "add" })}
+            onEditGold={(h) => setGoldModal({ mode: "edit", holding: h })}
             onBack={() => setView("dashboard")}
             onOpenMenu={() => setShowMenu(true)}
             onSwitchApp={onBackToPicker}
@@ -836,6 +1116,21 @@ export default function KasRumahApp({
             onEdit={(w) => setWalletModal({ mode: "edit", wallet: w })}
             onDelete={(w) => setConfirmDelete({ type: "wallet", id: w.id, label: w.name })}
             onAdjust={(w) => setAdjustModal({ walletId: w.id })}
+          />
+
+          <AnalysisPage
+            transactions={transactions}
+            wallets={wallets}
+            gold={gold}
+            goldIndex={goldIndex}
+            goldBasis={goldBasis}
+            catById={catById}
+            walById={walById}
+            onBack={() => setView("dashboard")}
+            onOpenMenu={() => setShowMenu(true)}
+            onSwitchApp={onBackToPicker}
+            notifSlot={view === "analysis" ? notifSlot : null}
+            onGoAssets={() => setView("wallets")}
           />
         </TabPager>
       </div>
@@ -846,6 +1141,7 @@ export default function KasRumahApp({
         active={view}
         onChange={setView}
         onAdd={fabAction}
+        showAdd={view !== "analysis"}
         color={COLORS.primary}
         accent={COLORS.accent}
         shadowRgb="18,48,30"
@@ -897,6 +1193,44 @@ export default function KasRumahApp({
                 () => setTxDetailId(null),
                 () => setConfirmDelete({ type: "tx", id: txDetail.id, label: txDetail.note || "transaksi ini" })
               )
+            }
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {assetChooser && (
+          <AssetChooserSheet
+            key="asset-chooser"
+            onClose={() => setAssetChooser(false)}
+            onWallet={() => swapSheet(() => setAssetChooser(false), () => setWalletModal({ mode: "add" }))}
+            onGold={() => swapSheet(() => setAssetChooser(false), () => setGoldModal({ mode: "add" }))}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {goldModal && (
+          <GoldSheet
+            key={`gold-${goldModal.holding ? goldModal.holding.id : "new"}`}
+            mode={goldModal.mode}
+            holding={goldModal.holding}
+            ownerOptions={ownerOptions}
+            goldIndex={goldIndex}
+            goldBasis={goldBasis}
+            saving={saving}
+            onClose={() => setGoldModal(null)}
+            onSubmit={(data) => handleSaveGold(data, goldModal.holding || null)}
+            onDelete={
+              goldModal.holding
+                ? () => {
+                    const h = goldModal.holding;
+                    swapSheet(
+                      () => setGoldModal(null),
+                      () => setConfirmDelete({ type: "gold", id: h.id, label: `${BRAND_BY_KEY[h.brand]?.label || "Emas"} ${fmtGram(h.grams)} gr milik ${h.owner}` })
+                    );
+                  }
+                : undefined
             }
           />
         )}
@@ -1079,7 +1413,7 @@ function KasHero({ layoutId, fadeIn, notifSlot, onBackToPicker, onOpenMenu }) {
   );
 }
 
-function DashboardPage({ onAdjustBalance, onOpenLog, userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
+function DashboardPage({ assets, onOpenAnalysis, onAdjustBalance, onOpenLog, userName, totals, recent, transactions, catById, walById, walletCount, onOpenMenu, onSeeAll, onOpenTx, onOpenTransfer, onSeeWallets, onBackToPicker, notifSlot, heroLayoutId, morphIn }) {
   return (
     <motion.div layoutScroll className="h-full overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
       <div className="max-w-2xl mx-auto px-4 pb-32">
@@ -1218,8 +1552,8 @@ function DashboardPage({ onAdjustBalance, onOpenLog, userName, totals, recent, t
             style={{ padding: 16, borderRadius: 22, background: COLORS.card, border: `1px solid rgba(18,48,30,0.08)` }}
           >
             <Wallet size={19} color={COLORS.accent} />
-            <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.ink, marginTop: 8 }}>Dompet</div>
-            <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>{walletCount} aktif</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.ink, marginTop: 8 }}>Aset</div>
+            <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>{walletCount} dompet · emas · saham</div>
           </button>
         </Rise>
 
@@ -1251,7 +1585,47 @@ function DashboardPage({ onAdjustBalance, onOpenLog, userName, totals, recent, t
           )}
         </div>
 
-        <AnalysisSection transactions={transactions} catById={catById} walById={walById} />
+        {/* Ringkasan aset & pintu ke Analisis */}
+        <button
+          type="button"
+          onClick={onOpenAnalysis}
+          className="w-full text-left"
+          style={{ marginTop: 14, background: COLORS.card, borderRadius: 22, boxShadow: TX_CARD_SHADOW, padding: 16 }}
+        >
+          <div className="flex items-center justify-between" style={{ gap: 8 }}>
+            <span className="flex items-center" style={{ gap: 8, fontSize: 15.5, fontWeight: 600 }}>
+              <PieChart size={16} color={COLORS.primary} />
+              Aset & analisis
+            </span>
+            <span className="flex items-center" style={{ gap: 2, fontSize: 12, fontWeight: 600, color: COLORS.primaryLight }}>
+              Lihat <ChevronRight size={13} />
+            </span>
+          </div>
+          <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 10 }}>Total aset</div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>
+            <RollingNumber value={fmtRupiah(assets.total)} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <ProportionBar
+              parts={["kas", "saham", "emas"].map((k) => ({ key: k, value: assets[k], color: ASSET_COLORS[k] }))}
+              track={COLORS.track}
+            />
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 10 }}>
+            {["kas", "saham", "emas"].map((k) => (
+              <div key={k} className="min-w-0">
+                <div className="flex items-center" style={{ gap: 5, fontSize: 11, color: COLORS.muted }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 3, background: ASSET_COLORS[k] }} />
+                  {ASSET_LABELS[k]}
+                </div>
+                <div className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>
+                  {fmtCompactRp(assets[k])}
+                </div>
+                {k === "emas" && assets.grams > 0 && <div style={{ fontSize: 11, color: COLORS.muted }}>{fmtGram(assets.grams)} gram</div>}
+              </div>
+            ))}
+          </div>
+        </button>
         </Rise>
       </div>
     </motion.div>
@@ -1571,35 +1945,336 @@ function TxDetailSheet({ tx, catById, walById, onClose, onEdit, onDuplicate, onD
   );
 }
 
-// --- Halaman dompet -----------------------------------------------------
-function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, notifSlot, onEdit, onDelete, onAdjust }) {
-  const total = useMemo(
-    () => wallets.reduce((sum, w) => sum + walletBalance(w, transactions), 0),
-    [wallets, transactions]
+// --- Halaman Aset (dompet, saham, emas) -----------------------------------
+// Warna tetap tiap jenis aset (dipakai juga di Analisis). Sudah dicek
+// lewat validator palet: terbedakan juga untuk buta warna.
+const ASSET_COLORS = { kas: "#2E7D51", saham: "#3F6FB5", emas: "#B07A1E" };
+const ASSET_LABELS = { kas: "Kas & bank", saham: "Saham", emas: "Emas" };
+
+function fmtCompactRp(n) {
+  const v = Math.abs(Number(n) || 0);
+  const sign = n < 0 ? "−" : "";
+  if (v >= 1e9) return `${sign}Rp ${(v / 1e9).toFixed(v >= 1e10 ? 1 : 2).replace(".", ",")} M`;
+  if (v >= 1e6) return `${sign}Rp ${(v / 1e6).toFixed(v >= 1e8 ? 0 : 1).replace(".", ",")} jt`;
+  if (v >= 1e3) return `${sign}Rp ${Math.round(v / 1e3)} rb`;
+  return `${sign}Rp ${Math.round(v)}`;
+}
+
+function fmtShortDate(dateStr) {
+  if (!dateStr) return "";
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+}
+
+// Ringkasan aset saat ini — dipakai Beranda, Aset, dan Analisis.
+function assetSnapshot(wallets, transactions, gold, goldIndex, basis) {
+  let kas = 0,
+    saham = 0;
+  wallets.forEach((w) => {
+    const b = walletBalance(w, transactions);
+    if (isInvestment(w)) saham += b;
+    else kas += b;
+  });
+  const today = todayWIB();
+  const emas = gold.reduce((s, h) => s + holdingValue(h, goldIndex, today, basis), 0);
+  const grams = gold.reduce((s, h) => s + (Number(h.grams) || 0), 0);
+  return { kas, saham, emas, grams, total: kas + saham + emas };
+}
+
+// Batang proporsi: segmen bertumpuk dengan celah 2px warna permukaan.
+function ProportionBar({ parts, height = 8, track = "rgba(255,255,255,0.18)" }) {
+  const total = parts.reduce((s, p) => s + Math.max(0, p.value), 0);
+  return (
+    <div className="flex w-full overflow-hidden" style={{ height, borderRadius: 99, background: total > 0 ? "transparent" : track, gap: total > 0 ? 2 : 0 }}>
+      {total > 0 &&
+        parts
+          .filter((p) => p.value > 0)
+          .map((p) => (
+            <motion.span
+              key={p.key}
+              initial={false}
+              animate={{ flexGrow: p.value / total }}
+              transition={SPRING.page}
+              style={{ flexBasis: 0, background: p.color, borderRadius: 99, minWidth: 4 }}
+            />
+          ))}
+    </div>
   );
+}
+
+function AssetsPage({
+  wallets,
+  transactions,
+  gold,
+  goldIndex,
+  goldBasis,
+  goldPrices,
+  goldStatus,
+  onRefreshGold,
+  onSetGoldBasis,
+  onAddGold,
+  onEditGold,
+  onBack,
+  onOpenMenu,
+  onSwitchApp,
+  notifSlot,
+  onEdit,
+  onDelete,
+  onAdjust,
+}) {
+  const snap = useMemo(() => assetSnapshot(wallets, transactions, gold, goldIndex, goldBasis), [wallets, transactions, gold, goldIndex, goldBasis]);
+  const parts = ["kas", "saham", "emas"].map((k) => ({ key: k, value: snap[k], color: ASSET_COLORS[k] }));
+  const today = todayWIB();
+
+  // Harga per merek yang dipakai, beserta perubahan dari hari sebelumnya.
+  const brandRows = useMemo(() => {
+    const used = [...new Set(gold.map((h) => h.brand))].filter(isAutoBrand);
+    return used.map((brand) => {
+      const list = goldIndex[brand] || [];
+      const last = list[list.length - 1] || null;
+      const prev = list.length > 1 ? list[list.length - 2] : null;
+      const pick = (p) => (p ? (goldBasis === "buyback" && p.b ? p.b : p.s) : null);
+      return {
+        brand,
+        label: BRAND_BY_KEY[brand]?.label || brand,
+        price: pick(last),
+        sell: last?.s || null,
+        buyback: last?.b || null,
+        change: last && prev ? pick(last) - pick(prev) : null,
+        date: last?.date || null,
+        source: (goldPrices.sources || {})[brand] || "",
+      };
+    });
+  }, [gold, goldIndex, goldBasis, goldPrices]);
+
+  const owners = useMemo(() => {
+    const map = new Map();
+    gold.forEach((h) => {
+      const key = h.owner || "Tanpa nama";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(h);
+    });
+    return [...map.entries()].map(([owner, items]) => {
+      const grams = items.reduce((s, h) => s + (Number(h.grams) || 0), 0);
+      const value = items.reduce((s, h) => s + holdingValue(h, goldIndex, today, goldBasis), 0);
+      return { owner, items, grams, value };
+    });
+  }, [gold, goldIndex, goldBasis, today]);
+
+  const stale = brandRows.some((r) => r.date && r.date < today);
+  const missing = brandRows.some((r) => !r.price);
 
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 max-w-2xl mx-auto w-full px-4 pb-3" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
-        <TopBar
-          title="Dompet"
-          onBack={onBack}
-          onOpenMenu={onOpenMenu}
-          onSwitchApp={onSwitchApp}
-          notifSlot={notifSlot}
-        />
-        <div className="rounded-2xl p-3.5" style={{ background: COLORS.primary }}>
-          <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
-            Total saldo
+        <TopBar title="Aset" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
+        <div style={{ background: COLORS.primary, borderRadius: 20, padding: "14px 16px" }}>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.75)" }}>Total aset</div>
+          <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 25, color: "#fff", lineHeight: 1.2 }}>
+            <RollingNumber value={fmtRupiah(snap.total)} />
           </div>
-          <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 23, color: "#fff", lineHeight: 1.2 }}>
-            <RollingNumber value={fmtRupiah(total)} />
+          <div style={{ marginTop: 10 }}>
+            <ProportionBar parts={parts} />
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 10 }}>
+            {["kas", "saham", "emas"].map((k) => (
+              <div key={k} className="min-w-0">
+                <div className="flex items-center" style={{ gap: 5, fontSize: 11, color: "rgba(255,255,255,0.75)" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: ASSET_COLORS[k], boxShadow: "0 0 0 1.5px rgba(255,255,255,0.85)" }} />
+                  {ASSET_LABELS[k]}
+                </div>
+                <div className="truncate" style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginTop: 1 }}>
+                  {fmtCompactRp(snap[k])}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
       <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
         <div className="max-w-2xl mx-auto px-4 pb-32">
+          {/* ---- Emas ---- */}
+          <div className="flex items-center justify-between" style={{ padding: "6px 4px 8px" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: ASSET_COLORS.emas }}>
+              EMAS{snap.grams > 0 ? ` · ${fmtGram(snap.grams)} GR` : ""}
+            </span>
+            {gold.length > 0 && (
+              <Segmented
+                ariaLabel="Nilai emas memakai"
+                value={goldBasis}
+                onChange={onSetGoldBasis}
+                height={30}
+                fontSize={11.5}
+                activeBg={COLORS.primary}
+                inkSoft={COLORS.muted}
+                trackBg={COLORS.soft}
+                style={{ width: 168, borderRadius: 11, padding: 2 }}
+                options={[
+                  { value: "sell", label: "Harga jual" },
+                  { value: "buyback", label: "Buyback" },
+                ]}
+              />
+            )}
+          </div>
+
+          {gold.length === 0 ? (
+            <div className="text-center" style={{ background: COLORS.card, borderRadius: 20, border: `1px dashed ${COLORS.border}`, padding: "22px 16px" }}>
+              <Gem size={26} color={ASSET_COLORS.emas} style={{ margin: "0 auto 8px" }} />
+              <div style={{ fontSize: 13, color: COLORS.muted, lineHeight: 1.45 }}>
+                Catat emas milikmu atau keluarga dalam gram. Nilainya ikut harga emas hari ini secara otomatis.
+              </div>
+              <button
+                type="button"
+                onClick={onAddGold}
+                className="inline-flex items-center"
+                style={{ marginTop: 12, gap: 6, height: 40, padding: "0 16px", borderRadius: 999, border: "none", background: COLORS.primary, color: "#fff", fontSize: 13, fontWeight: 600 }}
+              >
+                <Plus size={15} /> Tambah emas
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              {/* Harga hari ini */}
+              {brandRows.length > 0 && (
+                <div style={{ background: COLORS.card, borderRadius: 20, boxShadow: TX_CARD_SHADOW, padding: "12px 14px" }}>
+                  <div className="flex items-center justify-between" style={{ gap: 8 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.muted }}>
+                      {goldBasis === "buyback" ? "Harga buyback" : "Harga jual"} per gram
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onRefreshGold}
+                      disabled={goldStatus === "loading"}
+                      aria-label="Perbarui harga emas"
+                      title="Perbarui harga emas"
+                      className="flex items-center justify-center shrink-0"
+                      style={{ width: 34, height: 34, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.primary }}
+                    >
+                      <motion.span
+                        className="flex"
+                        animate={goldStatus === "loading" ? { rotate: 360 } : { rotate: 0 }}
+                        transition={goldStatus === "loading" ? { repeat: Infinity, duration: 0.9, ease: "linear" } : { duration: 0 }}
+                      >
+                        <RefreshCw size={15} />
+                      </motion.span>
+                    </button>
+                  </div>
+                  {brandRows.map((r, i) => (
+                    <div key={r.brand} className="flex items-center" style={{ gap: 10, paddingTop: 8, marginTop: i ? 8 : 4, borderTop: i ? `1px solid ${COLORS.soft}` : "none" }}>
+                      <span className="flex-1 min-w-0">
+                        <span className="block" style={{ fontSize: 14, fontWeight: 600 }}>
+                          {r.label}
+                        </span>
+                        <span className="block truncate" style={{ fontSize: 11.5, color: COLORS.muted }}>
+                          {r.date ? `${fmtShortDate(r.date)}${r.source ? " · " + r.source : ""}` : "Belum ada harga"}
+                          {r.price && goldBasis === "sell" && r.buyback ? ` · buyback ${fmtShortRupiah(r.buyback)}` : ""}
+                          {r.price && goldBasis === "buyback" && r.sell ? ` · jual ${fmtShortRupiah(r.sell)}` : ""}
+                        </span>
+                      </span>
+                      <span className="text-right shrink-0">
+                        <span className="block" style={{ fontSize: 14, fontWeight: 700 }}>
+                          {r.price ? fmtRupiah(r.price) : "–"}
+                        </span>
+                        {r.change !== null && r.change !== 0 && (
+                          <span className="flex items-center justify-end" style={{ gap: 2, fontSize: 11.5, fontWeight: 600, color: r.change > 0 ? COLORS.safe : COLORS.expenseText }}>
+                            {r.change > 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                            {fmtShortRupiah(Math.abs(r.change))}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  <AnimatePresence initial={false}>
+                    {(goldStatus === "error" || (goldStatus !== "loading" && (stale || missing))) && (
+                      <motion.div
+                        key="warn"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        style={{ overflow: "hidden" }}
+                      >
+                        <div style={{ marginTop: 10, fontSize: 11.5, color: COLORS.muted, background: COLORS.soft, borderRadius: 10, padding: "8px 10px", lineHeight: 1.4 }}>
+                          {goldStatus === "error"
+                            ? "Belum bisa mengambil harga terbaru (cek internet). Sementara memakai harga terakhir yang tersimpan."
+                            : missing
+                            ? "Harga sedang diambil otomatis…"
+                            : "Harga hari ini biasanya terbit sekitar pukul 09.30 WIB. Sementara memakai harga terakhir."}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {/* Per pemilik */}
+              {owners.map((o) => (
+                <div key={o.owner} style={{ background: COLORS.card, borderRadius: 20, boxShadow: TX_CARD_SHADOW }}>
+                  <div className="flex items-center" style={{ gap: 10, padding: "12px 14px 6px" }}>
+                    <span className="flex items-center justify-center shrink-0" style={{ width: 34, height: 34, borderRadius: 999, background: "#F6EBD7", color: ASSET_COLORS.emas, fontWeight: 700, fontSize: 14 }}>
+                      {(o.owner || "?").charAt(0).toUpperCase()}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600 }}>
+                        {o.owner}
+                      </span>
+                      <span className="block" style={{ fontSize: 12, color: COLORS.muted }}>
+                        {fmtGram(o.grams)} gram
+                      </span>
+                    </span>
+                    <span style={{ fontSize: 15, fontWeight: 700 }}>{fmtRupiah(o.value)}</span>
+                  </div>
+                  {o.items.map((h) => {
+                    const p = holdingPerGram(h, goldIndex, today, goldBasis);
+                    const value = p ? (Number(h.grams) || 0) * p.perGram : 0;
+                    const buy = Number(h.buyTotal) || 0;
+                    const pl = buy > 0 && p ? value - buy : null;
+                    return (
+                      <button
+                        key={h.id}
+                        type="button"
+                        onClick={() => onEditGold(h)}
+                        className="w-full flex items-center text-left"
+                        style={{ gap: 10, padding: "10px 14px", borderTop: `1px solid ${COLORS.soft}` }}
+                      >
+                        <Gem size={15} color={ASSET_COLORS.emas} className="shrink-0" />
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate" style={{ fontSize: 13.5, fontWeight: 500 }}>
+                            {BRAND_BY_KEY[h.brand]?.label || "Emas"}
+                            {h.brand === "lainnya" && h.label ? ` · ${h.label}` : ""} · {fmtGram(h.grams)} gr
+                          </span>
+                          <span className="block truncate" style={{ fontSize: 11.5, color: COLORS.muted }}>
+                            {p ? `${fmtShortRupiah(p.perGram)}/gr` : "Harga belum ada"}
+                            {pl !== null && (
+                              <span style={{ color: pl >= 0 ? COLORS.safe : COLORS.expenseText }}>
+                                {" "}
+                                · {pl >= 0 ? "untung" : "rugi"} {fmtShortRupiah(Math.abs(pl))} ({buy > 0 ? `${pl >= 0 ? "+" : "−"}${Math.abs((pl / buy) * 100).toFixed(1).replace(".", ",")}%` : ""})
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                        <span className="shrink-0" style={{ fontSize: 13.5, fontWeight: 600 }}>
+                          {p ? fmtShortRupiah(value) : "–"}
+                        </span>
+                        <ChevronRight size={14} color={COLORS.muted} className="shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={onAddGold}
+                className="flex items-center justify-center"
+                style={{ height: 44, gap: 6, borderRadius: 14, border: `1px dashed ${COLORS.border}`, background: "transparent", color: COLORS.primary, fontSize: 13, fontWeight: 600 }}
+              >
+                <Plus size={15} /> Tambah emas
+              </button>
+            </div>
+          )}
+
+          {/* ---- Dompet ---- */}
+          <div style={{ padding: "18px 4px 8px", fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: COLORS.safe }}>DOMPET · {wallets.length}</div>
           {wallets.length === 0 ? (
             <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
               <Wallet size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
@@ -1626,7 +2301,7 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                             {w.name}
                           </span>
                           {invest && (
-                            <span className="shrink-0" style={{ fontSize: 10.5, fontWeight: 600, color: COLORS.safe, background: COLORS.safeBg, borderRadius: 999, padding: "2px 8px" }}>
+                            <span className="shrink-0" style={{ fontSize: 10.5, fontWeight: 600, color: "#fff", background: ASSET_COLORS.saham, borderRadius: 999, padding: "2px 8px" }}>
                               Saham
                             </span>
                           )}
@@ -1636,11 +2311,11 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => onEdit(w)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }}>
-                          <Pencil size={12} color={COLORS.ink} />
+                        <button onClick={() => onEdit(w)} title={`Edit ${w.name}`} className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ border: `1px solid ${COLORS.border}` }}>
+                          <Pencil size={13} color={COLORS.ink} />
                         </button>
-                        <button onClick={() => onDelete(w)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${COLORS.out}55` }}>
-                          <Trash2 size={12} color={COLORS.out} />
+                        <button onClick={() => onDelete(w)} title={`Hapus ${w.name}`} className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ border: `1px solid ${COLORS.out}55` }}>
+                          <Trash2 size={13} color={COLORS.out} />
                         </button>
                       </div>
                     </div>
@@ -1667,6 +2342,248 @@ function WalletsPage({ wallets, transactions, onBack, onOpenMenu, onSwitchApp, n
         </div>
       </motion.div>
     </div>
+  );
+}
+
+// Tombol + di halaman Aset: pilih mau menambah apa.
+function AssetChooserSheet({ onClose, onWallet, onGold }) {
+  const opt = (Icon, color, title, sub, onClick) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center text-left"
+      style={{ gap: 14, padding: "14px 14px", borderRadius: 18, border: `1px solid ${COLORS.border}`, background: "#fff" }}
+    >
+      <span className="flex items-center justify-center shrink-0" style={{ width: 46, height: 46, borderRadius: 15, background: `${color}1F`, color }}>
+        <Icon size={21} />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block" style={{ fontSize: 15, fontWeight: 600 }}>
+          {title}
+        </span>
+        <span className="block" style={{ fontSize: 12.5, color: COLORS.muted }}>
+          {sub}
+        </span>
+      </span>
+      <ChevronRight size={16} color={COLORS.muted} />
+    </button>
+  );
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 19, marginBottom: 14 }}>Tambah aset</div>
+      <div className="flex flex-col" style={{ gap: 10 }}>
+        {opt(Wallet, ASSET_COLORS.kas, "Dompet / rekening / saham", "Tunai, bank, e-wallet, kartu, atau akun saham", onWallet)}
+        {opt(Gem, ASSET_COLORS.emas, "Emas", "Dalam gram, nilainya ikut harga emas harian", onGold)}
+      </div>
+    </Overlay>
+  );
+}
+
+// Tambah / edit kepemilikan emas.
+function GoldSheet({ mode, holding, ownerOptions, goldIndex, goldBasis, saving, onClose, onSubmit, onDelete }) {
+  const [owner, setOwner] = useState(holding?.owner || ownerOptions[0] || "");
+  const [customOwner, setCustomOwner] = useState(false);
+  const [brand, setBrand] = useState(holding?.brand || "antam");
+  const [grams, setGrams] = useState(holding ? String(holding.grams) : "1");
+  const [label, setLabel] = useState(holding?.label || "");
+  const [manualPrice, setManualPrice] = useState(holding?.manualPrice ? String(holding.manualPrice) : "");
+  const [buyTotal, setBuyTotal] = useState(holding?.buyTotal ? String(holding.buyTotal) : "");
+  const [buyDate, setBuyDate] = useState(holding?.buyDate || "");
+  const [showBuy, setShowBuy] = useState(!!(holding && (holding.buyTotal || holding.buyDate)));
+  const [error, setError] = useState("");
+
+  const g = parseFloat(String(grams).replace(",", "."));
+  const manual = !isAutoBrand(brand);
+  const draft = { brand, grams: g, manualPrice: Number(String(manualPrice).replace(/[^\d]/g, "")) || 0 };
+  const p = Number.isFinite(g) && g > 0 ? holdingPerGram(draft, goldIndex, todayWIB(), goldBasis) : null;
+
+  const fieldStyle = { height: 46, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.ink, padding: "0 14px", "--inp-focus": COLORS.primary };
+  const allOwners = [...new Set([...ownerOptions, ...(holding?.owner ? [holding.owner] : [])].filter(Boolean))];
+
+  const submit = () => {
+    const name = owner.trim();
+    if (!name) return setError("Isi nama pemiliknya dulu.");
+    if (!Number.isFinite(g) || g <= 0) return setError("Isi berat emasnya (gram).");
+    if (manual && !(draft.manualPrice > 0)) return setError("Untuk merek lain, isi harga per gramnya.");
+    setError("");
+    onSubmit({
+      owner: name,
+      brand,
+      grams: Math.round(g * 1000) / 1000,
+      label: manual ? label.trim() : "",
+      manualPrice: manual ? draft.manualPrice : null,
+      buyTotal: Number(String(buyTotal).replace(/[^\d]/g, "")) || null,
+      buyDate: showBuy && buyDate ? buyDate : null,
+    });
+  };
+
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        <div className="flex items-center justify-between" style={{ gap: 10 }}>
+          <div style={{ fontFamily: KAS_FONT, fontWeight: 700, fontSize: 20 }}>{mode === "edit" ? "Edit emas" : "Tambah emas"}</div>
+          <button
+            type="button"
+            aria-label="Tutup"
+            title="Tutup"
+            onClick={onClose}
+            className="flex items-center justify-center shrink-0"
+            style={{ width: 44, height: 44, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.muted }}
+          >
+            <X size={17} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted, marginBottom: 8 }}>Milik siapa?</div>
+          <div className="flex flex-wrap" style={{ gap: 6 }}>
+            {allOwners.map((o) => (
+              <Chip
+                key={o}
+                active={!customOwner && owner === o}
+                onClick={() => {
+                  setCustomOwner(false);
+                  setOwner(o);
+                }}
+                height={38}
+                activeBg={COLORS.primary}
+                ink={COLORS.ink}
+                inkSoft={COLORS.muted}
+                border={COLORS.border}
+              >
+                {o}
+              </Chip>
+            ))}
+            <Chip
+              dashed={!customOwner}
+              active={customOwner}
+              onClick={() => {
+                if (!customOwner) {
+                  setCustomOwner(true);
+                  setOwner("");
+                }
+              }}
+              height={38}
+              activeBg={COLORS.primary}
+              ink={COLORS.ink}
+              inkSoft={COLORS.muted}
+              border={COLORS.border}
+            >
+              + Nama lain
+            </Chip>
+          </div>
+          <Collapse open={customOwner}>
+            <div style={{ paddingTop: 8 }}>
+              <input autoFocus={customOwner} value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="mis. nama istri / anak" aria-label="Nama pemilik" className="inp w-full" style={fieldStyle} />
+            </div>
+          </Collapse>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted, marginBottom: 8 }}>Merek</div>
+          <div className="flex flex-wrap" style={{ gap: 6 }}>
+            {GOLD_BRANDS.map((b) => (
+              <Chip key={b.key} active={brand === b.key} onClick={() => setBrand(b.key)} height={38} activeBg={ASSET_COLORS.emas} ink={COLORS.ink} inkSoft={COLORS.muted} border={COLORS.border}>
+                {b.label}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: COLORS.muted, marginBottom: 8 }}>Berat</div>
+          <Stepper value={grams} onChange={setGrams} step={1} min={0} unit="gram" ariaLabel="Berat emas" trackBg={COLORS.soft} ink={COLORS.ink} inkSoft={COLORS.muted} />
+        </div>
+
+        <Collapse open={manual}>
+          <div className="flex" style={{ gap: 8 }}>
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Jenis (opsional)" aria-label="Jenis emas" className="inp flex-1 min-w-0" style={fieldStyle} />
+            <input
+              value={manualPrice}
+              onChange={(e) => setManualPrice(e.target.value.replace(/[^\d]/g, ""))}
+              inputMode="numeric"
+              placeholder="Harga / gram"
+              aria-label="Harga per gram"
+              className="inp flex-1 min-w-0"
+              style={fieldStyle}
+            />
+          </div>
+          <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 6 }}>Merek lain belum punya harga otomatis — harga per gram diisi manual dan bisa diubah kapan saja.</div>
+        </Collapse>
+
+        <div className="flex items-center" style={{ gap: 12, background: "#FAF3E6", borderRadius: 16, padding: "12px 14px" }}>
+          <Gem size={18} color={ASSET_COLORS.emas} className="shrink-0" />
+          <span className="flex-1 min-w-0" style={{ fontSize: 12.5, color: COLORS.ink, lineHeight: 1.4 }}>
+            {p
+              ? `${goldBasis === "buyback" ? "Buyback" : "Harga jual"} ${BRAND_BY_KEY[brand]?.label || ""} ${fmtRupiah(p.perGram)}/gr${p.date ? ` (${fmtShortDate(p.date)})` : ""}`
+              : manual
+              ? "Isi harga per gram untuk melihat nilainya."
+              : "Harga merek ini akan diambil otomatis setelah disimpan."}
+          </span>
+          <span className="shrink-0" style={{ fontSize: 15, fontWeight: 700 }}>
+            {p && Number.isFinite(g) && g > 0 ? fmtShortRupiah(g * p.perGram) : ""}
+          </span>
+        </div>
+
+        <div>
+          {!showBuy && (
+            <button type="button" onClick={() => setShowBuy(true)} style={{ height: 36, padding: "0 2px", border: "none", background: "transparent", color: COLORS.safe, fontSize: 13, fontWeight: 600 }}>
+              + Harga & tanggal beli (untuk hitung untung/rugi)
+            </button>
+          )}
+          <Collapse open={showBuy}>
+            <div className="flex" style={{ gap: 8 }}>
+              <label className="flex flex-col flex-1 min-w-0" style={{ gap: 6 }}>
+                <span style={{ fontSize: 12, color: COLORS.muted }}>Total harga beli</span>
+                <input
+                  value={buyTotal}
+                  onChange={(e) => setBuyTotal(e.target.value.replace(/[^\d]/g, ""))}
+                  inputMode="numeric"
+                  placeholder="Rp"
+                  className="inp w-full"
+                  style={fieldStyle}
+                />
+              </label>
+              <label className="flex flex-col flex-1 min-w-0" style={{ gap: 6 }}>
+                <span style={{ fontSize: 12, color: COLORS.muted }}>Tanggal beli</span>
+                <input type="date" value={buyDate} max={todayWIB()} onChange={(e) => setBuyDate(e.target.value)} className="inp w-full" style={fieldStyle} />
+              </label>
+            </div>
+          </Collapse>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.div
+              key="err"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: DUR.fast }}
+              style={{ fontSize: 12.5, color: COLORS.out, overflow: "hidden" }}
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex flex-col" style={{ gap: 8 }}>
+          <button type="button" onClick={submit} disabled={saving} style={{ height: 52, borderRadius: 16, border: "none", background: COLORS.primary, color: "#FFFFFF", fontSize: 15, fontWeight: 600 }}>
+            {mode === "edit" ? "Simpan perubahan" : "Simpan emas"}
+          </button>
+          {mode === "edit" && onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex items-center justify-center"
+              style={{ height: 46, gap: 8, borderRadius: 14, border: "none", background: COLORS.outBg, color: COLORS.expenseText, fontSize: 14, fontWeight: 600 }}
+            >
+              <Trash2 size={15} /> Hapus (sudah dijual / tidak dimiliki)
+            </button>
+          )}
+        </div>
+      </div>
+    </Overlay>
   );
 }
 
@@ -1794,73 +2711,6 @@ function breakdownParts(tx, dimension, catById, walById) {
   return tags.map((t) => ({ key: t, label: `#${t}`, color: COLORS.primaryLight, amount: Number(tx.amount) || 0 }));
 }
 
-function DonutChart({ slices, total, size = 168, stroke = 22 }) {
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
-  return (
-    <div className="relative mx-auto" style={{ width: size, height: size }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={COLORS.border} strokeWidth={stroke} />
-        {slices.map((s) => {
-          const frac = total > 0 ? s.total / total : 0;
-          const len = frac * circumference;
-          const el = (
-            <circle
-              key={s.key}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={stroke}
-              strokeDasharray={`${len} ${circumference - len}`}
-              strokeDashoffset={-offset}
-            />
-          );
-          offset += len;
-          return el;
-        })}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
-        <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>
-          Total
-        </div>
-        <div className="font-bold leading-tight" style={{ fontSize: 15, color: COLORS.ink }}>
-          {fmtShortRupiah(total)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TrendChart({ months }) {
-  const max = Math.max(1, ...months.map((m) => Math.max(m.income, m.expense)));
-  return (
-    <div className="flex items-end justify-between gap-2" style={{ height: 130 }}>
-      {months.map((m) => (
-        <div key={m.label} className="flex-1 flex flex-col items-center gap-1.5 h-full">
-          <div className="flex-1 w-full flex items-end justify-center gap-1">
-            <div
-              className="rounded-t"
-              style={{ width: "42%", height: `${Math.max(2, (m.income / max) * 100)}%`, background: COLORS.safe }}
-              title={`Masuk ${fmtRupiah(m.income)}`}
-            />
-            <div
-              className="rounded-t"
-              style={{ width: "42%", height: `${Math.max(2, (m.expense / max) * 100)}%`, background: COLORS.out }}
-              title={`Keluar ${fmtRupiah(m.expense)}`}
-            />
-          </div>
-          <div className="text-[10px] shrink-0" style={{ color: COLORS.inkSoft }}>
-            {m.label}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // Panel pemilih periode yang muncul dari bawah layar. Pilihan baru diterapkan
 // setelah tombol "Terapkan" ditekan, jadi tidak langsung mengubah tampilan
 // setiap kali disentuh. Memakai Sheet bersama, jadi ikut punya pegangan
@@ -1939,52 +2789,253 @@ function PeriodSheet({ draftPeriod, setDraftPeriod, draftFrom, setDraftFrom, dra
   );
 }
 
-function AnalysisSection({ transactions, catById, walById }) {
+// --- Halaman Analisis -------------------------------------------------------
+const toLocalDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+function axisRp(v) {
+  if (v === 0) return "0";
+  if (v >= 1e9) return `${(v / 1e9).toFixed(v % 1e9 ? 1 : 0).replace(".", ",")} M`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(v % 1e6 ? 1 : 0).replace(".", ",")} jt`;
+  if (v >= 1e3) return `${Math.round(v / 1e3)} rb`;
+  return String(Math.round(v));
+}
+
+function chartDate(dateStr, long) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("id-ID", long ? { weekday: "short", day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+}
+
+function pct(a, b) {
+  if (!(b > 0)) return null;
+  return ((a - b) / b) * 100;
+}
+
+function fmtPct(p) {
+  if (p === null || !Number.isFinite(p)) return "";
+  return `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(1).replace(".", ",")}%`;
+}
+
+// Riwayat nilai aset per hari: Kas & bank, Saham (dari saldo dompet) dan
+// Emas (gram × harga emas pada hari itu).
+function buildWealthSeries({ wallets, transactions, gold, goldIndex, basis, start, end }) {
+  const today = startOfDay(new Date());
+  const last = end > today ? today : startOfDay(end);
+  const first = startOfDay(start);
+  const totalDays = Math.max(1, Math.round((last - first) / 86400000) + 1);
+  const step = Math.max(1, Math.ceil(totalDays / 90));
+  const sampleDates = [];
+  for (let i = 0; i < totalDays; i += step) {
+    const d = new Date(first);
+    d.setDate(d.getDate() + i);
+    sampleDates.push(d);
+  }
+  if (toLocalDateStr(sampleDates[sampleDates.length - 1]) !== toLocalDateStr(last)) sampleDates.push(new Date(last));
+
+  const invest = new Set(wallets.filter(isInvestment).map((w) => w.id));
+  const known = new Set(wallets.map((w) => w.id));
+  let kas = 0,
+    saham = 0;
+  wallets.forEach((w) => {
+    const b = Number(w.initialBalance) || 0;
+    if (invest.has(w.id)) saham += b;
+    else kas += b;
+  });
+  const apply = (walletId, delta) => {
+    if (!known.has(walletId)) return;
+    if (invest.has(walletId)) saham += delta;
+    else kas += delta;
+  };
+  const txs = transactions.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+  let k = 0;
+  const out = { dates: [], kas: [], saham: [], emas: [] };
+  sampleDates.forEach((d) => {
+    const limit = endOfDay(d).getTime();
+    while (k < txs.length && new Date(txs[k].date).getTime() <= limit) {
+      const t = txs[k];
+      const amt = Number(t.amount) || 0;
+      if (t.type === "income") apply(t.walletId, amt);
+      else if (t.type === "expense") apply(t.walletId, -amt);
+      else if (t.type === "transfer") {
+        apply(t.walletId, -(amt + (Number(t.fee) || 0)));
+        apply(t.toWalletId, amt);
+      }
+      k++;
+    }
+    const ds = toLocalDateStr(d);
+    out.dates.push(ds);
+    out.kas.push(kas);
+    out.saham.push(saham);
+    out.emas.push(goldValueAt(gold, goldIndex, ds, basis));
+  });
+  return out;
+}
+
+// Pengelompokan arus kas: harian (≤10 hari), mingguan (≤62 hari), bulanan.
+function buildFlowBuckets(transactions, range) {
+  const start = startOfDay(range.start);
+  const end = range.end;
+  const days = Math.round((startOfDay(end) - start) / 86400000) + 1;
+  const buckets = [];
+  if (days <= 10) {
+    for (let i = 0; i < days; i++) {
+      const s = new Date(start);
+      s.setDate(s.getDate() + i);
+      buckets.push({ from: s, to: endOfDay(s), label: String(s.getDate()), title: s.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short" }) });
+    }
+  } else if (days <= 62) {
+    for (let s = new Date(start); s <= end; s.setDate(s.getDate() + 7)) {
+      const from = new Date(s);
+      const to = new Date(s);
+      to.setDate(to.getDate() + 6);
+      const toClamped = to > end ? new Date(end) : to;
+      buckets.push({
+        from,
+        to: endOfDay(toClamped),
+        label: `${from.getDate()}–${toClamped.getDate()}`,
+        title: `${from.toLocaleDateString("id-ID", { day: "numeric", month: "short" })} – ${toClamped.toLocaleDateString("id-ID", { day: "numeric", month: "short" })}`,
+      });
+    }
+  } else {
+    for (let m = new Date(start.getFullYear(), start.getMonth(), 1); m <= end; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+      const from = m < start ? start : m;
+      const to = endOfDay(new Date(m.getFullYear(), m.getMonth() + 1, 0));
+      buckets.push({ from, to: to > end ? end : to, label: m.toLocaleDateString("id-ID", { month: "short" }), title: m.toLocaleDateString("id-ID", { month: "long", year: "numeric" }) });
+    }
+  }
+  return buckets.map((b, i) => {
+    let a = 0,
+      c = 0;
+    transactions.forEach((t) => {
+      if (!countsAsFlow(t)) return;
+      const tt = new Date(t.date);
+      if (tt < b.from || tt > b.to) return;
+      if (t.type === "income") a += Number(t.amount) || 0;
+      else if (t.type === "expense") c += Number(t.amount) || 0;
+    });
+    return { key: `b${i}`, label: b.label, title: b.title, a, b: c };
+  });
+}
+
+const ANALYSIS_PERIODS = [
+  { key: "week", label: "7 Hari" },
+  { key: "month", label: "Bulan Ini" },
+  { key: "3m", label: "3 Bulan" },
+  { key: "6m", label: "6 Bulan" },
+  { key: "year", label: "Tahun Ini" },
+];
+
+function Card({ icon: Icon, iconColor, title, right, children, style }) {
+  return (
+    <div style={{ background: COLORS.card, borderRadius: 22, boxShadow: TX_CARD_SHADOW, padding: 16, ...style }}>
+      {(title || right) && (
+        <div className="flex items-center justify-between" style={{ gap: 8, marginBottom: 12 }}>
+          <div className="flex items-center" style={{ gap: 8 }}>
+            {Icon && <Icon size={16} color={iconColor || COLORS.primary} />}
+            <span style={{ fontWeight: 600, fontSize: 15.5 }}>{title}</span>
+          </div>
+          {right}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function Delta({ value, percent, goodWhenUp = true, suffix }) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  if (Math.round(value) === 0)
+    return (
+      <span style={{ fontSize: 12.5, color: COLORS.muted }}>
+        Tidak berubah{suffix ? ` · ${suffix}` : ""}
+      </span>
+    );
+  const up = value >= 0;
+  const good = goodWhenUp ? up : !up;
+  return (
+    <span className="inline-flex items-center" style={{ gap: 3, fontSize: 12.5, fontWeight: 600, color: value === 0 ? COLORS.muted : good ? COLORS.safe : COLORS.expenseText }}>
+      {value !== 0 && (up ? <TrendingUp size={13} /> : <TrendingDown size={13} />)}
+      {up ? "+" : "−"}
+      {fmtShortRupiah(Math.abs(value))}
+      {percent !== null && percent !== undefined && Number.isFinite(percent) ? ` (${fmtPct(percent)})` : ""}
+      {suffix ? <span style={{ fontWeight: 400, color: COLORS.muted }}>&nbsp;{suffix}</span> : null}
+    </span>
+  );
+}
+
+function LegendRow({ items }) {
+  return (
+    <div className="flex flex-wrap" style={{ gap: 12, marginTop: 10 }}>
+      {items.map((it) => (
+        <span key={it.label} className="flex items-center" style={{ gap: 6, fontSize: 12, color: COLORS.muted }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: it.color }} />
+          {it.label}
+          {it.value !== undefined && <b style={{ color: COLORS.ink, fontWeight: 600 }}>{it.value}</b>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AnalysisPage({ transactions, wallets, gold, goldIndex, goldBasis, catById, walById, onBack, onOpenMenu, onSwitchApp, notifSlot, onGoAssets }) {
   const [period, setPeriod] = useState("month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [dimension, setDimension] = useState("category");
-  const [txType, setTxType] = useState("expense");
-  const [drill, setDrill] = useState(null);
-  // Panel pemilih periode yang muncul dari bawah (pola seperti Stockbit):
-  // pilihan baru baru diterapkan setelah tombol "Terapkan" ditekan.
   const [periodSheet, setPeriodSheet] = useState(false);
-  const [draftPeriod, setDraftPeriod] = useState("month");
+  const [draftPeriod, setDraftPeriod] = useState("custom");
   const [draftFrom, setDraftFrom] = useState("");
   const [draftTo, setDraftTo] = useState("");
-
-  const openPeriodSheet = () => {
-    setDraftPeriod(period);
-    setDraftFrom(customFrom);
-    setDraftTo(customTo);
-    setPeriodSheet(true);
-  };
-
-  const applyPeriod = () => {
-    setPeriod(draftPeriod);
-    setCustomFrom(draftFrom);
-    setCustomTo(draftTo);
-    setDrill(null);
-    setPeriodSheet(false);
-  };
-
-  const periodLabel = PERIODS.find((p) => p.key === period)?.label || "Bulan Ini";
+  const [txType, setTxType] = useState("expense");
+  const [dimension, setDimension] = useState("category");
+  const [drill, setDrill] = useState(null);
 
   const range = useMemo(() => getRange(period, customFrom, customTo), [period, customFrom, customTo]);
   const prev = useMemo(() => previousRange(range), [range]);
+  const periodKey = `${period}-${customFrom}-${customTo}`;
 
-  const scoped = useMemo(
-    () => transactions.filter((t) => t.type === txType && countsAsFlow(t) && inRange(t.date, range)),
-    [transactions, txType, range]
+  // --- Kekayaan
+  const wealth = useMemo(
+    () => buildWealthSeries({ wallets, transactions, gold, goldIndex, basis: goldBasis, start: range.start, end: range.end }),
+    [wallets, transactions, gold, goldIndex, goldBasis, range]
   );
-  const scopedPrev = useMemo(
-    () => transactions.filter((t) => t.type === txType && countsAsFlow(t) && inRange(t.date, prev)),
-    [transactions, txType, prev]
-  );
+  const hasSaham = wallets.some(isInvestment);
+  const hasEmas = gold.length > 0;
+  const nPts = wealth.dates.length;
+  const totalAt = (i) => (wealth.kas[i] || 0) + (wealth.saham[i] || 0) + (wealth.emas[i] || 0);
+  const wealthNow = nPts ? totalAt(nPts - 1) : 0;
+  const wealthStart = nPts ? totalAt(0) : 0;
+  const wealthSeries = [
+    { key: "kas", label: ASSET_LABELS.kas, color: ASSET_COLORS.kas, values: wealth.kas },
+    ...(hasSaham ? [{ key: "saham", label: ASSET_LABELS.saham, color: ASSET_COLORS.saham, values: wealth.saham }] : []),
+    ...(hasEmas ? [{ key: "emas", label: ASSET_LABELS.emas, color: ASSET_COLORS.emas, values: wealth.emas }] : []),
+  ];
 
-  const total = useMemo(() => scoped.reduce((s, t) => s + (Number(t.amount) || 0), 0), [scoped]);
-  const totalPrev = useMemo(() => scopedPrev.reduce((s, t) => s + (Number(t.amount) || 0), 0), [scopedPrev]);
+  // --- Arus kas
+  const flow = useMemo(() => buildFlowBuckets(transactions, range), [transactions, range]);
+  const flowTotals = useMemo(() => {
+    let income = 0,
+      expense = 0,
+      incomePrev = 0,
+      expensePrev = 0;
+    transactions.forEach((t) => {
+      if (!countsAsFlow(t)) return;
+      const amt = Number(t.amount) || 0;
+      if (inRange(t.date, range)) {
+        if (t.type === "income") income += amt;
+        else if (t.type === "expense") expense += amt;
+      } else if (inRange(t.date, prev)) {
+        if (t.type === "income") incomePrev += amt;
+        else if (t.type === "expense") expensePrev += amt;
+      }
+    });
+    return { income, expense, incomePrev, expensePrev, net: income - expense };
+  }, [transactions, range, prev]);
+  const savingRate = flowTotals.income > 0 ? (flowTotals.net / flowTotals.income) * 100 : null;
 
+  // --- Komposisi
+  const scoped = useMemo(() => transactions.filter((t) => t.type === txType && countsAsFlow(t) && inRange(t.date, range)), [transactions, txType, range]);
+  const scopedPrev = useMemo(() => transactions.filter((t) => t.type === txType && countsAsFlow(t) && inRange(t.date, prev)), [transactions, txType, prev]);
+  const compTotal = useMemo(() => scoped.reduce((s, t) => s + (Number(t.amount) || 0), 0), [scoped]);
   const groups = useMemo(() => {
     const map = new Map();
     scoped.forEach((t) => {
@@ -1997,172 +3048,482 @@ function AnalysisSection({ transactions, catById, walById }) {
     });
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
   }, [scoped, dimension, catById, walById]);
-
   const groupsPrev = useMemo(() => {
     const map = new Map();
-    scopedPrev.forEach((t) => {
-      breakdownParts(t, dimension, catById, walById).forEach((p) => {
-        map.set(p.key, (map.get(p.key) || 0) + p.amount);
-      });
-    });
+    scopedPrev.forEach((t) => breakdownParts(t, dimension, catById, walById).forEach((p) => map.set(p.key, (map.get(p.key) || 0) + p.amount)));
     return map;
   }, [scopedPrev, dimension, catById, walById]);
+  const drillTx = useMemo(() => {
+    if (!drill) return [];
+    return scoped.filter((t) => breakdownParts(t, dimension, catById, walById).some((p) => p.key === drill.key)).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [drill, scoped, dimension, catById, walById]);
 
-  // Tren 6 bulan terakhir (selalu, terlepas dari rentang yang dipilih).
-  const trendMonths = useMemo(() => {
-    const out = [];
-    const now = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const from = ref;
-      const to = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
-      let income = 0,
-        expense = 0;
-      transactions.forEach((t) => {
-        const d = new Date(t.date);
-        if (d < from || d > to || !countsAsFlow(t)) return;
-        if (t.type === "income") income += Number(t.amount) || 0;
-        else if (t.type === "expense") expense += Number(t.amount) || 0;
-      });
-      out.push({ label: ref.toLocaleDateString("id-ID", { month: "short" }), income, expense });
-    }
-    return out;
-  }, [transactions]);
+  // --- Emas
+  const goldInfo = useMemo(() => {
+    if (!hasEmas) return null;
+    const today = todayWIB();
+    const startStr = wealth.dates[0] || today;
+    const valueNow = gold.reduce((s, h) => s + holdingValue(h, goldIndex, today, goldBasis), 0);
+    const valueStart = goldValueAt(gold, goldIndex, startStr, goldBasis);
+    const grams = gold.reduce((s, h) => s + (Number(h.grams) || 0), 0);
+    // Merek dengan gram terbanyak — dipakai untuk "harga per gram".
+    const byBrand = {};
+    gold.forEach((h) => (byBrand[h.brand] = (byBrand[h.brand] || 0) + (Number(h.grams) || 0)));
+    const mainBrand = Object.entries(byBrand).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const pNow = mainBrand ? (isAutoBrand(mainBrand) ? priceAt(goldIndex, mainBrand, today, goldBasis) : null) : null;
+    const pStart = mainBrand && isAutoBrand(mainBrand) ? priceAt(goldIndex, mainBrand, startStr, goldBasis) : null;
+    const owners = {};
+    gold.forEach((h) => {
+      const o = h.owner || "Tanpa nama";
+      owners[o] = owners[o] || { owner: o, grams: 0, value: 0 };
+      owners[o].grams += Number(h.grams) || 0;
+      owners[o].value += holdingValue(h, goldIndex, today, goldBasis);
+    });
+    // Perubahan nilai karena HARGA saja (emas yang baru dibeli di tengah
+    // periode dihitung dari harga di tanggal belinya, bukan dari nol).
+    let priceGain = 0,
+      refValue = 0;
+    gold.forEach((h) => {
+      const refDate = holdingStart(h) > startStr ? holdingStart(h) : startStr;
+      const pN = holdingPerGram(h, goldIndex, today, goldBasis);
+      const pR = holdingPerGram(h, goldIndex, refDate, goldBasis);
+      if (!pN || !pR) return;
+      const gr = Number(h.grams) || 0;
+      priceGain += gr * (pN.perGram - pR.perGram);
+      refValue += gr * pR.perGram;
+    });
+    const buyTotal = gold.reduce((s, h) => s + (Number(h.buyTotal) || 0), 0);
+    const valueWithBuy = gold.filter((h) => Number(h.buyTotal) > 0).reduce((s, h) => s + holdingValue(h, goldIndex, today, goldBasis), 0);
+    return {
+      valueNow,
+      valueStart,
+      priceGain,
+      refValue,
+      grams,
+      mainBrand,
+      pNow,
+      pStart,
+      owners: Object.values(owners).sort((a, b) => b.value - a.value),
+      buyTotal,
+      pl: buyTotal > 0 ? valueWithBuy - buyTotal : null,
+    };
+  }, [hasEmas, gold, goldIndex, goldBasis, wealth.dates]);
 
+  // --- Saham
+  const sahamNow = hasSaham && nPts ? wealth.saham[nPts - 1] : 0;
+  const sahamStart = hasSaham && nPts ? wealth.saham[0] : 0;
+  // Untung/rugi pasar = jumlah "Update nilai saham" di periode ini (setoran
+  // lewat transfer tidak dihitung sebagai untung).
+  const sahamGain = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.valuation && inRange(t.date, range))
+        .reduce((s, t) => s + (t.type === "income" ? 1 : -1) * (Number(t.amount) || 0), 0),
+    [transactions, range]
+  );
+
+  // --- Yang menarik
   const insights = useMemo(() => {
     const out = [];
-    const days = Math.max(1, Math.round((range.end - range.start) / 86400000) + 1);
-    const kindWord = txType === "expense" ? "pengeluaran" : "pemasukan";
-
-    if (total > 0) {
-      out.push({ tone: "neutral", text: `Rata-rata ${kindWord} ${fmtRupiah(total / days)} per hari selama ${days} hari.` });
+    if (nPts > 1 && wealthStart > 0) {
+      const d = wealthNow - wealthStart;
+      out.push({ tone: d >= 0 ? "good" : "bad", text: `Total aset ${d >= 0 ? "naik" : "turun"} ${fmtRupiah(Math.abs(d))} di periode ini (termasuk tabungan & aset baru).` });
     }
-
-    if (totalPrev > 0 && total > 0) {
-      const diff = ((total - totalPrev) / totalPrev) * 100;
-      const naik = diff >= 0;
+    if (savingRate !== null) {
       out.push({
-        tone: txType === "expense" ? (naik ? "bad" : "good") : naik ? "good" : "bad",
-        text: `Total ${kindWord} ${naik ? "naik" : "turun"} ${Math.abs(diff).toFixed(0)}% dibanding periode sebelumnya (${fmtRupiah(totalPrev)}).`,
+        tone: savingRate >= 20 ? "good" : savingRate >= 0 ? "neutral" : "bad",
+        text:
+          savingRate >= 0
+            ? `${Math.round(savingRate)}% dari pemasukan tersisa (tidak terpakai) — ${fmtRupiah(flowTotals.net)}.`
+            : `Pengeluaran lebih besar ${fmtRupiah(Math.abs(flowTotals.net))} dari pemasukan.`,
       });
     }
-
-    if (groups.length > 0 && total > 0) {
+    const ep = pct(flowTotals.expense, flowTotals.expensePrev);
+    if (ep !== null && flowTotals.expense > 0) {
+      out.push({ tone: ep > 0 ? "bad" : "good", text: `Pengeluaran ${ep > 0 ? "naik" : "turun"} ${Math.abs(ep).toFixed(0)}% dibanding periode sebelumnya (${fmtRupiah(flowTotals.expensePrev)}).` });
+    }
+    if (txType === "expense" && groups.length && compTotal > 0) {
       const top = groups[0];
-      const share = ((top.total / total) * 100).toFixed(0);
-      out.push({ tone: "neutral", text: `Terbesar: ${top.label}, ${fmtRupiah(top.total)} (${share}% dari total).` });
-
-      // Kategori yang melonjak paling tajam dibanding periode sebelumnya.
+      out.push({ tone: "neutral", text: `Pengeluaran terbesar: ${top.label}, ${fmtRupiah(top.total)} (${Math.round((top.total / compTotal) * 100)}%).` });
       let spike = null;
       groups.forEach((g) => {
         const before = groupsPrev.get(g.key) || 0;
         if (before <= 0) return;
-        const change = ((g.total - before) / before) * 100;
-        if (change >= 30 && (!spike || change > spike.change)) spike = { ...g, change, before };
+        const ch = ((g.total - before) / before) * 100;
+        if (ch >= 30 && (!spike || ch > spike.ch)) spike = { ...g, ch, before };
       });
-      if (spike) {
-        out.push({
-          tone: txType === "expense" ? "bad" : "good",
-          text: `${spike.label} melonjak ${spike.change.toFixed(0)}% (dari ${fmtRupiah(spike.before)} jadi ${fmtRupiah(spike.total)}).`,
-        });
-      }
+      if (spike) out.push({ tone: "bad", text: `${spike.label} melonjak ${spike.ch.toFixed(0)}% (dari ${fmtRupiah(spike.before)} jadi ${fmtRupiah(spike.total)}).` });
     }
-
-    // Proyeksi khusus kalau lagi lihat bulan berjalan.
-    if (period === "month" && total > 0) {
+    if (period === "month" && flowTotals.expense > 0) {
       const now = new Date();
       const passed = now.getDate();
       const inMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      if (passed < inMonth) {
-        const projected = (total / passed) * inMonth;
-        out.push({ tone: "neutral", text: `Kalau polanya sama, akhir bulan diperkirakan ${fmtRupiah(projected)}.` });
-      }
+      if (passed < inMonth) out.push({ tone: "neutral", text: `Kalau polanya sama, pengeluaran akhir bulan diperkirakan ${fmtRupiah((flowTotals.expense / passed) * inMonth)}.` });
     }
-
-    // Hari kerja vs akhir pekan.
-    let weekday = 0,
-      weekend = 0,
-      wdDays = new Set(),
-      weDays = new Set();
-    scoped.forEach((t) => {
-      const d = new Date(t.date);
-      const key = d.toDateString();
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-      if (isWeekend) {
-        weekend += Number(t.amount) || 0;
-        weDays.add(key);
-      } else {
-        weekday += Number(t.amount) || 0;
-        wdDays.add(key);
-      }
-    });
-    if (wdDays.size > 0 && weDays.size > 0) {
-      const wdAvg = weekday / wdDays.size;
-      const weAvg = weekend / weDays.size;
-      const higher = weAvg > wdAvg;
-      out.push({
-        tone: "neutral",
-        text: `Akhir pekan rata-rata ${fmtRupiah(weAvg)} per hari, hari kerja ${fmtRupiah(wdAvg)} — ${higher ? "lebih boros di akhir pekan" : "lebih hemat di akhir pekan"}.`,
-      });
+    if (goldInfo && goldInfo.pNow && goldInfo.pStart && goldInfo.pNow.perGram !== goldInfo.pStart.perGram) {
+      const p = pct(goldInfo.pNow.perGram, goldInfo.pStart.perGram);
+      out.push({ tone: p >= 0 ? "good" : "bad", text: `Harga emas ${BRAND_BY_KEY[goldInfo.mainBrand]?.label || ""} ${p >= 0 ? "naik" : "turun"} ${fmtPct(p)} — dari ${fmtRupiah(goldInfo.pStart.perGram)} jadi ${fmtRupiah(goldInfo.pNow.perGram)} per gram.` });
     }
-
+    if (hasSaham && sahamGain !== 0) {
+      out.push({ tone: sahamGain >= 0 ? "good" : "bad", text: `Nilai saham ${sahamGain >= 0 ? "naik" : "turun"} ${fmtRupiah(Math.abs(sahamGain))} di periode ini (di luar setoran/penarikan).` });
+    }
     return out;
-  }, [total, totalPrev, groups, groupsPrev, range, period, scoped, txType]);
+  }, [nPts, wealthNow, wealthStart, savingRate, flowTotals, txType, groups, groupsPrev, compTotal, period, goldInfo, hasSaham, sahamGain]);
 
-  const drillTx = useMemo(() => {
-    if (!drill) return [];
-    return scoped
-      .filter((t) => breakdownParts(t, dimension, catById, walById).some((p) => p.key === drill.key))
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [drill, scoped, dimension, catById, walById]);
+  const openCustom = () => {
+    setDraftPeriod("custom");
+    setDraftFrom(customFrom || toLocalDateStr(range.start));
+    setDraftTo(customTo || toLocalDateStr(new Date()));
+    setPeriodSheet(true);
+  };
+
+  const chip = (active, label, onClick) => (
+    <Chip key={label} active={active} onClick={onClick} height={34} activeBg={COLORS.primary} ink={COLORS.ink} inkSoft={COLORS.muted} border={COLORS.border} style={{ flexShrink: 0, padding: "0 13px", fontSize: 12.5 }}>
+      {label}
+    </Chip>
+  );
 
   return (
-    <div className="mt-3">
-      <div className="flex items-center justify-between gap-2 mb-2.5">
-        <div className="flex items-center gap-2">
-          <PieChart size={16} color={COLORS.primary} />
-          <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 17, color: COLORS.ink }}>Analisis</div>
+    <div className="h-full flex flex-col">
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4" style={{ paddingTop: "env(safe-area-inset-top)", background: COLORS.bg }}>
+        <TopBar title="Analisis" onBack={onBack} onOpenMenu={onOpenMenu} onSwitchApp={onSwitchApp} notifSlot={notifSlot} />
+        {/* Rentang waktu — satu baris di atas, berlaku untuk semua grafik. */}
+        <div className="flex overflow-x-auto" style={{ gap: 6, margin: "0 -16px", padding: "0 16px 10px", scrollbarWidth: "none" }}>
+          {ANALYSIS_PERIODS.map((p) =>
+            chip(period === p.key, p.label, () => {
+              setPeriod(p.key);
+              setDrill(null);
+            })
+          )}
+          {chip(period === "custom", period === "custom" ? fmtRangeLabel(range) : "Pilih tanggal…", openCustom)}
         </div>
-        <button
-          onClick={openPeriodSheet}
-          className="px-2.5 py-1.5 rounded-full flex items-center gap-1 text-xs font-medium"
-          style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, color: COLORS.primary }}
-        >
-          {periodLabel}
-          <ChevronDown size={13} />
-        </button>
       </div>
 
-      {/* Pilihan Pengeluaran/Pemasukan — latar warnanya meluncur ke pilihan
-          yang disentuh. */}
-      <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-        {[
-          { key: "expense", label: "Pengeluaran", color: COLORS.out },
-          { key: "income", label: "Pemasukan", color: COLORS.safe },
-        ].map((o) => (
-          <button
-            key={o.key}
-            onClick={() => {
-              setTxType(o.key);
-              setDrill(null);
-            }}
-            className="relative flex-1 py-2 rounded-lg text-sm font-medium"
-            style={{ color: txType === o.key ? "#fff" : COLORS.inkSoft }}
-          >
-            {txType === o.key && (
-              <motion.span
-                layoutId="kas-analysis-type"
-                className="absolute inset-0"
-                style={{ borderRadius: 8 }}
-                initial={false}
-                animate={{ backgroundColor: o.color }}
-                transition={SPRING.snappy}
+      <motion.div layoutScroll className="flex-1 overflow-y-auto" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <FadeSwap swapKey={periodKey} className="max-w-2xl mx-auto px-4 pb-32 flex flex-col" style={{ gap: 12 }}>
+          {/* 1. Total aset */}
+          <Card>
+            <div style={{ fontSize: 12.5, color: COLORS.muted }}>Total aset sekarang</div>
+            <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.2 }}>{fmtRupiah(wealthNow)}</div>
+            {nPts > 1 && (
+              <Delta
+                value={wealthNow - wealthStart}
+                percent={wealthStart > 0 && wealthStart >= wealthNow * 0.1 ? pct(wealthNow, wealthStart) : null}
+                suffix={`sejak ${chartDate(wealth.dates[0])}`}
               />
             )}
-            <span className="relative">{o.label}</span>
-          </button>
-        ))}
-      </div>
+            <div style={{ marginTop: 12, marginLeft: -4 }}>
+              <AreaChart
+                dates={wealth.dates}
+                series={wealthSeries}
+                height={190}
+                fmtValue={fmtRupiah}
+                fmtAxis={axisRp}
+                fmtDate={chartDate}
+                revealKey={`w-${periodKey}`}
+              />
+            </div>
+            <LegendRow
+              items={wealthSeries.map((s) => ({ label: s.label, color: s.color, value: fmtCompactRp(s.values[s.values.length - 1] || 0) }))}
+            />
+            <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 8 }}>Sentuh & geser grafik untuk melihat nilai di tanggal tertentu.</div>
+          </Card>
+
+          {/* 2. Arus kas */}
+          <Card icon={BarChart3} title="Pemasukan vs pengeluaran">
+            <div className="grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+              {[
+                { label: "Masuk", value: flowTotals.income, color: COLORS.safe, bg: COLORS.safeBg },
+                { label: "Keluar", value: flowTotals.expense, color: COLORS.expenseText, bg: COLORS.outBg },
+                { label: "Sisa", value: flowTotals.net, color: COLORS.ink, bg: COLORS.soft },
+              ].map((s) => (
+                <div key={s.label} className="min-w-0" style={{ background: s.bg, borderRadius: 14, padding: "10px 10px" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: s.color }}>{s.label}</div>
+                  <div className="truncate" style={{ fontSize: 14, fontWeight: 700 }}>
+                    {fmtCompactRp(s.value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {savingRate !== null && (
+              <div style={{ marginTop: 10 }}>
+                <div className="flex justify-between" style={{ fontSize: 12, color: COLORS.muted, marginBottom: 5 }}>
+                  <span>Bagian pemasukan yang tersisa</span>
+                  <b style={{ color: savingRate >= 0 ? COLORS.safe : COLORS.expenseText }}>{Math.round(savingRate)}%</b>
+                </div>
+                <div style={{ height: 8, borderRadius: 99, background: COLORS.track, overflow: "hidden" }}>
+                  <motion.div
+                    style={{ height: "100%", borderRadius: 99, background: savingRate >= 0 ? COLORS.safe : COLORS.expenseText }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, Math.abs(savingRate))}%` }}
+                    transition={{ ...SPRING.page, delay: 0.15 }}
+                  />
+                </div>
+              </div>
+            )}
+            <div style={{ marginTop: 14, marginLeft: -4 }}>
+              <PairBars
+                buckets={flow}
+                colorA={COLORS.safe}
+                colorB="#C0472F"
+                labelA="Masuk"
+                labelB="Keluar"
+                fmtValue={fmtRupiah}
+                fmtAxis={axisRp}
+                revealKey={`f-${periodKey}`}
+              />
+            </div>
+            <LegendRow
+              items={[
+                { label: "Masuk", color: COLORS.safe },
+                { label: "Keluar", color: "#C0472F" },
+              ]}
+            />
+          </Card>
+
+          {/* 3. Komposisi */}
+          <Card icon={PieChart} title="Ke mana uangnya?">
+            <Segmented
+              ariaLabel="Jenis"
+              value={txType}
+              onChange={(v) => {
+                setTxType(v);
+                setDrill(null);
+              }}
+              height={36}
+              fontSize={12.5}
+              inkSoft={COLORS.muted}
+              trackBg={COLORS.soft}
+              options={[
+                { value: "expense", label: "Pengeluaran", activeBg: COLORS.expenseText },
+                { value: "income", label: "Pemasukan", activeBg: COLORS.safe },
+              ]}
+            />
+            <div className="flex overflow-x-auto" style={{ gap: 6, marginTop: 10, scrollbarWidth: "none" }}>
+              {DIMENSIONS.map((d) =>
+                chip(dimension === d.key, d.label, () => {
+                  setDimension(d.key);
+                  setDrill(null);
+                })
+              )}
+            </div>
+            <FadeSwap swapKey={`${txType}-${dimension}`}>
+              {compTotal === 0 ? (
+                <div className="text-center" style={{ padding: "26px 8px", fontSize: 13, color: COLORS.muted }}>
+                  Belum ada {txType === "expense" ? "pengeluaran" : "pemasukan"} di rentang ini.
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginTop: 14 }}>
+                    <Donut
+                      slices={groups.slice(0, 8)}
+                      total={compTotal}
+                      centerLabel={drill ? drill.label : "Total"}
+                      centerValue={fmtCompactRp(drill ? drill.total : compTotal)}
+                      activeKey={drill?.key}
+                      onSelect={(g) => setDrill(drill?.key === g.key ? null : g)}
+                    />
+                  </div>
+                  <div className="flex flex-col" style={{ gap: 6, marginTop: 14 }}>
+                    {groups.map((g) => {
+                      const before = groupsPrev.get(g.key) || 0;
+                      const share = Math.round((g.total / compTotal) * 100);
+                      const ch = before > 0 ? ((g.total - before) / before) * 100 : null;
+                      const on = drill?.key === g.key;
+                      return (
+                        <button
+                          key={g.key}
+                          type="button"
+                          onClick={() => setDrill(on ? null : g)}
+                          className="w-full text-left"
+                          style={{ borderRadius: 14, padding: "9px 11px", background: on ? `${g.color}14` : COLORS.soft, border: `1px solid ${on ? g.color : "transparent"}` }}
+                        >
+                          <div className="flex items-center" style={{ gap: 8 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: 3, background: g.color, flexShrink: 0 }} />
+                            <span className="flex-1 min-w-0 truncate" style={{ fontSize: 13, fontWeight: 500 }}>
+                              {g.label}
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{fmtShortRupiah(g.total)}</span>
+                          </div>
+                          <div className="flex items-center" style={{ gap: 8, marginTop: 6 }}>
+                            <div className="flex-1" style={{ height: 6, borderRadius: 99, background: COLORS.track, overflow: "hidden" }}>
+                              <motion.div style={{ height: "100%", borderRadius: 99, background: g.color }} initial={{ width: 0 }} animate={{ width: `${share}%` }} transition={SPRING.page} />
+                            </div>
+                            <span style={{ fontSize: 11, color: COLORS.muted, width: 32, textAlign: "right" }}>{share}%</span>
+                            {ch !== null && (
+                              <span style={{ fontSize: 11, fontWeight: 600, width: 46, textAlign: "right", color: (txType === "expense" ? ch > 0 : ch < 0) ? COLORS.expenseText : COLORS.safe }}>
+                                {ch >= 0 ? "▲" : "▼"}
+                                {Math.abs(ch).toFixed(0)}%
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Collapse open={!!drill}>
+                    {drill && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${COLORS.soft}` }}>
+                        <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                            {drill.label} · {drillTx.length} transaksi
+                          </span>
+                          <button type="button" aria-label="Tutup rincian" onClick={() => setDrill(null)} className="flex items-center justify-center" style={{ width: 32, height: 32, borderRadius: 999, border: "none", background: COLORS.soft, color: COLORS.muted }}>
+                            <X size={14} />
+                          </button>
+                        </div>
+                        <div className="flex flex-col" style={{ gap: 6 }}>
+                          {drillTx.slice(0, 30).map((t) => (
+                            <div key={t.id} className="flex items-center justify-between" style={{ gap: 8, background: COLORS.soft, borderRadius: 12, padding: "8px 10px" }}>
+                              <div className="min-w-0">
+                                <div className="truncate" style={{ fontSize: 12.5 }}>
+                                  {t.note || catById[t.categoryId]?.name || "Tanpa catatan"}
+                                </div>
+                                <div style={{ fontSize: 11, color: COLORS.muted }}>
+                                  {fmtDateTime(t.date)}
+                                  {t.createdBy ? ` · ${t.createdBy}` : ""}
+                                </div>
+                              </div>
+                              <span style={{ fontSize: 12.5, fontWeight: 600 }}>{fmtShortRupiah(t.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </Collapse>
+                </>
+              )}
+            </FadeSwap>
+          </Card>
+
+          {/* 4. Emas */}
+          {goldInfo ? (
+            <Card icon={Gem} iconColor={ASSET_COLORS.emas} title="Emas" right={<span style={{ fontSize: 12, color: COLORS.muted }}>{goldBasis === "buyback" ? "harga buyback" : "harga jual"}</span>}>
+              <div className="flex items-end justify-between" style={{ gap: 10 }}>
+                <div className="min-w-0">
+                  <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fmtRupiah(goldInfo.valueNow)}</div>
+                  <Delta value={goldInfo.priceGain} percent={goldInfo.refValue > 0 ? (goldInfo.priceGain / goldInfo.refValue) * 100 : null} suffix="dari perubahan harga" />
+                </div>
+                <div className="text-right shrink-0">
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtGram(goldInfo.grams)} gr</div>
+                  <div style={{ fontSize: 11.5, color: COLORS.muted }}>total</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12, marginLeft: -4 }}>
+                <AreaChart
+                  dates={wealth.dates}
+                  series={[{ key: "emas", label: "Nilai emas", color: ASSET_COLORS.emas, values: wealth.emas }]}
+                  height={150}
+                  fmtValue={fmtRupiah}
+                  fmtAxis={axisRp}
+                  fmtDate={chartDate}
+                  revealKey={`g-${periodKey}`}
+                />
+              </div>
+              {goldInfo.pNow && (
+                <div className="flex items-center justify-between" style={{ gap: 8, marginTop: 10, background: "#FAF3E6", borderRadius: 14, padding: "10px 12px" }}>
+                  <span style={{ fontSize: 12.5, color: COLORS.muted }}>Harga {BRAND_BY_KEY[goldInfo.mainBrand]?.label} / gram</span>
+                  <span className="text-right">
+                    <span style={{ fontSize: 13.5, fontWeight: 700 }}>{fmtRupiah(goldInfo.pNow.perGram)}</span>
+                    {goldInfo.pStart && goldInfo.pStart.perGram !== goldInfo.pNow.perGram && (
+                      <span style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: goldInfo.pNow.perGram >= goldInfo.pStart.perGram ? COLORS.safe : COLORS.expenseText }}>
+                        {fmtPct(pct(goldInfo.pNow.perGram, goldInfo.pStart.perGram))} dari {fmtShortRupiah(goldInfo.pStart.perGram)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {goldInfo.pl !== null && (
+                <div className="flex items-center justify-between" style={{ marginTop: 8, fontSize: 12.5 }}>
+                  <span style={{ color: COLORS.muted }}>Untung/rugi dari harga beli</span>
+                  <b style={{ color: goldInfo.pl >= 0 ? COLORS.safe : COLORS.expenseText }}>
+                    {goldInfo.pl >= 0 ? "+" : "−"}
+                    {fmtRupiah(Math.abs(goldInfo.pl))} ({fmtPct(pct(goldInfo.buyTotal + goldInfo.pl, goldInfo.buyTotal))})
+                  </b>
+                </div>
+              )}
+              <div className="flex flex-col" style={{ gap: 8, marginTop: 12 }}>
+                {goldInfo.owners.map((o) => (
+                  <div key={o.owner}>
+                    <div className="flex justify-between" style={{ fontSize: 12.5, marginBottom: 4 }}>
+                      <span>
+                        <b style={{ fontWeight: 600 }}>{o.owner}</b> <span style={{ color: COLORS.muted }}>· {fmtGram(o.grams)} gr</span>
+                      </span>
+                      <b style={{ fontWeight: 600 }}>{fmtCompactRp(o.value)}</b>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 99, background: COLORS.track, overflow: "hidden" }}>
+                      <motion.div
+                        style={{ height: "100%", borderRadius: 99, background: ASSET_COLORS.emas }}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${goldInfo.valueNow > 0 ? (o.value / goldInfo.valueNow) * 100 : 0}%` }}
+                        transition={SPRING.page}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : (
+            <button type="button" onClick={onGoAssets} className="w-full text-left flex items-center" style={{ gap: 12, background: COLORS.card, borderRadius: 22, boxShadow: TX_CARD_SHADOW, padding: 16 }}>
+              <span className="flex items-center justify-center shrink-0" style={{ width: 42, height: 42, borderRadius: 14, background: "#FAF3E6", color: ASSET_COLORS.emas }}>
+                <Gem size={19} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block" style={{ fontSize: 14.5, fontWeight: 600 }}>
+                  Pantau emas di sini
+                </span>
+                <span className="block" style={{ fontSize: 12.5, color: COLORS.muted }}>
+                  Tambahkan emas di tab Aset — grafiknya muncul otomatis.
+                </span>
+              </span>
+              <ChevronRight size={16} color={COLORS.muted} />
+            </button>
+          )}
+
+          {/* 5. Saham */}
+          {hasSaham && (
+            <Card icon={TrendingUp} iconColor={ASSET_COLORS.saham} title="Saham">
+              <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fmtRupiah(sahamNow)}</div>
+              <Delta value={sahamGain} percent={sahamNow - sahamGain > 0 ? (sahamGain / (sahamNow - sahamGain)) * 100 : null} suffix="naik-turun nilai" />
+              <div style={{ marginTop: 12, marginLeft: -4 }}>
+                <AreaChart
+                  dates={wealth.dates}
+                  series={[{ key: "saham", label: "Nilai saham", color: ASSET_COLORS.saham, values: wealth.saham }]}
+                  height={150}
+                  fmtValue={fmtRupiah}
+                  fmtAxis={axisRp}
+                  fmtDate={chartDate}
+                  revealKey={`s-${periodKey}`}
+                />
+              </div>
+              <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 6 }}>Garisnya berubah setiap kali "Update nilai saham" atau ada transfer ke/dari akun saham.</div>
+            </Card>
+          )}
+
+          {/* 6. Yang menarik */}
+          {insights.length > 0 && (
+            <Card icon={Sparkles} title="Yang menarik">
+              <div className="flex flex-col" style={{ gap: 8 }}>
+                {insights.map((ins, i) => (
+                  <div key={i} className="flex items-start" style={{ gap: 9, background: COLORS.soft, borderRadius: 14, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.45 }}>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 99,
+                        marginTop: 5,
+                        flexShrink: 0,
+                        background: ins.tone === "bad" ? COLORS.expenseText : ins.tone === "good" ? COLORS.safe : COLORS.muted,
+                      }}
+                    />
+                    <span>{ins.text}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </FadeSwap>
+      </motion.div>
 
       <AnimatePresence>
         {periodSheet && (
@@ -2174,186 +3535,17 @@ function AnalysisSection({ transactions, catById, walById }) {
             setDraftFrom={setDraftFrom}
             draftTo={draftTo}
             setDraftTo={setDraftTo}
-            onApply={applyPeriod}
+            onApply={() => {
+              setPeriod(draftPeriod);
+              setCustomFrom(draftFrom);
+              setCustomTo(draftTo);
+              setDrill(null);
+              setPeriodSheet(false);
+            }}
             onClose={() => setPeriodSheet(false)}
           />
         )}
       </AnimatePresence>
-
-      <div>
-        <div>
-          <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.primary }}>
-            <div className="text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
-              {txType === "expense" ? "Total pengeluaran" : "Total pemasukan"} · {fmtRangeLabel(range)}
-            </div>
-            <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 26, color: "#fff", lineHeight: 1.25 }}>
-              <RollingNumber value={fmtRupiah(total)} />
-            </div>
-            {totalPrev > 0 && (
-              <div className="text-xs mt-1.5 flex items-center gap-1" style={{ color: total >= totalPrev ? "#F0C994" : "#BEE0CB" }}>
-                {total >= totalPrev ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                {total >= totalPrev ? "Naik" : "Turun"} {Math.abs(((total - totalPrev) / totalPrev) * 100).toFixed(0)}% dari periode sebelumnya
-              </div>
-            )}
-          </div>
-
-          {total === 0 ? (
-            <div className="py-14 text-center rounded-2xl" style={{ background: COLORS.card, border: `1px dashed ${COLORS.border}` }}>
-              <PieChart size={28} color={COLORS.inkSoft} style={{ margin: "0 auto 8px" }} />
-              <div style={{ color: COLORS.inkSoft }} className="text-sm">
-                Belum ada data di rentang ini.
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <PieChart size={16} color={COLORS.primary} />
-                  <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Komposisi</div>
-                </div>
-
-                <div className="flex gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-                  {DIMENSIONS.map((d) => (
-                    <button
-                      key={d.key}
-                      onClick={() => {
-                        setDimension(d.key);
-                        setDrill(null);
-                      }}
-                      className="relative px-2.5 py-1 rounded-full text-[11px] font-medium shrink-0"
-                      style={{
-                        background: COLORS.bg,
-                        color: dimension === d.key ? "#fff" : COLORS.inkSoft,
-                        border: `1px solid ${dimension === d.key ? COLORS.primaryLight : COLORS.border}`,
-                      }}
-                    >
-                      {dimension === d.key && (
-                        <motion.span
-                          layoutId="kas-analysis-dim"
-                          className="absolute inset-0"
-                          style={{ background: COLORS.primaryLight, borderRadius: 999 }}
-                          transition={SPRING.snappy}
-                        />
-                      )}
-                      <span className="relative">{d.label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <FadeSwap swapKey={`${dimension}-${txType}-${period}-${customFrom}-${customTo}`}>
-                <DonutChart slices={groups.slice(0, 8)} total={total} />
-
-                <div className="flex flex-col gap-1.5 mt-4">
-                  {groups.map((g) => {
-                    const before = groupsPrev.get(g.key) || 0;
-                    const share = ((g.total / total) * 100).toFixed(0);
-                    return (
-                      <button
-                        key={g.key}
-                        onClick={() => setDrill(drill?.key === g.key ? null : g)}
-                        className="w-full rounded-xl px-3 py-2.5 text-left"
-                        style={{ background: drill?.key === g.key ? `${g.color}14` : COLORS.bg, border: `1px solid ${drill?.key === g.key ? g.color : "transparent"}` }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: g.color }} />
-                          <span className="flex-1 min-w-0 text-xs font-medium truncate" style={{ color: COLORS.ink }}>
-                            {g.label}
-                          </span>
-                          <span className="text-xs font-semibold shrink-0" style={{ color: COLORS.ink }}>
-                            {fmtShortRupiah(g.total)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.border }}>
-                            <div style={{ width: `${share}%`, height: "100%", background: g.color }} />
-                          </div>
-                          <span className="text-[10px] shrink-0" style={{ color: COLORS.inkSoft }}>
-                            {share}%
-                          </span>
-                          {before > 0 && (
-                            <span className="text-[10px] shrink-0" style={{ color: g.total >= before ? COLORS.out : COLORS.safe }}>
-                              {g.total >= before ? "▲" : "▼"}
-                              {Math.abs(((g.total - before) / before) * 100).toFixed(0)}%
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                </FadeSwap>
-
-                <Collapse open={!!drill}>
-                {drill && (
-                  <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs font-semibold" style={{ color: COLORS.ink }}>
-                        Transaksi {drill.label} ({drillTx.length})
-                      </div>
-                      <button onClick={() => setDrill(null)}>
-                        <X size={14} color={COLORS.inkSoft} />
-                      </button>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {drillTx.map((t) => (
-                        <div key={t.id} className="rounded-lg px-3 py-2 flex items-center justify-between gap-2" style={{ background: COLORS.bg }}>
-                          <div className="min-w-0">
-                            <div className="text-xs truncate" style={{ color: COLORS.ink }}>
-                              {t.note || catById[t.categoryId]?.name || "Tanpa catatan"}
-                            </div>
-                            <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>
-                              {fmtDateTime(t.date)}
-                            </div>
-                          </div>
-                          <span className="text-xs font-semibold shrink-0" style={{ color: COLORS.ink }}>
-                            {fmtShortRupiah(t.amount)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                </Collapse>
-              </div>
-
-              <div className="rounded-2xl p-4 mb-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <BarChart3 size={16} color={COLORS.primary} />
-                    <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Tren 6 Bulan</div>
-                  </div>
-                  <div className="flex items-center gap-2.5 text-[10px]" style={{ color: COLORS.inkSoft }}>
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-sm" style={{ background: COLORS.safe }} /> Masuk
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-sm" style={{ background: COLORS.out }} /> Keluar
-                    </span>
-                  </div>
-                </div>
-                <TrendChart months={trendMonths} />
-              </div>
-
-              {insights.length > 0 && (
-                <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}` }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles size={16} color={COLORS.primary} />
-                    <div style={{ fontFamily: KAS_FONT, fontWeight: 600, fontSize: 16, color: COLORS.ink }}>Yang Menarik</div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {insights.map((ins, i) => (
-                      <div key={i} className="rounded-xl px-3 py-2.5 text-xs leading-relaxed" style={{ background: COLORS.bg, color: COLORS.ink }}>
-                        <span style={{ color: ins.tone === "bad" ? COLORS.out : ins.tone === "good" ? COLORS.safe : COLORS.primaryLight }}>●</span>{" "}
-                        {ins.text}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -3950,7 +5142,7 @@ function CategoryModal({ mode, category, initialKind, saving, onClose, onSubmit 
 // --- Menu ---------------------------------------------------------------
 // Riwayat perubahan Kas Rumah: siapa mengubah apa dan kapan, termasuk yang
 // sudah dihapus. Dikelompokkan per hari, terbaru di atas.
-const LOG_ICON = { tx: Receipt, wallet: Wallet, category: Tag };
+const LOG_ICON = { tx: Receipt, wallet: Wallet, category: Tag, gold: Gem };
 
 function KasLogPanel({ log, onClose }) {
   const groups = useMemo(() => {
