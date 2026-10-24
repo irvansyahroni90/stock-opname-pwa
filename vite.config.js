@@ -25,7 +25,10 @@ export default defineConfig({
       workbox: {
         // App-shell di-cache supaya bisa dibuka lagi walau sinyal jelek;
         // data stok tetap real-time lewat Firestore saat online.
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        // wasm = mesin pembaca label QR, ikut disimpan supaya scan tetap
+        // jalan saat sinyal jelek / offline.
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),
   ],

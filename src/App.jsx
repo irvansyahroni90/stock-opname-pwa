@@ -43,11 +43,19 @@ import {
   EyeOff,
   Bell,
   Wallet,
+  ScanLine,
+  QrCode,
+  Printer,
+  Share2,
+  HelpCircle,
+  Link2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { storageGet, storageSet, storageSubscribe, subscribeAuth, login, logout } from "./firebase";
 import KasRumahApp from "./KasRumah";
 import { SharedStyles } from "./SharedStyles";
+import { ScannerScreen } from "./scan/ScannerScreen";
+import { resolveLabel, parseLabel, LABEL_SIZES, labelsPerPage, renderLabelPages, pagesToFiles, printPages, shareOrDownload } from "./scan/labels";
 import {
   Sheet,
   Drawer,
@@ -1070,6 +1078,12 @@ export default function App() {
 
   const [showHistory, setShowHistory] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  // Scan label QR: kode yang terbaca, daftar hasil, dan lembar label
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanCodes, setScanCodes] = useState([]);
+  const [scanResultOpen, setScanResultOpen] = useState(false);
+  const [scanDrafts, setScanDrafts] = useState({});
+  const [labelSheet, setLabelSheet] = useState(null); // { ids: [...] | null }
 
   // Aktivitas terbaru untuk lonceng notifikasi: dibatasi 3 hari terakhir
   // (murni turunan dari data yang sudah ada — lihat buildActivityFeed di atas).
@@ -1495,6 +1509,64 @@ export default function App() {
       toBuy: syncToBuyFor(updated, toBuyRef.current),
       history: withHistory({ itemId: id, itemName: current.name, user: userName, action: "update", oldLevel, newLevel }, historyRef.current),
     });
+  };
+
+  // --- Scan label QR --------------------------------------------------------
+  const resolveScan = useCallback((code) => resolveLabel(code, items), [items]);
+
+  const openScanner = () =>
+    attemptNavigate(() => {
+      setScanCodes([]);
+      setScanDrafts({});
+      setScanResultOpen(false);
+      setScanOpen(true);
+    });
+
+  const closeScanner = () => {
+    setScanResultOpen(false);
+    setScanOpen(false);
+  };
+
+  // Semua perubahan dari daftar hasil scan disimpan sekaligus.
+  const handleScanSave = async (changes) => {
+    const now = new Date().toISOString();
+    let nextItems = itemsRef.current;
+    let nextToBuy = toBuyRef.current;
+    const hist = [];
+    for (const ch of changes) {
+      const item = nextItems.find((i) => i.id === ch.id);
+      if (!item) continue;
+      let updated = null;
+      if (item.type === "level" && ch.level && ch.level !== item.level) {
+        updated = { ...item, level: ch.level, lastUpdatedBy: userName, lastUpdatedAt: now };
+        hist.push({ itemId: item.id, itemName: item.name, user: userName, action: "update", oldLevel: item.level, newLevel: ch.level, via: "scan" });
+      } else if (item.type !== "level" && typeof ch.qty === "number") {
+        const newQty = Math.max(0, roundQty(ch.qty));
+        if (newQty !== item.qty) {
+          updated = { ...item, qty: newQty, lastUpdatedBy: userName, lastUpdatedAt: now };
+          hist.push({ itemId: item.id, itemName: item.name, user: userName, action: "update", oldQty: item.qty, newQty, unit: item.unit, via: "scan" });
+        }
+      }
+      if (updated) {
+        nextItems = nextItems.map((i) => (i.id === updated.id ? updated : i));
+        nextToBuy = syncToBuyFor(updated, nextToBuy);
+      }
+    }
+    closeScanner();
+    setScanDrafts({});
+    if (!hist.length) return;
+    if (view !== "stock") changeView("stock");
+    await commitStock({ items: nextItems, toBuy: nextToBuy, history: withHistory(hist, historyRef.current) });
+  };
+
+  // Label lama (barangnya sudah dihapus) dihubungkan ke barang lain.
+  const handleLinkLabel = async (code, itemId) => {
+    const nextItems = itemsRef.current.map((i) => {
+      const own = Array.isArray(i.labelCodes) ? i.labelCodes.filter((c) => c !== code) : [];
+      if (i.id === itemId) return { ...i, labelCodes: [...own, code] };
+      return Array.isArray(i.labelCodes) && own.length !== i.labelCodes.length ? { ...i, labelCodes: own } : i;
+    });
+    await commitStock({ items: nextItems });
   };
 
   const handleDeleteItem = async (id) => {
@@ -2070,6 +2142,40 @@ export default function App() {
                       />
                     </Rise>
 
+                    {/* Scan label QR & cetak label */}
+                    <Rise delay={0.145} className="grid" style={{ marginTop: 10, gap: 8, gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)" }}>
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.97 }}
+                        transition={SPRING.press}
+                        onClick={openScanner}
+                        className="flex items-center text-left"
+                        style={{ height: 60, padding: "0 14px", gap: 11, borderRadius: 20, border: "none", background: COLORS.navy, color: "#FFFFFF" }}
+                      >
+                        <span className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(255,255,255,0.14)" }}>
+                          <ScanLine size={19} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block" style={{ fontSize: 14.5, fontWeight: 700, lineHeight: 1.2 }}>Scan label</span>
+                          <span className="block truncate" style={{ fontSize: 11.5, opacity: 0.72 }}>Banyak sekaligus</span>
+                        </span>
+                      </motion.button>
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.97 }}
+                        transition={SPRING.press}
+                        onClick={() => setLabelSheet({ ids: null })}
+                        className="flex items-center text-left"
+                        style={{ height: 60, padding: "0 14px", gap: 10, borderRadius: 20, border: "none", background: COLORS.card, color: COLORS.navy, boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}
+                      >
+                        <QrCode size={20} className="shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block" style={{ fontSize: 14.5, fontWeight: 700, lineHeight: 1.2 }}>Label QR</span>
+                          <span className="block truncate" style={{ fontSize: 11.5, color: COLORS.inkSoft }}>Cetak</span>
+                        </span>
+                      </motion.button>
+                    </Rise>
+
                     <div className="flex flex-col gap-3" style={{ marginTop: 16 }}>
                       <Rise delay={0.17}>
                         <SectionCard
@@ -2160,6 +2266,7 @@ export default function App() {
                   notifSlot={view === "stock" ? notifBell : null}
                   highlightId={highlightTarget?.type === "stock" ? highlightTarget.id : null}
                   onHighlightDone={() => setHighlightTarget(null)}
+                  onScan={openScanner}
                 />
 
                 <ToBuyPage
@@ -2283,6 +2390,7 @@ export default function App() {
             onRestore={triggerRestorePicker}
             onSwitchApp={closeApp}
             onOpenThreshold={() => setThresholdModal(true)}
+            onOpenLabels={activeApp === "stok" ? () => setLabelSheet({ ids: null }) : undefined}
             dueThreshold={dueThreshold}
             onLogout={logout}
           />
@@ -2333,8 +2441,46 @@ export default function App() {
               )
             }
             onAddToBuy={() => swapSheet(() => setDetailItemId(null), () => setToBuyModal({ mode: "add", preselectItemId: detailItem.id }))}
+            onLabel={() => swapSheet(() => setDetailItemId(null), () => setLabelSheet({ ids: [detailItem.id] }))}
           />
         )}
+      </AnimatePresence>
+
+      {/* Scan label QR: layar kamera/foto, lalu daftar hasil di atasnya */}
+      <AnimatePresence>
+        {scanOpen && (
+          <ScannerScreen
+            key="scanner"
+            codes={scanCodes}
+            onAddCodes={(fresh) => setScanCodes((prev) => [...prev, ...fresh.filter((c) => !prev.includes(c))])}
+            resolve={resolveScan}
+            onClose={closeScanner}
+            onContinue={() => setScanResultOpen(true)}
+            paused={scanResultOpen}
+            font={APP_FONT}
+            accent={COLORS.accent}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {scanOpen && scanResultOpen && (
+          <ScanResultSheet
+            key="scan-result"
+            codes={scanCodes}
+            items={items}
+            resolve={resolveScan}
+            drafts={scanDrafts}
+            setDrafts={setScanDrafts}
+            onBack={() => setScanResultOpen(false)}
+            onSave={handleScanSave}
+            onLink={handleLinkLabel}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {labelSheet && <LabelSheet key="label-sheet" items={items} initialIds={labelSheet.ids} onClose={() => setLabelSheet(null)} />}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -2677,7 +2823,7 @@ function NotifBell({ count, activity, open, onOpen, onClose, onSelect, onDark })
   );
 }
 
-function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onSwitchApp, onOpenThreshold, dueThreshold, onLogout }) {
+function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHistory, onBackup, onRestore, onSwitchApp, onOpenThreshold, dueThreshold, onLogout, onOpenLabels }) {
   // Drawer ditutup dulu (animasi keluarnya jalan sendiri), lalu aksinya
   // langsung dijalankan — tidak perlu menunggu dengan setTimeout.
   const runAndClose = (action) => {
@@ -2716,6 +2862,7 @@ function UserMenuPanel({ userName, userEmail, onClose, onChangeName, onOpenHisto
             />
           )}
           <UserMenuItem icon={History} label="Riwayat" onClick={() => runAndClose(onOpenHistory)} />
+          {onOpenLabels && <UserMenuItem icon={QrCode} label="Label QR Barang" onClick={() => runAndClose(onOpenLabels)} />}
           <UserMenuItem icon={Download} label="Unduh Backup" onClick={() => runAndClose(onBackup)} />
           <UserMenuItem icon={Upload} label="Pulihkan dari File" onClick={() => runAndClose(onRestore)} last />
         </StaggerItem>
@@ -3029,7 +3176,7 @@ function LevelBattery({ level, onChange, label, readOnly }) {
   );
 }
 
-function StockPage({ items, search, setSearch, filter, setFilter, onBack, onOpenDetail, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onCancelPending, onBlockedAttempt, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone }) {
+function StockPage({ items, search, setSearch, filter, setFilter, onBack, onOpenDetail, onAdjust, onLevelChange, pendingEdit, onConfirmPending, onCancelPending, onBlockedAttempt, onOpenUserMenu, onSwitchApp, notifSlot, highlightId, onHighlightDone, onScan }) {
   const counts = useMemo(() => {
     let low = 0,
       out = 0;
@@ -3095,16 +3242,30 @@ function StockPage({ items, search, setSearch, filter, setFilter, onBack, onOpen
           <FilterTile group="stok" label="Habis" value={counts.out} color={STATUS_TEXT.out} active={filter === "out"} onClick={() => guardedSetFilter("out")} />
         </div>
 
-        <div className="flex items-center gap-2.5" style={{ background: COLORS.card, borderRadius: 999, padding: "0 18px", height: 46, boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}>
-          <Search size={18} color={COLORS.inkSoft} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari item stok..."
-            aria-label="Cari item stok"
-            className="flex-1 bg-transparent"
-            style={{ color: COLORS.ink, outline: "none", border: "none" }}
-          />
+        <div className="flex items-center" style={{ gap: 8 }}>
+          <div className="flex-1 min-w-0 flex items-center gap-2.5" style={{ background: COLORS.card, borderRadius: 999, padding: "0 18px", height: 46, boxShadow: "0 2px 10px rgba(38,49,77,0.05)" }}>
+            <Search size={18} color={COLORS.inkSoft} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari item stok..."
+              aria-label="Cari item stok"
+              className="flex-1 min-w-0 bg-transparent"
+              style={{ color: COLORS.ink, outline: "none", border: "none" }}
+            />
+          </div>
+          {onScan && (
+            <button
+              type="button"
+              onClick={onScan}
+              aria-label="Scan label QR"
+              title="Scan label QR"
+              className="shrink-0 flex items-center justify-center"
+              style={{ width: 46, height: 46, borderRadius: 999, border: "none", background: COLORS.navy, color: "#FFFFFF", boxShadow: "0 4px 14px rgba(38,49,77,0.22)" }}
+            >
+              <ScanLine size={19} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -3281,7 +3442,328 @@ function ItemCard({ item, pendingDraft, blocked, onAdjust, onLevelChange, onConf
 }
 
 // Sentuh kartu → detail barang.
-function ItemDetailSheet({ item, activeEntry, onClose, onEdit, onDelete, onAddToBuy }) {
+// =====================================================================
+// Hasil scan label QR — hanya menampilkan barang yang terbaca. Stoknya
+// diatur sendiri dengan + / − (atau pilihan Banyak…Habis untuk barang
+// kira-kira), lalu semua perubahan disimpan sekaligus.
+// =====================================================================
+const parseNum = (v) => {
+  const n = Number(String(v ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+};
+
+function scanDraftOf(item, drafts) {
+  const d = drafts[item.id];
+  if (item.type === "level") return d ?? item.level;
+  return d ?? fmtQty(Number(item.qty) || 0);
+}
+
+function scanChanges(rows, drafts) {
+  const out = [];
+  rows.forEach((it) => {
+    const v = scanDraftOf(it, drafts);
+    if (it.type === "level") {
+      if (v !== it.level) out.push({ id: it.id, level: v });
+    } else {
+      const q = roundQty(Math.max(0, parseNum(v)));
+      if (q !== roundQty(Number(it.qty) || 0)) out.push({ id: it.id, qty: q });
+    }
+  });
+  return out;
+}
+
+function ScanRow({ item, value, onChange }) {
+  const isLevel = item.type === "level";
+  const shown = isLevel ? { ...item, level: value } : { ...item, qty: parseNum(value) };
+  const status = statusOf(shown);
+  let changed = false;
+  let up = false;
+  if (isLevel) {
+    changed = value !== item.level;
+    up = LEVEL_ORDER.indexOf(value) > LEVEL_ORDER.indexOf(item.level);
+  } else {
+    const diff = roundQty(Math.max(0, parseNum(value)) - (Number(item.qty) || 0));
+    changed = diff !== 0;
+    up = diff > 0;
+  }
+  const nowText = isLevel ? LEVEL_LABEL[item.level] || "-" : `${fmtQty(Number(item.qty) || 0)} ${item.unit}`;
+  const nextText = isLevel ? LEVEL_LABEL[value] : `${fmtQty(Math.max(0, parseNum(value)))} ${item.unit}`;
+  return (
+    <div id={`scan-row-${item.id}`} style={{ background: COLORS.soft, borderRadius: 18, padding: isLevel ? 12 : "10px 10px 10px 12px" }}>
+      <div className="flex items-center" style={{ gap: 11, marginBottom: isLevel ? 10 : 0 }}>
+        <LetterAvatar name={item.name} status={status} size={40} radius={13} fontSize={18} />
+        <div className="flex-1 min-w-0">
+          <div className="truncate" style={{ fontSize: 15, fontWeight: 650 }}>
+            {item.name}
+          </div>
+          <div className="flex items-center truncate" style={{ fontSize: 12.5, color: COLORS.inkSoft, marginTop: 1, gap: 4 }}>
+            <span className="truncate">{changed ? nowText : `Sekarang ${nowText}`}</span>
+            <AnimatePresence initial={false}>
+              {changed && (
+                <motion.span
+                  key="next"
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0, transition: { duration: DUR.fast, ease: EASE.out } }}
+                  exit={{ opacity: 0, transition: { duration: DUR.micro } }}
+                  className="shrink-0"
+                  style={{ fontWeight: 700, color: up ? STATUS_TEXT.safe : STATUS_TEXT.out }}
+                >
+                  → {nextText}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+        {!isLevel && (
+          <Stepper value={value} onChange={onChange} ariaLabel={`Jumlah ${item.name}`} trackBg="#FFFFFF" btnBg={COLORS.soft} ink={COLORS.ink} inkSoft={COLORS.inkSoft} style={{ flexShrink: 0, width: 140 }} />
+        )}
+      </div>
+      {isLevel && <LevelBattery level={value} onChange={onChange} label={`Sisa ${item.name}`} />}
+    </div>
+  );
+}
+
+function UnknownLabelRow({ code, items, onLink }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ours = !!parseLabel(code);
+  const list = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return items.filter((i) => i.name.toLowerCase().includes(t)).sort((a, b) => a.name.localeCompare(b.name, "id"));
+  }, [items, q]);
+  return (
+    <div style={{ background: "#FFFFFF", border: `1px dashed ${COLORS.border}`, borderRadius: 18, padding: 12 }}>
+      <div className="flex items-center" style={{ gap: 11 }}>
+        <span className="flex items-center justify-center shrink-0" style={{ width: 40, height: 40, borderRadius: 13, background: COLORS.lowBg, color: STATUS_TEXT.low }}>
+          <HelpCircle size={19} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div style={{ fontSize: 14.5, fontWeight: 650 }}>Label tidak dikenal</div>
+          <div style={{ fontSize: 12.5, color: COLORS.inkSoft, marginTop: 1, lineHeight: 1.4 }}>
+            {ours ? "Barangnya sudah dihapus. Hubungkan label ini ke barang lain?" : "Ini bukan label dari aplikasi ini."}
+          </div>
+        </div>
+        {ours && (
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="shrink-0 flex items-center"
+            style={{ height: 38, padding: "0 12px", gap: 6, borderRadius: 12, border: `1px solid ${COLORS.border}`, background: open ? COLORS.navy : "#FFFFFF", color: open ? "#FFFFFF" : COLORS.navy, fontSize: 13, fontWeight: 600 }}
+          >
+            <Link2 size={14} /> Hubungkan
+          </button>
+        )}
+      </div>
+      <Collapse open={open}>
+        <div style={{ paddingTop: 10 }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari barang…" aria-label="Cari barang untuk label" className="inp w-full" style={{ height: 42, borderRadius: 12, border: `1px solid ${COLORS.border}`, padding: "0 12px", fontSize: 15, background: COLORS.soft }} />
+          <div className="flex flex-col overflow-y-auto" style={{ maxHeight: 200, marginTop: 8, gap: 4, overscrollBehavior: "contain" }}>
+            {list.map((it) => (
+              <button key={it.id} type="button" onClick={() => onLink(code, it.id)} className="flex items-center text-left" style={{ minHeight: 42, padding: "0 10px", gap: 10, borderRadius: 12, border: "none", background: COLORS.soft, fontSize: 14, color: COLORS.ink }}>
+                <span className="flex-1 truncate">{it.name}</span>
+                <ChevronRight size={15} color={COLORS.inkSoft} />
+              </button>
+            ))}
+            {!list.length && <div style={{ fontSize: 13, color: COLORS.inkSoft, padding: 8 }}>Tidak ada barang yang cocok.</div>}
+          </div>
+        </div>
+      </Collapse>
+    </div>
+  );
+}
+
+function ScanResultSheet({ codes, items, resolve, drafts, setDrafts, onBack, onSave, onLink }) {
+  const { rows, unknown } = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    const unknown = [];
+    codes.forEach((c) => {
+      const it = resolve(c);
+      if (!it) unknown.push(c);
+      else if (!seen.has(it.id)) {
+        seen.add(it.id);
+        rows.push(it);
+      }
+    });
+    return { rows, unknown };
+  }, [codes, resolve]);
+  const changes = scanChanges(rows, drafts);
+  const savingRef = useRef(false);
+
+  return (
+    <Sheet onClose={onBack} font={APP_FONT} color={COLORS.ink}>
+      <SheetHeader
+        title="Hasil scan"
+        sub={rows.length ? `${rows.length} barang · tekan + atau − lalu simpan` : "Belum ada barang yang dikenali"}
+        onClose={onBack}
+        closeBg={COLORS.soft}
+        closeColor={COLORS.inkSoft}
+      />
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        {rows.map((it) => (
+          <ScanRow key={it.id} item={it} value={scanDraftOf(it, drafts)} onChange={(v) => setDrafts((d) => ({ ...d, [it.id]: v }))} />
+        ))}
+        {unknown.map((c) => (
+          <UnknownLabelRow key={c} code={c} items={items} onLink={onLink} />
+        ))}
+      </div>
+      <div className="sticky bottom-0 flex" style={{ gap: 8, background: "#FFFFFF", padding: "12px 0 2px", marginTop: 6 }}>
+        <button type="button" onClick={onBack} className="flex items-center justify-center" style={{ height: 50, padding: "0 16px", gap: 7, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.navy, fontSize: 14.5, fontWeight: 600 }}>
+          <ScanLine size={17} /> Scan lagi
+        </button>
+        <button
+          type="button"
+          disabled={!changes.length}
+          onClick={() => {
+            if (savingRef.current || !changes.length) return;
+            savingRef.current = true;
+            onSave(changes);
+          }}
+          className="flex-1 flex items-center justify-center"
+          style={{ height: 50, borderRadius: 14, border: "none", background: changes.length ? COLORS.navy : COLORS.soft, color: changes.length ? "#FFFFFF" : COLORS.inkSoft, fontSize: 15, fontWeight: 700, gap: 8, transition: `background ${DUR.fast}s, color ${DUR.fast}s` }}
+        >
+          <Check size={17} />
+          {changes.length ? `Simpan ${changes.length} perubahan` : "Belum ada perubahan"}
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+// =====================================================================
+// Label QR — pilih barang & ukuran, lihat pratinjau lembar A4, lalu
+// cetak atau simpan sebagai gambar.
+// =====================================================================
+const LABEL_FONT = "Outfit, system-ui, sans-serif";
+
+function LabelSheet({ items, initialIds, onClose }) {
+  const sorted = useMemo(() => [...items].sort((a, b) => a.name.localeCompare(b.name, "id")), [items]);
+  const [size, setSize] = useState("m");
+  const [selected, setSelected] = useState(() => new Set(initialIds && initialIds.length ? initialIds : items.map((i) => i.id)));
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [note, setNote] = useState("");
+  const chosen = useMemo(() => sorted.filter((i) => selected.has(i.id)), [sorted, selected]);
+  const layout = labelsPerPage(size);
+  const pageCount = Math.ceil(chosen.length / layout.per);
+  const allOn = chosen.length === sorted.length && sorted.length > 0;
+
+  useEffect(() => {
+    let cancel = false;
+    const t = setTimeout(async () => {
+      if (!chosen.length) {
+        setPreview(null);
+        return;
+      }
+      const pages = await renderLabelPages(chosen.slice(0, layout.per), size, LABEL_FONT);
+      if (!cancel) setPreview(pages[0].toDataURL("image/jpeg", 0.82));
+    }, 140);
+    return () => {
+      cancel = true;
+      clearTimeout(t);
+    };
+  }, [chosen, size, layout.per]);
+
+  const toggle = (id) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const run = async (kind) => {
+    if (busy || !chosen.length) return;
+    setBusy(kind);
+    setNote("");
+    try {
+      const pages = await renderLabelPages(chosen, size, LABEL_FONT);
+      if (kind === "print") await printPages(pages);
+      else {
+        const r = await shareOrDownload(await pagesToFiles(pages));
+        if (r === "downloaded") setNote(`${pages.length} gambar label sudah diunduh.`);
+      }
+    } catch {
+      setNote("Gagal membuat label. Coba lagi.");
+    }
+    setBusy(null);
+  };
+
+  return (
+    <Sheet onClose={onClose} font={APP_FONT} color={COLORS.ink}>
+      <SheetHeader title="Label QR" sub="Cetak, gunting, lalu tempel di wadah barangnya" onClose={onClose} closeBg={COLORS.soft} closeColor={COLORS.inkSoft} />
+
+      <FieldLabel>Ukuran label</FieldLabel>
+      <Segmented options={LABEL_SIZES.map((s) => ({ value: s.key, label: s.label }))} value={size} onChange={setSize} activeBg={COLORS.navy} ariaLabel="Ukuran label" />
+      <div style={{ fontSize: 12.5, color: COLORS.inkSoft, margin: "6px 2px 0" }}>
+        {layout.size.sub}. Untuk scan banyak label sekaligus dari jauh, pilih Sedang atau Besar.
+      </div>
+
+      <div style={{ marginTop: 14, background: COLORS.soft, borderRadius: 18, padding: 12 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 13, color: COLORS.inkSoft }}>
+            <b style={{ color: COLORS.ink }}>{chosen.length}</b> label{pageCount > 0 ? ` · ${pageCount} lembar A4` : ""}
+          </div>
+          <button type="button" onClick={() => setSelected(allOn ? new Set() : new Set(sorted.map((i) => i.id)))} style={{ border: "none", background: "transparent", color: COLORS.navy, fontSize: 13, fontWeight: 600, height: 32 }}>
+            {allOn ? "Kosongkan" : "Pilih semua"}
+          </button>
+        </div>
+        <div className="flex flex-col overflow-y-auto" style={{ maxHeight: 220, gap: 2, overscrollBehavior: "contain" }}>
+          {sorted.map((it) => (
+            <button key={it.id} type="button" onClick={() => toggle(it.id)} className="flex items-center text-left" style={{ minHeight: 44, gap: 11, padding: "0 6px", border: "none", background: "transparent", color: COLORS.ink, fontSize: 14.5 }}>
+              <CheckCircle checked={selected.has(it.id)} size={22} color={COLORS.navy} borderColor="#CFCABB" />
+              <span className="flex-1 truncate">{it.name}</span>
+            </button>
+          ))}
+          {!sorted.length && <div style={{ fontSize: 13, color: COLORS.inkSoft, padding: 8 }}>Belum ada barang di stok.</div>}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <FieldLabel>Pratinjau lembar pertama</FieldLabel>
+        <div className="flex justify-center" style={{ background: COLORS.soft, borderRadius: 18, padding: 12 }}>
+          <AnimatePresence mode="wait" initial={false}>
+            {preview ? (
+              <motion.img
+                key={preview.length + size}
+                src={preview}
+                alt="Pratinjau label"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1, transition: { duration: DUR.fast } }}
+                exit={{ opacity: 0, transition: { duration: DUR.micro } }}
+                style={{ width: "62%", aspectRatio: "210 / 297", background: "#FFFFFF", borderRadius: 6, boxShadow: "0 2px 12px rgba(38,49,77,0.12)" }}
+              />
+            ) : (
+              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ width: "62%", aspectRatio: "210 / 297", borderRadius: 6, border: `1px dashed ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, color: COLORS.inkSoft, textAlign: "center", padding: 10 }}>
+                Pilih barang dulu
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <div style={{ fontSize: 12, color: COLORS.inkSoft, margin: "8px 2px 0", lineHeight: 1.5 }}>
+          Saat mencetak, pilih kertas A4 dan skala 100% (jangan "sesuaikan halaman") supaya ukurannya pas.
+        </div>
+      </div>
+
+      {note && <div style={{ marginTop: 10, fontSize: 13, color: COLORS.navyText }}>{note}</div>}
+
+      <div className="flex" style={{ gap: 8, marginTop: 14 }}>
+        <button type="button" disabled={!chosen.length || !!busy} onClick={() => run("share")} className="flex-1 flex items-center justify-center" style={{ height: 50, gap: 8, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.navy, fontSize: 14.5, fontWeight: 600, opacity: chosen.length ? 1 : 0.5 }}>
+          {busy === "share" ? <RefreshSpin /> : <Share2 size={17} />} Simpan gambar
+        </button>
+        <button type="button" disabled={!chosen.length || !!busy} onClick={() => run("print")} className="flex-1 flex items-center justify-center" style={{ height: 50, gap: 8, borderRadius: 14, border: "none", background: chosen.length ? COLORS.navy : COLORS.soft, color: chosen.length ? "#FFFFFF" : COLORS.inkSoft, fontSize: 14.5, fontWeight: 700 }}>
+          {busy === "print" ? <RefreshSpin /> : <Printer size={17} />} Cetak
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+function RefreshSpin() {
+  return <span className="animate-spin" style={{ width: 16, height: 16, borderRadius: 999, border: "2px solid currentColor", borderTopColor: "transparent", display: "inline-block" }} />;
+}
+
+function ItemDetailSheet({ item, activeEntry, onClose, onEdit, onDelete, onAddToBuy, onLabel }) {
   const status = statusOf(item);
   const isLevel = item.type === "level";
   const min = Number(item.minQty) || 0;
@@ -3376,6 +3858,17 @@ function ItemDetailSheet({ item, activeEntry, onClose, onEdit, onDelete, onAddTo
             >
               <ShoppingCart size={15} />
               Tambah ke Akan Dibeli
+            </button>
+          )}
+          {onLabel && (
+            <button
+              type="button"
+              onClick={onLabel}
+              className="flex items-center self-start"
+              style={{ gap: 8, height: 40, padding: "0 14px", marginLeft: -2, borderRadius: 12, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.navy, fontSize: 13.5, fontWeight: 600 }}
+            >
+              <QrCode size={15} />
+              Cetak label QR
             </button>
           )}
         </div>
