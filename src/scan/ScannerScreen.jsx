@@ -422,7 +422,7 @@ export function ScannerScreen({ codes, onAddCodes, resolve, onClose, onContinue,
       </div>
 
       {/* Daftar yang sudah terbaca */}
-      <div className="shrink-0" style={{ padding: "12px 12px", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
+      <div className="shrink-0" style={{ padding: "12px 12px", paddingBottom: "max(24px, calc(env(safe-area-inset-bottom) + 10px))" }}>
         <div style={{ background: PANEL, borderRadius: 22, padding: "12px 12px 12px" }}>
           <div className="flex items-center justify-between" style={{ padding: "0 4px 8px" }}>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>

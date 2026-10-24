@@ -3590,8 +3590,30 @@ function ScanResultSheet({ codes, items, resolve, drafts, setDrafts, onBack, onS
   const changes = scanChanges(rows, drafts);
   const savingRef = useRef(false);
 
+  const footer = (
+    <div className="flex" style={{ gap: 8 }}>
+      <button type="button" onClick={onBack} className="flex items-center justify-center" style={{ height: 50, padding: "0 16px", gap: 7, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.navy, fontSize: 14.5, fontWeight: 600 }}>
+        <ScanLine size={17} /> Scan lagi
+      </button>
+      <button
+        type="button"
+        disabled={!changes.length}
+        onClick={() => {
+          if (savingRef.current || !changes.length) return;
+          savingRef.current = true;
+          onSave(changes);
+        }}
+        className="flex-1 flex items-center justify-center"
+        style={{ height: 50, borderRadius: 14, border: "none", background: changes.length ? COLORS.navy : COLORS.soft, color: changes.length ? "#FFFFFF" : COLORS.inkSoft, fontSize: 15, fontWeight: 700, gap: 8, transition: `background ${DUR.fast}s, color ${DUR.fast}s` }}
+      >
+        <Check size={17} />
+        {changes.length ? `Simpan ${changes.length} perubahan` : "Belum ada perubahan"}
+      </button>
+    </div>
+  );
+
   return (
-    <Sheet onClose={onBack} font={APP_FONT} color={COLORS.ink}>
+    <Sheet onClose={onBack} font={APP_FONT} color={COLORS.ink} footer={footer}>
       <SheetHeader
         title="Hasil scan"
         sub={rows.length ? `${rows.length} barang · tekan + atau − lalu simpan` : "Belum ada barang yang dikenali"}
@@ -3606,25 +3628,6 @@ function ScanResultSheet({ codes, items, resolve, drafts, setDrafts, onBack, onS
         {unknown.map((c) => (
           <UnknownLabelRow key={c} code={c} items={items} onLink={onLink} />
         ))}
-      </div>
-      <div className="sticky bottom-0 flex" style={{ gap: 8, background: "#FFFFFF", padding: "12px 0 2px", marginTop: 6 }}>
-        <button type="button" onClick={onBack} className="flex items-center justify-center" style={{ height: 50, padding: "0 16px", gap: 7, borderRadius: 14, border: `1px solid ${COLORS.border}`, background: "#FFFFFF", color: COLORS.navy, fontSize: 14.5, fontWeight: 600 }}>
-          <ScanLine size={17} /> Scan lagi
-        </button>
-        <button
-          type="button"
-          disabled={!changes.length}
-          onClick={() => {
-            if (savingRef.current || !changes.length) return;
-            savingRef.current = true;
-            onSave(changes);
-          }}
-          className="flex-1 flex items-center justify-center"
-          style={{ height: 50, borderRadius: 14, border: "none", background: changes.length ? COLORS.navy : COLORS.soft, color: changes.length ? "#FFFFFF" : COLORS.inkSoft, fontSize: 15, fontWeight: 700, gap: 8, transition: `background ${DUR.fast}s, color ${DUR.fast}s` }}
-        >
-          <Check size={17} />
-          {changes.length ? `Simpan ${changes.length} perubahan` : "Belum ada perubahan"}
-        </button>
       </div>
     </Sheet>
   );

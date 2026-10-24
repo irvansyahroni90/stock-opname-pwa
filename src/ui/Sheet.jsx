@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, useDragControls } from "motion/react";
 import { useVisibleViewport } from "./useVisibleViewport";
@@ -18,7 +18,11 @@ import { DUR, EASE, EXIT, SPRING, DISMISS, SCRIM } from "./motion";
 // Dirender lewat portal ke <body>, jadi posisinya tidak pernah terganggu
 // oleh transform milik halaman di belakangnya.
 // ---------------------------------------------------------------------
-export function Sheet({ children, onClose, padded = true, background = "#FFFFFF", font, color }) {
+// `footer` (opsional): bilah tombol yang selalu terlihat di bawah. Bilah ini
+// berada DI LUAR area yang digulir dan latarnya penuh sampai tepi bawah
+// layar, jadi isi daftar tidak pernah terlihat lewat di bawah tombol, dan
+// garis gesture Android / home indicator iPhone hanya menimpa latar polos.
+export function Sheet({ children, onClose, padded = true, background = "#FFFFFF", font, color, footer }) {
   const vp = useVisibleViewport();
   const panelRef = useRef(null);
   const drag = useDragControls();
@@ -58,7 +62,7 @@ export function Sheet({ children, onClose, padded = true, background = "#FFFFFF"
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        className="relative w-full sm:max-w-sm overflow-y-auto rounded-t-[24px] sm:rounded-[24px]"
+        className={`relative w-full sm:max-w-sm rounded-t-[24px] sm:rounded-[24px] ${footer ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}
         style={{
           background,
           // Sisakan sedikit ruang di atas supaya masih terlihat bahwa ini
@@ -66,7 +70,7 @@ export function Sheet({ children, onClose, padded = true, background = "#FFFFFF"
           maxHeight: Math.max(220, vp.height - 24),
           overscrollBehavior: "contain",
           WebkitOverflowScrolling: "touch",
-          paddingBottom: padded ? "max(20px, env(safe-area-inset-bottom))" : undefined,
+          paddingBottom: padded && !footer ? "max(20px, env(safe-area-inset-bottom))" : undefined,
           boxShadow: "0 -8px 32px rgba(24,24,20,0.10)",
         }}
         initial={{ y: "100%" }}
@@ -83,17 +87,83 @@ export function Sheet({ children, onClose, padded = true, background = "#FFFFFF"
           if (info.offset.y > DISMISS.distance || info.velocity.y > DISMISS.velocity) close();
         }}
       >
-        <div
-          className="sticky top-0 z-10 flex justify-center"
-          style={{ background, paddingTop: 10, paddingBottom: 8, touchAction: "none", cursor: "grab" }}
-          onPointerDown={(e) => drag.start(e)}
-        >
-          <span style={{ width: 38, height: 5, borderRadius: 99, background: "#DDD9CC" }} />
-        </div>
-        <div className={padded ? "px-5 pt-1" : undefined}>{children}</div>
+        {footer ? (
+          <SheetBodyWithFooter background={background} padded={padded} drag={drag} footer={footer}>
+            {children}
+          </SheetBodyWithFooter>
+        ) : (
+          <>
+            <SheetHandle background={background} drag={drag} />
+            <div className={padded ? "px-5 pt-1" : undefined}>{children}</div>
+          </>
+        )}
       </motion.div>
     </div>,
     document.body
+  );
+}
+
+function SheetHandle({ background, drag }) {
+  return (
+    <div
+      className="sticky top-0 z-10 flex justify-center shrink-0"
+      style={{ background, paddingTop: 10, paddingBottom: 8, touchAction: "none", cursor: "grab" }}
+      onPointerDown={(e) => drag.start(e)}
+    >
+      <span style={{ width: 38, height: 5, borderRadius: 99, background: "#DDD9CC" }} />
+    </div>
+  );
+}
+
+function SheetBodyWithFooter({ children, background, padded, drag, footer }) {
+  const bodyRef = useRef(null);
+  // Bayangan tipis di atas bilah tombol hanya saat masih ada isi di bawahnya.
+  const [moreBelow, setMoreBelow] = useState(false);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const update = () => setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, []);
+  return (
+    <>
+      <SheetHandle background={background} drag={drag} />
+      <div ref={bodyRef} className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div className={padded ? "px-5 pt-1 pb-3" : undefined}>{children}</div>
+      </div>
+      <div
+        className="shrink-0 relative"
+        style={{
+          background,
+          padding: padded ? "12px 20px 0" : undefined,
+          // Ruang aman di bawah tombol: garis gesture / home indicator
+          // hanya menimpa latar polos ini.
+          paddingBottom: "max(24px, calc(env(safe-area-inset-bottom) + 10px))",
+        }}
+      >
+        <div
+          aria-hidden="true"
+          className="absolute left-0 right-0 pointer-events-none"
+          style={{
+            top: -14,
+            height: 14,
+            background: "linear-gradient(to top, rgba(24,24,20,0.07), rgba(24,24,20,0))",
+            opacity: moreBelow ? 1 : 0,
+            transition: "opacity 0.2s ease",
+          }}
+        />
+        <div aria-hidden="true" className="absolute left-0 right-0 top-0" style={{ height: 1, background: "rgba(24,24,20,0.06)", opacity: moreBelow ? 1 : 0, transition: "opacity 0.2s ease" }} />
+        {footer}
+      </div>
+    </>
   );
 }
 
